@@ -21,7 +21,25 @@ const DEFAULT_JSON_HEADERS = {
   Accept: 'application/json',
   'Content-Type': 'application/json',
 }
-const PUBLIC_API_PATHS = new Set(['/auth/register', '/auth/login', '/auth/refresh'])
+const API_V1_PREFIX = '/v1'
+const AUTH_API_PREFIX = `${API_V1_PREFIX}/auth`
+const USERS_API_PREFIX = `${API_V1_PREFIX}/users`
+const AUTH_ROUTES = {
+  register: `${AUTH_API_PREFIX}/register`,
+  login: `${AUTH_API_PREFIX}/login`,
+  refresh: `${AUTH_API_PREFIX}/refresh`,
+  logout: `${AUTH_API_PREFIX}/logout`,
+} as const
+const USERS_ME_ROUTE = `${USERS_API_PREFIX}/me`
+const USER_ROUTES = {
+  me: USERS_ME_ROUTE,
+  byId: (id: string) => `${USERS_API_PREFIX}/${encodeURIComponent(id)}`,
+  updateProfile: USERS_ME_ROUTE,
+  updateAvatar: `${USERS_ME_ROUTE}/avatar`,
+  search: (q: string) => `${USERS_API_PREFIX}/search?q=${encodeURIComponent(q)}`,
+  activities: (take: number) => `${USERS_ME_ROUTE}/activities?take=${take}`,
+} as const
+const PUBLIC_API_PATHS: ReadonlySet<string> = new Set([AUTH_ROUTES.register, AUTH_ROUTES.login, AUTH_ROUTES.refresh])
 const GATEWAY_ERROR_STATUSES = new Set([502, 503, 504])
 const GATEWAY_ERROR_MESSAGE = 'Server is temporarily unreachable.'
 const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please log in again.'
@@ -175,7 +193,7 @@ async function refreshTokens(): Promise<StoredAuth | null> {
   const current = getAuth()
   if (!current?.refreshToken) return null
   try {
-    const res = await fetch(apiUrl('/auth/refresh'), {
+    const res = await fetch(apiUrl(AUTH_ROUTES.refresh), {
       method: 'POST',
       headers: jsonHeaders(undefined, true, 'public'),
       body: JSON.stringify({ refreshToken: current.refreshToken }),
@@ -349,21 +367,21 @@ export const api = {
 
   // ----- auth -----
   register: (body: RegisterBody) =>
-    request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(body), auth: 'public' }),
+    request<AuthResponse>(AUTH_ROUTES.register, { method: 'POST', body: JSON.stringify(body), auth: 'public' }),
   login: (body: LoginBody) =>
-    request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify(body), auth: 'public' }),
+    request<AuthResponse>(AUTH_ROUTES.login, { method: 'POST', body: JSON.stringify(body), auth: 'public' }),
   logout: (refreshToken: string) =>
-    request<void>('/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken }) }),
+    request<void>(AUTH_ROUTES.logout, { method: 'POST', body: JSON.stringify({ refreshToken }) }),
 
   // ----- users -----
-  me: () => request<UserProfile>('/users/me'),
-  user: (id: string) => request<UserProfile>(`/users/${id}`),
+  me: () => request<UserProfile>(USER_ROUTES.me),
+  user: (id: string) => request<UserProfile>(USER_ROUTES.byId(id)),
   updateProfile: (body: UpdateProfileBody) =>
-    request<UserProfile>('/users/me', { method: 'PUT', body: JSON.stringify(body) }),
+    request<UserProfile>(USER_ROUTES.updateProfile, { method: 'PUT', body: JSON.stringify(body) }),
   updateAvatar: (avatarUrl: string) =>
-    request<UserProfile>('/users/me/avatar', { method: 'PUT', body: JSON.stringify({ avatarUrl }) }),
-  searchUsers: (q: string) => request<UserSummary[]>(`/users/search?q=${encodeURIComponent(q)}`),
-  activities: (take = 12) => request<ActivityDto[]>(`/users/me/activities?take=${take}`),
+    request<UserProfile>(USER_ROUTES.updateAvatar, { method: 'PUT', body: JSON.stringify({ avatarUrl }) }),
+  searchUsers: (q: string) => request<UserSummary[]>(USER_ROUTES.search(q)),
+  activities: (take = 12) => request<ActivityDto[]>(USER_ROUTES.activities(take)),
 
   // ----- friends -----
   friends: () => request<FriendDto[]>('/friends'),
