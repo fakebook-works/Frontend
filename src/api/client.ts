@@ -21,6 +21,12 @@ const DEFAULT_JSON_HEADERS = {
   Accept: 'application/json',
   'Content-Type': 'application/json',
 }
+const PUBLIC_API_PATHS = new Set(['/auth/register', '/auth/login', '/auth/refresh'])
+
+type ApiAuthMode = 'protected' | 'public'
+interface ApiRequestInit extends RequestInit {
+  auth?: ApiAuthMode
+}
 
 function normalizeBaseUrl(value: string | undefined): string {
   const trimmed = value?.trim()
@@ -35,7 +41,17 @@ function apiUrl(path: string): string {
   return `${API_GATEWAY_URL}${normalizedPath}`
 }
 
-function jsonHeaders(overrides?: HeadersInit, hasBody = false): Headers {
+function normalizePath(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return normalizedPath.split('?')[0]
+}
+
+function authModeForPath(path: string, authMode?: ApiAuthMode): ApiAuthMode {
+  if (authMode) return authMode
+  return PUBLIC_API_PATHS.has(normalizePath(path)) ? 'public' : 'protected'
+}
+
+function jsonHeaders(overrides?: HeadersInit, hasBody = false, authMode: ApiAuthMode = 'protected'): Headers {
   const headers = new Headers(DEFAULT_JSON_HEADERS)
   if (!hasBody) headers.delete('Content-Type')
   if (overrides) {
@@ -43,6 +59,7 @@ function jsonHeaders(overrides?: HeadersInit, hasBody = false): Headers {
       headers.set(key, value)
     })
   }
+  applyAuthInterceptor(headers, authMode)
   return headers
 }
 
@@ -66,6 +83,21 @@ export function getAuth(): StoredAuth | null {
   } catch {
     return null
   }
+}
+
+function getAccessToken(): string | null {
+  return getAuth()?.accessToken ?? null
+}
+
+function applyAuthInterceptor(headers: Headers, authMode: ApiAuthMode): Headers {
+  if (authMode === 'public') {
+    headers.delete('Authorization')
+    return headers
+  }
+
+  const accessToken = getAccessToken()
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
+  return headers
 }
 
 function writeAuth(auth: StoredAuth | null) {
@@ -120,7 +152,7 @@ async function refreshTokens(): Promise<StoredAuth | null> {
   try {
     const res = await fetch(apiUrl('/auth/refresh'), {
       method: 'POST',
-      headers: jsonHeaders(undefined, true),
+      headers: jsonHeaders(undefined, true, 'public'),
       body: JSON.stringify({ refreshToken: current.refreshToken }),
     })
     if (!res.ok) {
@@ -142,14 +174,14 @@ function ensureRefresh(): Promise<StoredAuth | null> {
   return refreshing
 }
 
-async function request<T>(path: string, options: RequestInit = {}, allowRetry = true): Promise<T> {
-  const auth = getAuth()
-  const headers = jsonHeaders(options.headers, options.body != null)
-  if (auth?.accessToken) headers.set('Authorization', `Bearer ${auth.accessToken}`)
+async function request<T>(path: string, options: ApiRequestInit = {}, allowRetry = true): Promise<T> {
+  const { auth, headers: headerOverrides, ...fetchOptions } = options
+  const authMode = authModeForPath(path, auth)
+  const headers = jsonHeaders(headerOverrides, fetchOptions.body != null, authMode)
 
-  const res = await fetch(apiUrl(path), { ...options, headers })
+  const res = await fetch(apiUrl(path), { ...fetchOptions, headers })
 
-  if (res.status === 401 && allowRetry && getAuth()?.refreshToken) {
+  if (res.status === 401 && authMode === 'protected' && allowRetry && getAuth()?.refreshToken) {
     const refreshed = await ensureRefresh()
     if (refreshed) return request<T>(path, options, false)
     clearAuth()
@@ -220,7 +252,7 @@ async function uploadMedia(file: File): Promise<MediaUpload> {
   form.append('file', file)
 
   const send = (token: string | undefined) => {
-    const headers = new Headers()
+    const headers = jsonHeaders(undefined, false, 'protected')
     if (token) headers.set('Authorization', `Bearer ${token}`)
     return fetch('/media', { method: 'POST', headers, body: form })
   }
@@ -250,9 +282,9 @@ export const api = {
 
   // ----- auth -----
   register: (body: RegisterBody) =>
-    request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(body) }),
+    request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(body), auth: 'public' }),
   login: (body: LoginBody) =>
-    request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+    request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify(body), auth: 'public' }),
   logout: (refreshToken: string) =>
     request<void>('/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken }) }),
 
