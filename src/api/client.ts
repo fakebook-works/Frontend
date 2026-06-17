@@ -22,10 +22,23 @@ const DEFAULT_JSON_HEADERS = {
   'Content-Type': 'application/json',
 }
 const PUBLIC_API_PATHS = new Set(['/auth/register', '/auth/login', '/auth/refresh'])
+const GATEWAY_ERROR_STATUSES = new Set([502, 503, 504])
+const GATEWAY_ERROR_MESSAGE = 'Server is temporarily unreachable.'
+const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please log in again.'
 
 type ApiAuthMode = 'protected' | 'public'
 interface ApiRequestInit extends RequestInit {
   auth?: ApiAuthMode
+}
+type ApiEvent =
+  | { type: 'gateway-error'; status: number; message: string }
+  | { type: 'auth-expired'; status: 401; message: string }
+type ApiEventListener = (event: ApiEvent) => void
+type ResponseInterceptorContext<T> = {
+  authMode: ApiAuthMode
+  allowRetry: boolean
+  parse: (res: Response) => Promise<T>
+  retryAfterRefresh: (auth: StoredAuth) => Promise<T>
 }
 
 function normalizeBaseUrl(value: string | undefined): string {
@@ -64,6 +77,7 @@ function jsonHeaders(overrides?: HeadersInit, hasBody = false, authMode: ApiAuth
 }
 
 const AUTH_KEY = 'fb.auth'
+let apiEventListeners: ApiEventListener[] = []
 
 export interface StoredAuth {
   accessToken: string
@@ -75,6 +89,17 @@ export interface StoredAuth {
 
 type Listener = (auth: StoredAuth | null) => void
 let listeners: Listener[] = []
+
+export function subscribeApiEvents(fn: ApiEventListener): () => void {
+  apiEventListeners.push(fn)
+  return () => {
+    apiEventListeners = apiEventListeners.filter((listener) => listener !== fn)
+  }
+}
+
+function emitApiEvent(event: ApiEvent) {
+  for (const listener of apiEventListeners) listener(event)
+}
 
 export function getAuth(): StoredAuth | null {
   try {
@@ -174,34 +199,71 @@ function ensureRefresh(): Promise<StoredAuth | null> {
   return refreshing
 }
 
+function expireSession(): never {
+  clearAuth()
+  emitApiEvent({ type: 'auth-expired', status: 401, message: SESSION_EXPIRED_MESSAGE })
+  throw new ApiError(401, SESSION_EXPIRED_MESSAGE)
+}
+
+function notifyGatewayError(status: number) {
+  emitApiEvent({ type: 'gateway-error', status, message: GATEWAY_ERROR_MESSAGE })
+}
+
+async function parseErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json()
+    return body?.error ?? body?.title ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+async function parseJsonOrEmpty<T>(res: Response): Promise<T> {
+  if (res.status === 204) return undefined as T
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
+}
+
+async function responseInterceptor<T>(res: Response, context: ResponseInterceptorContext<T>): Promise<T> {
+  if (res.status === 401 && context.authMode === 'protected') {
+    if (context.allowRetry && getAuth()?.refreshToken) {
+      const refreshed = await ensureRefresh()
+      if (refreshed) return context.retryAfterRefresh(refreshed)
+    }
+    return expireSession()
+  }
+
+  if (GATEWAY_ERROR_STATUSES.has(res.status)) {
+    notifyGatewayError(res.status)
+    throw new ApiError(res.status, GATEWAY_ERROR_MESSAGE)
+  }
+
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseErrorMessage(res, `Request failed (${res.status})`))
+  }
+
+  return context.parse(res)
+}
+
 async function request<T>(path: string, options: ApiRequestInit = {}, allowRetry = true): Promise<T> {
   const { auth, headers: headerOverrides, ...fetchOptions } = options
   const authMode = authModeForPath(path, auth)
   const headers = jsonHeaders(headerOverrides, fetchOptions.body != null, authMode)
 
-  const res = await fetch(apiUrl(path), { ...fetchOptions, headers })
-
-  if (res.status === 401 && authMode === 'protected' && allowRetry && getAuth()?.refreshToken) {
-    const refreshed = await ensureRefresh()
-    if (refreshed) return request<T>(path, options, false)
-    clearAuth()
-    throw new ApiError(401, 'Your session has expired. Please log in again.')
+  let res: Response
+  try {
+    res = await fetch(apiUrl(path), { ...fetchOptions, headers })
+  } catch {
+    notifyGatewayError(503)
+    throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
   }
 
-  if (!res.ok) {
-    let message = `Request failed (${res.status})`
-    try {
-      const body = await res.json()
-      message = body?.error ?? body?.title ?? message
-    } catch {
-      /* error body was not JSON */
-    }
-    throw new ApiError(res.status, message)
-  }
-
-  if (res.status === 204) return undefined as T
-  const text = await res.text()
-  return (text ? JSON.parse(text) : undefined) as T
+  return responseInterceptor<T>(res, {
+    authMode,
+    allowRetry,
+    parse: parseJsonOrEmpty,
+    retryAfterRefresh: () => request<T>(path, options, false),
+  })
 }
 
 export interface RegisterBody {
@@ -257,23 +319,28 @@ async function uploadMedia(file: File): Promise<MediaUpload> {
     return fetch('/media', { method: 'POST', headers, body: form })
   }
 
-  let res = await send(getAuth()?.accessToken)
-  if (res.status === 401 && getAuth()?.refreshToken) {
-    const refreshed = await ensureRefresh()
-    if (refreshed) res = await send(refreshed.accessToken)
+  let res: Response
+  try {
+    res = await send(getAuth()?.accessToken)
+  } catch {
+    notifyGatewayError(503)
+    throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
   }
 
-  if (!res.ok) {
-    let message = `Upload failed (${res.status})`
-    try {
-      const body = await res.json()
-      message = body?.error ?? body?.title ?? message
-    } catch {
-      /* error body was not JSON */
-    }
-    throw new ApiError(res.status, message)
-  }
-  return (await res.json()) as MediaUpload
+  return responseInterceptor<MediaUpload>(res, {
+    authMode: 'protected',
+    allowRetry: true,
+    parse: (response) => response.json() as Promise<MediaUpload>,
+    retryAfterRefresh: async (auth) => {
+      const retryResponse = await send(auth.accessToken)
+      return responseInterceptor<MediaUpload>(retryResponse, {
+        authMode: 'protected',
+        allowRetry: false,
+        parse: (response) => response.json() as Promise<MediaUpload>,
+        retryAfterRefresh: () => expireSession(),
+      })
+    },
+  })
 }
 
 export const api = {
