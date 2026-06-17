@@ -16,7 +16,36 @@ import type {
   UserSummary,
 } from './types'
 
-const BASE = '/api'
+const DEFAULT_API_GATEWAY_URL = '/api'
+const DEFAULT_JSON_HEADERS = {
+  Accept: 'application/json',
+  'Content-Type': 'application/json',
+}
+
+function normalizeBaseUrl(value: string | undefined): string {
+  const trimmed = value?.trim()
+  if (!trimmed) return DEFAULT_API_GATEWAY_URL
+  return trimmed.replace(/\/+$/, '') || DEFAULT_API_GATEWAY_URL
+}
+
+export const API_GATEWAY_URL = normalizeBaseUrl(import.meta.env.VITE_API_GATEWAY_URL)
+
+function apiUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${API_GATEWAY_URL}${normalizedPath}`
+}
+
+function jsonHeaders(overrides?: HeadersInit, hasBody = false): Headers {
+  const headers = new Headers(DEFAULT_JSON_HEADERS)
+  if (!hasBody) headers.delete('Content-Type')
+  if (overrides) {
+    new Headers(overrides).forEach((value, key) => {
+      headers.set(key, value)
+    })
+  }
+  return headers
+}
+
 const AUTH_KEY = 'fb.auth'
 
 export interface StoredAuth {
@@ -89,9 +118,9 @@ async function refreshTokens(): Promise<StoredAuth | null> {
   const current = getAuth()
   if (!current?.refreshToken) return null
   try {
-    const res = await fetch(`${BASE}/auth/refresh`, {
+    const res = await fetch(apiUrl('/auth/refresh'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: jsonHeaders(undefined, true),
       body: JSON.stringify({ refreshToken: current.refreshToken }),
     })
     if (!res.ok) {
@@ -115,11 +144,10 @@ function ensureRefresh(): Promise<StoredAuth | null> {
 
 async function request<T>(path: string, options: RequestInit = {}, allowRetry = true): Promise<T> {
   const auth = getAuth()
-  const headers = new Headers(options.headers)
-  if (options.body != null) headers.set('Content-Type', 'application/json')
+  const headers = jsonHeaders(options.headers, options.body != null)
   if (auth?.accessToken) headers.set('Authorization', `Bearer ${auth.accessToken}`)
 
-  const res = await fetch(`${BASE}${path}`, { ...options, headers })
+  const res = await fetch(apiUrl(path), { ...options, headers })
 
   if (res.status === 401 && allowRetry && getAuth()?.refreshToken) {
     const refreshed = await ensureRefresh()
