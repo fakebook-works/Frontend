@@ -97,6 +97,25 @@ export interface BidDto {
   createdAt: string
 }
 
+export interface MessengerMessageDto {
+  id: string
+  conversationId: string
+  sender: UserSummary
+  body: string
+  createdAt: string
+  status: 'sending' | 'sent' | 'delivered' | 'read'
+}
+
+export interface MessengerConversationDto {
+  id: string
+  participants: UserSummary[]
+  title: string | null
+  avatarUrl: string | null
+  updatedAt: string
+  unreadCount: number
+  lastMessage: MessengerMessageDto | null
+}
+
 export interface ListingDto {
   id: string
   seller: UserSummary

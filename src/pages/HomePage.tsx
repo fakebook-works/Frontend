@@ -11,12 +11,13 @@ import { Stories } from '../components/Stories'
 import { useAuth } from '../lib/auth'
 import { firstName, timeAgo } from '../lib/format'
 import { MarketplacePage } from './MarketplacePage'
+import { MessengerPage, MiniChat } from './messenger'
 import { languageOptions, useI18n } from '../i18n'
 import { useTheme } from '../theme'
 
 const PAGE = 20
 
-type View = { type: 'feed' } | { type: 'profile'; userId: string } | { type: 'marketplace' }
+type View = { type: 'feed' } | { type: 'profile'; userId: string } | { type: 'marketplace' } | { type: 'messenger' }
 
 export function HomePage() {
   const { user, logout } = useAuth()
@@ -190,11 +191,14 @@ export function HomePage() {
         onHome={goHome}
         onLogout={logout}
         onOpenMarketplace={() => setView({ type: 'marketplace' })}
+        onOpenMessenger={() => setView({ type: 'messenger' })}
         activeView={view.type}
       />
 
       {view.type === 'marketplace' ? (
         <MarketplacePage onOpenProfile={openProfile} />
+      ) : view.type === 'messenger' ? (
+        <MessengerPage me={me} friends={friends.map((f) => f.user)} onOpenProfile={openProfile} />
       ) : (
       <div className="layout">
         <LeftRail me={me} onOpenProfile={() => openProfile(me.id)} onOpenMarketplace={() => setView({ type: 'marketplace' })} />
@@ -257,6 +261,15 @@ export function HomePage() {
       </div>
       )}
 
+      {view.type !== 'messenger' && (
+        <MiniChat
+          me={me}
+          friends={friends.map((f) => f.user)}
+          onOpenProfile={openProfile}
+          onOpenFullMessenger={() => setView({ type: 'messenger' })}
+        />
+      )}
+
       {editOpen && (
         <EditProfileModal
           profile={profile}
@@ -283,6 +296,7 @@ function TopBar({
   onHome,
   onLogout,
   onOpenMarketplace,
+  onOpenMessenger,
   activeView,
 }: {
   me: UserSummary
@@ -293,7 +307,8 @@ function TopBar({
   onHome: () => void
   onLogout: () => void
   onOpenMarketplace: () => void
-  activeView: 'feed' | 'profile' | 'marketplace'
+  onOpenMessenger: () => void
+  activeView: 'feed' | 'profile' | 'marketplace' | 'messenger'
 }) {
   const { t, locale, setLocale } = useI18n()
   const { theme, toggleTheme } = useTheme()
@@ -422,7 +437,12 @@ function TopBar({
         <button type="button" className="icon-circle" aria-label="Menu">
           <Icon name="menu" size={20} />
         </button>
-        <button type="button" className="icon-circle" aria-label="Messenger">
+        <button
+          type="button"
+          className={`icon-circle${activeView === 'messenger' ? ' active' : ''}`}
+          aria-label="Messenger"
+          onClick={onOpenMessenger}
+        >
           <Icon name="messenger" size={20} />
         </button>
         <button type="button" className="icon-circle" aria-label="Notifications">

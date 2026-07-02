@@ -11,13 +11,103 @@ import type {
   ListingDetailDto,
   ListingDto,
   MediaUpload,
+  MessengerConversationDto,
+  MessengerMessageDto,
   PostDto,
   UserProfile,
   UserSummary,
 } from './types'
 
-const BASE = '/api'
+const DEFAULT_API_GATEWAY_URL = '/api'
+const DEFAULT_JSON_HEADERS = {
+  Accept: 'application/json',
+  'Content-Type': 'application/json',
+}
+
+const API_V1_PREFIX = '/v1'
+const AUTH_API_PREFIX = `${API_V1_PREFIX}/auth`
+const USERS_API_PREFIX = `${API_V1_PREFIX}/users`
+
+const AUTH_ROUTES = {
+  register: `${AUTH_API_PREFIX}/register`,
+  login: `${AUTH_API_PREFIX}/login`,
+  refresh: `${AUTH_API_PREFIX}/refresh`,
+  logout: `${AUTH_API_PREFIX}/logout`,
+} as const
+
+const USERS_ME_ROUTE = `${USERS_API_PREFIX}/me`
+
+const USER_ROUTES = {
+  me: USERS_ME_ROUTE,
+  byId: (id: string) => `${USERS_API_PREFIX}/${encodeURIComponent(id)}`,
+  updateProfile: USERS_ME_ROUTE,
+  updateAvatar: `${USERS_ME_ROUTE}/avatar`,
+  search: (q: string) => `${USERS_API_PREFIX}/search?q=${encodeURIComponent(q)}`,
+  activities: (take: number) => `${USERS_ME_ROUTE}/activities?take=${take}`,
+} as const
+
+const PUBLIC_API_PATHS: ReadonlySet<string> = new Set([AUTH_ROUTES.register, AUTH_ROUTES.login, AUTH_ROUTES.refresh])
+
+const GATEWAY_ERROR_STATUSES = new Set([502, 503, 504])
+const GATEWAY_ERROR_MESSAGE = 'Server is temporarily unreachable.'
+const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please log in again.'
+
+type ApiAuthMode = 'protected' | 'public'
+
+interface ApiRequestInit extends RequestInit {
+  auth?: ApiAuthMode
+}
+
+type ApiEvent =
+  | { type: 'gateway-error'; status: number; message: string }
+  | { type: 'auth-expired'; status: 401; message: string }
+
+type ApiEventListener = (event: ApiEvent) => void
+
+type ResponseInterceptorContext<T> = {
+  authMode: ApiAuthMode
+  allowRetry: boolean
+  parse: (res: Response) => Promise<T>
+  retryAfterRefresh: (auth: StoredAuth) => Promise<T>
+}
+
+function normalizeBaseUrl(value: string | undefined): string {
+  const trimmed = value?.trim()
+  if (!trimmed) return DEFAULT_API_GATEWAY_URL
+  return trimmed.replace(/\/+$/, '') || DEFAULT_API_GATEWAY_URL
+}
+
+export const API_GATEWAY_URL = normalizeBaseUrl(import.meta.env.VITE_API_GATEWAY_URL)
+
+function apiUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${API_GATEWAY_URL}${normalizedPath}`
+}
+
+function normalizePath(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return normalizedPath.split('?')[0]
+}
+
+function authModeForPath(path: string, authMode?: ApiAuthMode): ApiAuthMode {
+  if (authMode) return authMode
+  return PUBLIC_API_PATHS.has(normalizePath(path)) ? 'public' : 'protected'
+}
+
+function jsonHeaders(overrides?: HeadersInit, hasBody = false, authMode: ApiAuthMode = 'protected'): Headers {
+  const headers = new Headers(DEFAULT_JSON_HEADERS)
+  if (!hasBody) headers.delete('Content-Type')
+  if (overrides) {
+    new Headers(overrides).forEach((value, key) => {
+      headers.set(key, value)
+    })
+  }
+  applyAuthInterceptor(headers, authMode)
+  return headers
+}
+
 const AUTH_KEY = 'fb.auth'
+let apiEventListeners: ApiEventListener[] = []
 
 export interface StoredAuth {
   accessToken: string
@@ -30,6 +120,17 @@ export interface StoredAuth {
 type Listener = (auth: StoredAuth | null) => void
 let listeners: Listener[] = []
 
+export function subscribeApiEvents(fn: ApiEventListener): () => void {
+  apiEventListeners.push(fn)
+  return () => {
+    apiEventListeners = apiEventListeners.filter((listener) => listener !== fn)
+  }
+}
+
+function emitApiEvent(event: ApiEvent) {
+  for (const listener of apiEventListeners) listener(event)
+}
+
 export function getAuth(): StoredAuth | null {
   try {
     const raw = localStorage.getItem(AUTH_KEY)
@@ -37,6 +138,20 @@ export function getAuth(): StoredAuth | null {
   } catch {
     return null
   }
+}
+
+function getAccessToken(): string | null {
+  return getAuth()?.accessToken ?? null
+}
+
+function applyAuthInterceptor(headers: Headers, authMode: ApiAuthMode): Headers {
+  if (authMode === 'public') {
+    headers.delete('Authorization')
+    return headers
+  }
+  const accessToken = getAccessToken()
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
+  return headers
 }
 
 function writeAuth(auth: StoredAuth | null) {
@@ -89,9 +204,9 @@ async function refreshTokens(): Promise<StoredAuth | null> {
   const current = getAuth()
   if (!current?.refreshToken) return null
   try {
-    const res = await fetch(`${BASE}/auth/refresh`, {
+    const res = await fetch(apiUrl(AUTH_ROUTES.refresh), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: jsonHeaders(undefined, true, 'public'),
       body: JSON.stringify({ refreshToken: current.refreshToken }),
     })
     if (!res.ok) {
@@ -113,35 +228,71 @@ function ensureRefresh(): Promise<StoredAuth | null> {
   return refreshing
 }
 
-async function request<T>(path: string, options: RequestInit = {}, allowRetry = true): Promise<T> {
-  const auth = getAuth()
-  const headers = new Headers(options.headers)
-  if (options.body != null) headers.set('Content-Type', 'application/json')
-  if (auth?.accessToken) headers.set('Authorization', `Bearer ${auth.accessToken}`)
+function expireSession(): never {
+  clearAuth()
+  emitApiEvent({ type: 'auth-expired', status: 401, message: SESSION_EXPIRED_MESSAGE })
+  throw new ApiError(401, SESSION_EXPIRED_MESSAGE)
+}
 
-  const res = await fetch(`${BASE}${path}`, { ...options, headers })
+function notifyGatewayError(status: number) {
+  emitApiEvent({ type: 'gateway-error', status, message: GATEWAY_ERROR_MESSAGE })
+}
 
-  if (res.status === 401 && allowRetry && getAuth()?.refreshToken) {
-    const refreshed = await ensureRefresh()
-    if (refreshed) return request<T>(path, options, false)
-    clearAuth()
-    throw new ApiError(401, 'Your session has expired. Please log in again.')
+async function parseErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json()
+    return body?.error ?? body?.title ?? fallback
+  } catch {
+    return fallback
   }
+}
 
-  if (!res.ok) {
-    let message = `Request failed (${res.status})`
-    try {
-      const body = await res.json()
-      message = body?.error ?? body?.title ?? message
-    } catch {
-      /* error body was not JSON */
-    }
-    throw new ApiError(res.status, message)
-  }
-
+async function parseJsonOrEmpty<T>(res: Response): Promise<T> {
   if (res.status === 204) return undefined as T
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T
+}
+
+async function responseInterceptor<T>(res: Response, context: ResponseInterceptorContext<T>): Promise<T> {
+  if (res.status === 401 && context.authMode === 'protected') {
+    if (context.allowRetry && getAuth()?.refreshToken) {
+      const refreshed = await ensureRefresh()
+      if (refreshed) return context.retryAfterRefresh(refreshed)
+    }
+    return expireSession()
+  }
+
+  if (GATEWAY_ERROR_STATUSES.has(res.status)) {
+    notifyGatewayError(res.status)
+    throw new ApiError(res.status, GATEWAY_ERROR_MESSAGE)
+  }
+
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseErrorMessage(res, `Request failed (${res.status})`))
+  }
+
+  return context.parse(res)
+}
+
+async function request<T>(path: string, options: ApiRequestInit = {}, allowRetry = true): Promise<T> {
+  const { auth, headers: headerOverrides, ...fetchOptions } = options
+  const authMode = authModeForPath(path, auth)
+  const headers = jsonHeaders(headerOverrides, fetchOptions.body != null, authMode)
+
+  let res: Response
+  try {
+    res = await fetch(apiUrl(path), { ...fetchOptions, headers })
+  } catch {
+    notifyGatewayError(503)
+    throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
+  }
+
+  return responseInterceptor<T>(res, {
+    authMode,
+    allowRetry,
+    parse: parseJsonOrEmpty,
+    retryAfterRefresh: () => request<T>(path, options, false),
+  })
 }
 
 export interface RegisterBody {
@@ -184,6 +335,9 @@ export interface ListingQuery {
   skip?: number
   take?: number
 }
+export interface SendMessageBody {
+  body: string
+}
 
 // Uploads go to the separate upload service at /media (not the /api group), as
 // multipart/form-data. request() can't be reused because it forces a JSON body.
@@ -192,28 +346,33 @@ async function uploadMedia(file: File): Promise<MediaUpload> {
   form.append('file', file)
 
   const send = (token: string | undefined) => {
-    const headers = new Headers()
+    const headers = jsonHeaders(undefined, false, 'protected')
     if (token) headers.set('Authorization', `Bearer ${token}`)
     return fetch('/media', { method: 'POST', headers, body: form })
   }
 
-  let res = await send(getAuth()?.accessToken)
-  if (res.status === 401 && getAuth()?.refreshToken) {
-    const refreshed = await ensureRefresh()
-    if (refreshed) res = await send(refreshed.accessToken)
+  let res: Response
+  try {
+    res = await send(getAuth()?.accessToken)
+  } catch {
+    notifyGatewayError(503)
+    throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
   }
 
-  if (!res.ok) {
-    let message = `Upload failed (${res.status})`
-    try {
-      const body = await res.json()
-      message = body?.error ?? body?.title ?? message
-    } catch {
-      /* error body was not JSON */
-    }
-    throw new ApiError(res.status, message)
-  }
-  return (await res.json()) as MediaUpload
+  return responseInterceptor<MediaUpload>(res, {
+    authMode: 'protected',
+    allowRetry: true,
+    parse: (response) => response.json() as Promise<MediaUpload>,
+    retryAfterRefresh: async (auth) => {
+      const retryResponse = await send(auth.accessToken)
+      return responseInterceptor<MediaUpload>(retryResponse, {
+        authMode: 'protected',
+        allowRetry: false,
+        parse: (response) => response.json() as Promise<MediaUpload>,
+        retryAfterRefresh: () => expireSession(),
+      })
+    },
+  })
 }
 
 export const api = {
@@ -222,21 +381,21 @@ export const api = {
 
   // ----- auth -----
   register: (body: RegisterBody) =>
-    request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(body) }),
+    request<AuthResponse>(AUTH_ROUTES.register, { method: 'POST', body: JSON.stringify(body), auth: 'public' }),
   login: (body: LoginBody) =>
-    request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+    request<AuthResponse>(AUTH_ROUTES.login, { method: 'POST', body: JSON.stringify(body), auth: 'public' }),
   logout: (refreshToken: string) =>
-    request<void>('/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken }) }),
+    request<void>(AUTH_ROUTES.logout, { method: 'POST', body: JSON.stringify({ refreshToken }) }),
 
   // ----- users -----
-  me: () => request<UserProfile>('/users/me'),
-  user: (id: string) => request<UserProfile>(`/users/${id}`),
+  me: () => request<UserProfile>(USER_ROUTES.me),
+  user: (id: string) => request<UserProfile>(USER_ROUTES.byId(id)),
   updateProfile: (body: UpdateProfileBody) =>
-    request<UserProfile>('/users/me', { method: 'PUT', body: JSON.stringify(body) }),
+    request<UserProfile>(USER_ROUTES.updateProfile, { method: 'PUT', body: JSON.stringify(body) }),
   updateAvatar: (avatarUrl: string) =>
-    request<UserProfile>('/users/me/avatar', { method: 'PUT', body: JSON.stringify({ avatarUrl }) }),
-  searchUsers: (q: string) => request<UserSummary[]>(`/users/search?q=${encodeURIComponent(q)}`),
-  activities: (take = 12) => request<ActivityDto[]>(`/users/me/activities?take=${take}`),
+    request<UserProfile>(USER_ROUTES.updateAvatar, { method: 'PUT', body: JSON.stringify({ avatarUrl }) }),
+  searchUsers: (q: string) => request<UserSummary[]>(USER_ROUTES.search(q)),
+  activities: (take = 12) => request<ActivityDto[]>(USER_ROUTES.activities(take)),
 
   // ----- friends -----
   friends: () => request<FriendDto[]>('/friends'),
@@ -294,4 +453,19 @@ export const api = {
     request<ListingDetailDto>(`/marketplace/${id}/bids`, { method: 'POST', body: JSON.stringify({ amount }) }),
   buyListing: (id: string) => request<ListingDetailDto>(`/marketplace/${id}/buy`, { method: 'POST' }),
   deleteListing: (id: string) => request<void>(`/marketplace/${id}`, { method: 'DELETE' }),
+
+  // ----- messenger -----
+  messengerConversations: () => request<MessengerConversationDto[]>('/messenger/conversations'),
+  messengerMessages: (conversationId: string) =>
+    request<MessengerMessageDto[]>(`/messenger/conversations/${conversationId}/messages`),
+  sendMessengerMessage: (conversationId: string, body: SendMessageBody) =>
+    request<MessengerMessageDto>(`/messenger/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  startConversation: (participantId: string) =>
+    request<MessengerConversationDto>('/messenger/conversations', {
+      method: 'POST',
+      body: JSON.stringify({ participantId }),
+    }),
 }
