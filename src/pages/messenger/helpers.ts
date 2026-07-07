@@ -84,6 +84,7 @@ export function seedConversations(me: UserSummary, friends: UserSummary[]): Mess
         body: SEED_SNIPPETS[i % SEED_SNIPPETS.length],
         createdAt,
         status: i === 0 ? 'delivered' : 'read',
+        attachments: [],
       },
     }
   })
@@ -94,10 +95,10 @@ export function seedMessages(conversation: MessengerConversationDto, me: UserSum
   const base = Date.now() - 1000 * 60 * 120
 
   return [
-    { id: `${conversation.id}-m1`, conversationId: conversation.id, sender: other, body: 'Hey! How is everything going?', createdAt: new Date(base).toISOString(), status: 'read' },
-    { id: `${conversation.id}-m2`, conversationId: conversation.id, sender: me, body: 'Great, thanks! Working on the messenger UI right now.', createdAt: new Date(base + 1000 * 60 * 5).toISOString(), status: 'read' },
-    { id: `${conversation.id}-m3`, conversationId: conversation.id, sender: other, body: 'Nice! The API gateway routes are being set up on the backend.', createdAt: new Date(base + 1000 * 60 * 12).toISOString(), status: 'read' },
-    { id: `${conversation.id}-m4`, conversationId: conversation.id, sender: me, body: 'Perfect. The UI will connect through the gateway once the endpoints are live.', createdAt: new Date(base + 1000 * 60 * 18).toISOString(), status: 'read' },
-    { id: `${conversation.id}-m5`, conversationId: conversation.id, sender: other, body: conversation.lastMessage?.body ?? 'Sounds good, keep me posted!', createdAt: conversation.updatedAt, status: conversation.lastMessage?.status ?? 'delivered' },
+    { id: `${conversation.id}-m1`, conversationId: conversation.id, sender: other, body: 'Hey! How is everything going?', createdAt: new Date(base).toISOString(), status: 'read', attachments: [] },
+    { id: `${conversation.id}-m2`, conversationId: conversation.id, sender: me, body: 'Great, thanks! Working on the messenger UI right now.', createdAt: new Date(base + 1000 * 60 * 5).toISOString(), status: 'read', attachments: [] },
+    { id: `${conversation.id}-m3`, conversationId: conversation.id, sender: other, body: 'Nice! The API gateway routes are being set up on the backend.', createdAt: new Date(base + 1000 * 60 * 12).toISOString(), status: 'read', attachments: [] },
+    { id: `${conversation.id}-m4`, conversationId: conversation.id, sender: me, body: 'Perfect. The UI will connect through the gateway once the endpoints are live.', createdAt: new Date(base + 1000 * 60 * 18).toISOString(), status: 'read', attachments: [] },
+    { id: `${conversation.id}-m5`, conversationId: conversation.id, sender: other, body: conversation.lastMessage?.body ?? 'Sounds good, keep me posted!', createdAt: conversation.updatedAt, status: conversation.lastMessage?.status ?? 'delivered', attachments: conversation.lastMessage?.attachments ?? [] },
   ]
 }

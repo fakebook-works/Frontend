@@ -11,6 +11,7 @@ import type {
   ListingDetailDto,
   ListingDto,
   MediaUpload,
+  MediaUploadRequest,
   MessengerConversationDto,
   MessengerMessageDto,
   PostDto,
@@ -78,6 +79,7 @@ function normalizeBaseUrl(value: string | undefined): string {
 }
 
 export const API_GATEWAY_URL = normalizeBaseUrl(import.meta.env.VITE_API_GATEWAY_URL)
+export const UPLOAD_SERVER_URL = normalizeBaseUrl(import.meta.env.VITE_UPLOAD_SERVER_URL ?? '/media')
 
 function apiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
@@ -337,18 +339,22 @@ export interface ListingQuery {
 }
 export interface SendMessageBody {
   body: string
+  attachments?: MediaUpload[]
 }
 
-// Uploads go to the separate upload service at /media (not the /api group), as
-// multipart/form-data. request() can't be reused because it forces a JSON body.
-async function uploadMedia(file: File): Promise<MediaUpload> {
-  const form = new FormData()
-  form.append('file', file)
-
+async function createMediaUploadRequest(file: File): Promise<MediaUploadRequest> {
   const send = (token: string | undefined) => {
-    const headers = jsonHeaders(undefined, false, 'protected')
+    const headers = jsonHeaders(undefined, true, 'protected')
     if (token) headers.set('Authorization', `Bearer ${token}`)
-    return fetch('/media', { method: 'POST', headers, body: form })
+    return fetch(`${UPLOAD_SERVER_URL}/media/upload-requests`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        fileName: file.name,
+        contentType: file.type,
+        size: file.size,
+      }),
+    })
   }
 
   let res: Response
@@ -359,20 +365,46 @@ async function uploadMedia(file: File): Promise<MediaUpload> {
     throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
   }
 
-  return responseInterceptor<MediaUpload>(res, {
+  return responseInterceptor<MediaUploadRequest>(res, {
     authMode: 'protected',
     allowRetry: true,
-    parse: (response) => response.json() as Promise<MediaUpload>,
+    parse: (response) => response.json() as Promise<MediaUploadRequest>,
     retryAfterRefresh: async (auth) => {
       const retryResponse = await send(auth.accessToken)
-      return responseInterceptor<MediaUpload>(retryResponse, {
+      return responseInterceptor<MediaUploadRequest>(retryResponse, {
         authMode: 'protected',
         allowRetry: false,
-        parse: (response) => response.json() as Promise<MediaUpload>,
+        parse: (response) => response.json() as Promise<MediaUploadRequest>,
         retryAfterRefresh: () => expireSession(),
       })
     },
   })
+}
+
+// Uploads use a signed URL issued by the backend. The signed upload endpoint
+// still performs full server-side validation before returning a stored media URL.
+async function uploadMedia(file: File): Promise<MediaUpload> {
+  const uploadRequest = await createMediaUploadRequest(file)
+  const form = new FormData()
+  form.append('file', file)
+
+  const uploadUrl = uploadRequest.uploadUrl.startsWith('http')
+    ? uploadRequest.uploadUrl
+    : `${UPLOAD_SERVER_URL}${uploadRequest.uploadUrl}`
+
+  let res: Response
+  try {
+    res = await fetch(uploadUrl, { method: 'PUT', body: form })
+  } catch {
+    notifyGatewayError(503)
+    throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
+  }
+
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseErrorMessage(res, `Upload failed (${res.status})`))
+  }
+
+  return (await res.json()) as MediaUpload
 }
 
 export const api = {
@@ -463,9 +495,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  startConversation: (participantId: string) =>
+  startConversation: (participant: UserSummary) =>
     request<MessengerConversationDto>('/messenger/conversations', {
       method: 'POST',
-      body: JSON.stringify({ participantId }),
+      body: JSON.stringify({
+        participantId: participant.id,
+        username: participant.username,
+        displayName: participant.displayName,
+        avatarUrl: participant.avatarUrl,
+      }),
     }),
 }

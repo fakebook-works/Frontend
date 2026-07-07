@@ -33,6 +33,13 @@ export interface MediaUpload {
   name: string
 }
 
+export interface MediaUploadRequest {
+  uploadId: string
+  uploadUrl: string
+  expiresAt: string
+  maxSize: number
+}
+
 export interface AuthResponse {
   accessToken: string
   accessTokenExpiresAt: string
@@ -104,6 +111,7 @@ export interface MessengerMessageDto {
   body: string
   createdAt: string
   status: 'sending' | 'sent' | 'delivered' | 'read'
+  attachments: MediaUpload[]
 }
 
 export interface MessengerConversationDto {

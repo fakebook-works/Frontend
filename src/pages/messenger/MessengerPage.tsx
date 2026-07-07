@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../../api/client'
 import { createGatewaySocket } from '../../api/realtime'
-import type { MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
+import type { MediaUpload, MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 import { Icon } from '../../components/Icon'
 import { ConversationDetail } from './ConversationDetail'
 import { ConversationList } from './ConversationList'
@@ -31,6 +31,8 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
   const [messages, setMessages] = useState<Record<string, MessengerMessageDto[]>>({})
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState('')
+  const [pendingAttachments, setPendingAttachments] = useState<MediaUpload[]>([])
+  const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [apiState, setApiState] = useState<'gateway' | 'seed'>('gateway')
   const [showNewModal, setShowNewModal] = useState(false)
@@ -106,9 +108,11 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
   // Send message
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!selected || !draft.trim()) return
+    if (!selected || (!draft.trim() && pendingAttachments.length === 0)) return
     const text = draft.trim()
+    const attachments = pendingAttachments
     setDraft('')
+    setPendingAttachments([])
 
     const optimistic: MessengerMessageDto = {
       id: `local-${Date.now()}`,
@@ -117,6 +121,7 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
       body: text,
       createdAt: new Date().toISOString(),
       status: 'sending',
+      attachments,
     }
     setMessages((prev) => ({ ...prev, [selected.id]: [...(prev[selected.id] ?? []), optimistic] }))
     setConversations((prev) =>
@@ -126,7 +131,7 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
     )
 
     try {
-      const sent = await api.sendMessengerMessage(selected.id, { body: text })
+      const sent = await api.sendMessengerMessage(selected.id, { body: text, attachments })
       setMessages((prev) => ({
         ...prev,
         [selected.id]: (prev[selected.id] ?? []).map((m) => (m.id === optimistic.id ? sent : m)),
@@ -149,7 +154,7 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
   }
 
   // Start new conversation
-  function startConversation(person: UserSummary) {
+  async function startConversation(person: UserSummary) {
     setShowNewModal(false)
     const existing = conversations.find((c) => c.participants.some((p) => p.id === person.id))
     if (existing) {
@@ -157,19 +162,44 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
       setMobileShowThread(true)
       return
     }
-    const newConvo: MessengerConversationDto = {
-      id: `new-${Date.now()}`,
-      participants: [me, person],
-      title: null,
-      avatarUrl: person.avatarUrl,
-      updatedAt: new Date().toISOString(),
-      unreadCount: 0,
-      lastMessage: null,
+    let newConvo: MessengerConversationDto
+    try {
+      newConvo = await api.startConversation(person)
+      setApiState('gateway')
+    } catch {
+      newConvo = {
+        id: `new-${Date.now()}`,
+        participants: [me, person],
+        title: null,
+        avatarUrl: person.avatarUrl,
+        updatedAt: new Date().toISOString(),
+        unreadCount: 0,
+        lastMessage: null,
+      }
+      setApiState('seed')
     }
     setConversations((prev) => [newConvo, ...prev])
     setSelectedId(newConvo.id)
     setMessages((prev) => ({ ...prev, [newConvo.id]: [] }))
     setMobileShowThread(true)
+  }
+
+  async function attachFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    setUploading(true)
+    try {
+      const uploaded = await Promise.all(Array.from(files).slice(0, 10).map((file) => api.uploadMedia(file)))
+      setPendingAttachments((prev) => [...prev, ...uploaded].slice(0, 10))
+      setApiState('gateway')
+    } catch {
+      setApiState('seed')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function removeAttachment(url: string) {
+    setPendingAttachments((prev) => prev.filter((attachment) => attachment.url !== url))
   }
 
   function selectConversation(id: string) {
@@ -201,9 +231,13 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
             conversation={selected}
             messages={activeMessages}
             draft={draft}
+            pendingAttachments={pendingAttachments}
+            uploading={uploading}
             apiState={apiState}
             showDetail={showDetail}
             onDraftChange={setDraft}
+            onAttachFiles={attachFiles}
+            onRemoveAttachment={removeAttachment}
             onSubmit={handleSubmit}
             onOpenProfile={onOpenProfile}
             onToggleDetail={() => setShowDetail((v) => !v)}

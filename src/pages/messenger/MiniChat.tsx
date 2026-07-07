@@ -239,6 +239,7 @@ export function MiniChat({ me, friends, onOpenProfile, onOpenFullMessenger }: Mi
       body,
       createdAt: new Date().toISOString(),
       status: 'sending',
+      attachments: [],
     }
     setMessages((prev) => ({ ...prev, [conversationId]: [...(prev[conversationId] ?? []), optimistic] }))
 

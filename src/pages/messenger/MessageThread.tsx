@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { FormEvent } from 'react'
-import type { MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
+import type { MediaUpload, MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { EmojiButton } from './EmojiButton'
@@ -11,9 +11,13 @@ interface MessageThreadProps {
   conversation: MessengerConversationDto
   messages: MessengerMessageDto[]
   draft: string
+  pendingAttachments: MediaUpload[]
+  uploading: boolean
   apiState: 'gateway' | 'seed'
   showDetail: boolean
   onDraftChange: (value: string) => void
+  onAttachFiles: (files: FileList | null) => void
+  onRemoveAttachment: (url: string) => void
   onSubmit: (e: FormEvent) => void
   onOpenProfile: (id: string) => void
   onToggleDetail: () => void
@@ -25,9 +29,13 @@ export function MessageThread({
   conversation,
   messages,
   draft,
+  pendingAttachments,
+  uploading,
   apiState,
   showDetail,
   onDraftChange,
+  onAttachFiles,
+  onRemoveAttachment,
   onSubmit,
   onOpenProfile,
   onToggleDetail,
@@ -35,6 +43,7 @@ export function MessageThread({
 }: MessageThreadProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -116,7 +125,22 @@ export function MessageThread({
                   </div>
                 )}
                 <div className="message-stack">
-                  <p>{message.body}</p>
+                  {message.body && <p>{message.body}</p>}
+                  {message.attachments?.map((attachment) => (
+                    <a
+                      key={attachment.url}
+                      className={`message-attachment ${attachment.type}`}
+                      href={attachment.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {attachment.type === 'image' ? (
+                        <img src={attachment.url} alt={attachment.name} />
+                      ) : (
+                        <span>{attachment.name}</span>
+                      )}
+                    </a>
+                  ))}
                 </div>
                 {mine && message.status && (
                   <small className="message-status">
@@ -138,10 +162,33 @@ export function MessageThread({
 
       {/* Compose */}
       <form className="messenger-compose" onSubmit={handleSubmit}>
-        <button type="button" className="icon-circle subtle" aria-label="Add attachment">
+        <input
+          ref={fileInputRef}
+          className="messenger-file-input"
+          type="file"
+          multiple
+          accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,application/pdf"
+          onChange={(event) => {
+            onAttachFiles(event.currentTarget.files)
+            event.currentTarget.value = ''
+          }}
+        />
+        <button
+          type="button"
+          className="icon-circle subtle"
+          aria-label="Add attachment"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+        >
           <Icon name="plus" size={19} />
         </button>
-        <button type="button" className="icon-circle subtle" aria-label="Attach photo">
+        <button
+          type="button"
+          className="icon-circle subtle"
+          aria-label="Attach photo"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+        >
           <Icon name="photo" size={19} />
         </button>
         <button type="button" className="icon-circle subtle" aria-label="Record voice">
@@ -161,11 +208,27 @@ export function MessageThread({
           type="submit"
           className={`icon-circle subtle send${draft.trim() ? ' ready' : ''}`}
           aria-label="Send message"
-          disabled={!draft.trim()}
+          disabled={uploading || (!draft.trim() && pendingAttachments.length === 0)}
         >
-          {draft.trim() ? <Icon name="send" size={18} /> : <Icon name="like" size={22} />}
+          {draft.trim() || pendingAttachments.length ? <Icon name="send" size={18} /> : <Icon name="like" size={22} />}
         </button>
       </form>
+      {(pendingAttachments.length > 0 || uploading) && (
+        <div className="messenger-attachment-tray">
+          {uploading && <span className="attachment-chip">Uploading...</span>}
+          {pendingAttachments.map((attachment) => (
+            <button
+              key={attachment.url}
+              type="button"
+              className="attachment-chip"
+              onClick={() => onRemoveAttachment(attachment.url)}
+            >
+              {attachment.name}
+              <span>×</span>
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   )
 }

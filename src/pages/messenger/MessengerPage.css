@@ -339,6 +339,31 @@
   color: #fff;
 }
 
+.message-attachment {
+  display: block;
+  max-width: 280px;
+  margin-top: 4px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.message-attachment img {
+  display: block;
+  max-width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+}
+
+.message-attachment span {
+  display: block;
+  padding: 10px 12px;
+  font-size: 0.875rem;
+  word-break: break-word;
+}
+
 .message-status {
   display: flex;
   align-items: flex-end;
@@ -355,6 +380,10 @@
   padding: 8px 12px;
   border-top: 1px solid var(--divider);
   flex: 0 0 auto;
+}
+
+.messenger-file-input {
+  display: none;
 }
 
 .messenger-input-wrap {
@@ -380,6 +409,32 @@
 
 .icon-circle.subtle.send.ready {
   color: var(--blue);
+}
+
+.messenger-attachment-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 8px;
+  border-top: 1px solid var(--divider);
+  background: var(--card);
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Emoji picker */
