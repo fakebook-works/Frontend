@@ -86,6 +86,9 @@ export function HomePage() {
   function handleCreated(post: PostDto) {
     setFeed((prev) => [post, ...prev])
     setProfile((p) => (p ? { ...p, postCount: p.postCount + 1 } : p))
+    void api.generateEmbedding(post.id, post.content).catch((error) => {
+      console.error('Failed to generate post embedding.', error)
+    })
   }
 
   function patchPost(updated: PostDto) {

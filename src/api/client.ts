@@ -21,6 +21,7 @@ import type {
 
 const DEFAULT_API_GATEWAY_URL = '/api'
 const DEFAULT_GRAPHQL_GATEWAY_URL = '/graphql'
+const DEFAULT_EMBEDDING_API_URL = '/embeddings/posts'
 const DEFAULT_JSON_HEADERS = {
   Accept: 'application/json',
   'Content-Type': 'application/json',
@@ -74,6 +75,7 @@ function normalizeBaseUrl(value: string | undefined): string {
 export const API_GATEWAY_URL = normalizeBaseUrl(import.meta.env.VITE_API_GATEWAY_URL)
 export const GRAPHQL_GATEWAY_URL = normalizeGraphQlUrl(import.meta.env.VITE_GRAPHQL_GATEWAY_URL, API_GATEWAY_URL)
 export const UPLOAD_SERVER_URL = normalizeBaseUrl(import.meta.env.VITE_UPLOAD_SERVER_URL ?? '/media')
+export const EMBEDDING_API_URL = normalizeBaseUrl(import.meta.env.VITE_EMBEDDING_API_URL ?? DEFAULT_EMBEDDING_API_URL)
 
 function apiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
@@ -345,6 +347,37 @@ export interface ListingQuery {
 export interface SendMessageBody {
   body: string
   attachments?: MediaUpload[]
+}
+export interface GenerateEmbeddingBody {
+  postId: string
+  content: string
+}
+
+async function generateEmbedding(postId: string, content: string): Promise<void> {
+  const trimmedContent = content.trim()
+  if (!postId || !trimmedContent) return
+
+  const headers = jsonHeaders(undefined, true, 'protected')
+  const accessToken = getAuth()?.accessToken
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
+
+  let res: Response
+  try {
+    res = await fetch(EMBEDDING_API_URL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        postId,
+        content: trimmedContent,
+      } satisfies GenerateEmbeddingBody),
+    })
+  } catch {
+    throw new ApiError(503, 'Embedding service is temporarily unreachable.')
+  }
+
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseErrorMessage(res, `Embedding request failed (${res.status})`))
+  }
 }
 
 interface GraphQlResponse<T> {
@@ -644,6 +677,9 @@ async function uploadMedia(file: File): Promise<MediaUpload> {
 }
 
 export const api = {
+  // ----- embeddings -----
+  generateEmbedding,
+
   // ----- media -----
   uploadMedia,
 
