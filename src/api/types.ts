@@ -43,7 +43,6 @@ export interface MediaUploadRequest {
 export interface AuthResponse {
   accessToken: string
   accessTokenExpiresAt: string
-  refreshToken: string
   refreshTokenExpiresAt: string
   user: UserSummary
 }
