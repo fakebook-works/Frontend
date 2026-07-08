@@ -1,7 +1,7 @@
 // Single fetch-based API client for the Fakebook backend.
-// - Stores the JWT pair in localStorage.
+// - Stores only the short-lived access token in localStorage.
 // - Attaches the access token as a Bearer header.
-// - On a 401, transparently tries the refresh-token flow once, then retries.
+// - On a 401, transparently asks the GraphQL Gateway to refresh from its HttpOnly cookie, then retries.
 import type {
   ActivityDto,
   AuthResponse,
@@ -20,21 +20,14 @@ import type {
 } from './types'
 
 const DEFAULT_API_GATEWAY_URL = '/api'
+const DEFAULT_GRAPHQL_GATEWAY_URL = '/graphql'
 const DEFAULT_JSON_HEADERS = {
   Accept: 'application/json',
   'Content-Type': 'application/json',
 }
 
 const API_V1_PREFIX = '/v1'
-const AUTH_API_PREFIX = `${API_V1_PREFIX}/auth`
 const USERS_API_PREFIX = `${API_V1_PREFIX}/users`
-
-const AUTH_ROUTES = {
-  register: `${AUTH_API_PREFIX}/register`,
-  login: `${AUTH_API_PREFIX}/login`,
-  refresh: `${AUTH_API_PREFIX}/refresh`,
-  logout: `${AUTH_API_PREFIX}/logout`,
-} as const
 
 const USERS_ME_ROUTE = `${USERS_API_PREFIX}/me`
 
@@ -47,7 +40,7 @@ const USER_ROUTES = {
   activities: (take: number) => `${USERS_ME_ROUTE}/activities?take=${take}`,
 } as const
 
-const PUBLIC_API_PATHS: ReadonlySet<string> = new Set([AUTH_ROUTES.register, AUTH_ROUTES.login, AUTH_ROUTES.refresh])
+const PUBLIC_API_PATHS: ReadonlySet<string> = new Set()
 
 const GATEWAY_ERROR_STATUSES = new Set([502, 503, 504])
 const GATEWAY_ERROR_MESSAGE = 'Server is temporarily unreachable.'
@@ -79,6 +72,7 @@ function normalizeBaseUrl(value: string | undefined): string {
 }
 
 export const API_GATEWAY_URL = normalizeBaseUrl(import.meta.env.VITE_API_GATEWAY_URL)
+export const GRAPHQL_GATEWAY_URL = normalizeGraphQlUrl(import.meta.env.VITE_GRAPHQL_GATEWAY_URL, API_GATEWAY_URL)
 export const UPLOAD_SERVER_URL = normalizeBaseUrl(import.meta.env.VITE_UPLOAD_SERVER_URL ?? '/media')
 
 function apiUrl(path: string): string {
@@ -89,6 +83,19 @@ function apiUrl(path: string): string {
 function normalizePath(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   return normalizedPath.split('?')[0]
+}
+
+function normalizeGraphQlUrl(value: string | undefined, apiGatewayUrl: string): string {
+  const trimmed = value?.trim()
+  if (trimmed) return trimmed.replace(/\/+$/, '') || DEFAULT_GRAPHQL_GATEWAY_URL
+  if (apiGatewayUrl.startsWith('http')) {
+    try {
+      return `${new URL(apiGatewayUrl).origin}/graphql`
+    } catch {
+      return DEFAULT_GRAPHQL_GATEWAY_URL
+    }
+  }
+  return DEFAULT_GRAPHQL_GATEWAY_URL
 }
 
 function authModeForPath(path: string, authMode?: ApiAuthMode): ApiAuthMode {
@@ -114,7 +121,6 @@ let apiEventListeners: ApiEventListener[] = []
 export interface StoredAuth {
   accessToken: string
   accessTokenExpiresAt: string
-  refreshToken: string
   refreshTokenExpiresAt: string
   user: UserSummary
 }
@@ -170,7 +176,6 @@ export function persistAuth(res: AuthResponse): StoredAuth {
   const stored: StoredAuth = {
     accessToken: res.accessToken,
     accessTokenExpiresAt: res.accessTokenExpiresAt,
-    refreshToken: res.refreshToken,
     refreshTokenExpiresAt: res.refreshTokenExpiresAt,
     user: res.user,
   }
@@ -204,19 +209,11 @@ let refreshing: Promise<StoredAuth | null> | null = null
 
 async function refreshTokens(): Promise<StoredAuth | null> {
   const current = getAuth()
-  if (!current?.refreshToken) return null
+  if (!current) return null
   try {
-    const res = await fetch(apiUrl(AUTH_ROUTES.refresh), {
-      method: 'POST',
-      headers: jsonHeaders(undefined, true, 'public'),
-      body: JSON.stringify({ refreshToken: current.refreshToken }),
-    })
-    if (!res.ok) {
-      clearAuth()
-      return null
-    }
-    return persistAuth((await res.json()) as AuthResponse)
+    return persistAuth(await graphqlAuthRefresh())
   } catch {
+    clearAuth()
     return null
   }
 }
@@ -257,7 +254,7 @@ async function parseJsonOrEmpty<T>(res: Response): Promise<T> {
 
 async function responseInterceptor<T>(res: Response, context: ResponseInterceptorContext<T>): Promise<T> {
   if (res.status === 401 && context.authMode === 'protected') {
-    if (context.allowRetry && getAuth()?.refreshToken) {
+    if (context.allowRetry && getAuth()) {
       const refreshed = await ensureRefresh()
       if (refreshed) return context.retryAfterRefresh(refreshed)
     }
@@ -302,6 +299,14 @@ export interface RegisterBody {
   email: string
   password: string
   displayName: string
+  dob: string
+}
+export interface VerifyEmailBody {
+  identifier: string
+  otp: string
+}
+export interface ResendEmailVerificationBody {
+  identifier: string
 }
 export interface LoginBody {
   usernameOrEmail: string
@@ -340,6 +345,237 @@ export interface ListingQuery {
 export interface SendMessageBody {
   body: string
   attachments?: MediaUpload[]
+}
+
+interface GraphQlResponse<T> {
+  data?: T
+  errors?: Array<{
+    message?: string
+    extensions?: {
+      code?: string
+    }
+  }>
+}
+
+interface AuthUserType {
+  userId: number | string
+  email: string
+  username: string
+  displayName: string
+  status: number
+}
+
+interface LoginPayload {
+  accessToken: string
+  refreshTokenExpiresAt: string
+  user: AuthUserType
+}
+
+const LOGIN_MUTATION = `
+  mutation Login($input: LoginInput!) {
+    login(input: $input) {
+      accessToken
+      refreshTokenExpiresAt
+      user {
+        userId
+        email
+        username
+        displayName
+        status
+      }
+    }
+  }
+`
+
+const REFRESH_TOKEN_MUTATION = `
+  mutation RefreshToken {
+    refreshToken {
+      accessToken
+      refreshTokenExpiresAt
+      user {
+        userId
+        email
+        username
+        displayName
+        status
+      }
+    }
+  }
+`
+
+const LOGOUT_MUTATION = `
+  mutation Logout {
+    logout {
+      success
+      message
+    }
+  }
+`
+
+const REGISTER_MUTATION = `
+  mutation Register($input: RegisterInput!) {
+    register(input: $input) {
+      success
+      message
+    }
+  }
+`
+
+const VERIFY_EMAIL_MUTATION = `
+  mutation VerifyEmail($input: VerifyEmailInput!) {
+    verifyEmail(input: $input) {
+      success
+      message
+    }
+  }
+`
+
+const RESEND_EMAIL_VERIFICATION_MUTATION = `
+  mutation ResendEmailVerification($input: ResendEmailVerificationInput!) {
+    resendEmailVerification(input: $input) {
+      success
+      message
+    }
+  }
+`
+
+function authUserToSummary(user: AuthUserType): UserSummary {
+  return {
+    id: String(user.userId),
+    username: user.username,
+    displayName: user.displayName,
+    avatarUrl: null,
+  }
+}
+
+function accessTokenExpiresAt(accessToken: string): string {
+  try {
+    const [, payload] = accessToken.split('.')
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const decoded = JSON.parse(atob(normalized)) as { exp?: number }
+    if (decoded.exp) return new Date(decoded.exp * 1000).toISOString()
+  } catch {
+    /* fall through to conservative local expiry */
+  }
+
+  return new Date(Date.now() + 15 * 60 * 1000).toISOString()
+}
+
+function authResponseFromLoginPayload(payload: LoginPayload): AuthResponse {
+  return {
+    accessToken: payload.accessToken,
+    accessTokenExpiresAt: accessTokenExpiresAt(payload.accessToken),
+    refreshTokenExpiresAt: payload.refreshTokenExpiresAt,
+    user: authUserToSummary(payload.user),
+  }
+}
+
+function graphQlErrorStatus(code: string | undefined): number {
+  switch (code) {
+    case 'UNAUTHENTICATED':
+    case 'INVALID_CREDENTIALS':
+    case 'INVALID_REFRESH_TOKEN':
+      return 401
+    case 'FORBIDDEN':
+      return 403
+    case 'IDENTIFIER_EXISTS':
+      return 409
+    case 'LOGIN_RATE_LIMITED':
+    case 'OTP_RATE_LIMITED':
+    case 'OTP_RESEND_RATE_LIMITED':
+      return 429
+    default:
+      return 400
+  }
+}
+
+async function graphqlRequest<T>(query: string, variables?: Record<string, unknown>, authMode: ApiAuthMode = 'protected'): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(GRAPHQL_GATEWAY_URL, {
+      method: 'POST',
+      headers: jsonHeaders(undefined, true, authMode),
+      credentials: 'include',
+      body: JSON.stringify({ query, variables }),
+    })
+  } catch {
+    notifyGatewayError(503)
+    throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
+  }
+
+  if (GATEWAY_ERROR_STATUSES.has(res.status)) {
+    notifyGatewayError(res.status)
+    throw new ApiError(res.status, GATEWAY_ERROR_MESSAGE)
+  }
+
+  const body = (await parseJsonOrEmpty<GraphQlResponse<T>>(res)) ?? {}
+  const firstError = body.errors?.[0]
+  if (!res.ok || firstError) {
+    const status = firstError ? graphQlErrorStatus(firstError.extensions?.code) : res.status
+    throw new ApiError(status, firstError?.message ?? `Request failed (${status})`)
+  }
+
+  if (!body.data) throw new ApiError(500, 'GraphQL response did not include data.')
+  return body.data
+}
+
+async function graphqlAuthLogin(body: LoginBody): Promise<AuthResponse> {
+  const data = await graphqlRequest<{ login: LoginPayload }>(
+    LOGIN_MUTATION,
+    { input: { identifier: body.usernameOrEmail, password: body.password } },
+    'public',
+  )
+  return authResponseFromLoginPayload(data.login)
+}
+
+async function graphqlAuthRefresh(): Promise<AuthResponse> {
+  const data = await graphqlRequest<{ refreshToken: LoginPayload }>(REFRESH_TOKEN_MUTATION, undefined, 'public')
+  return authResponseFromLoginPayload(data.refreshToken)
+}
+
+async function graphqlAuthLogout(): Promise<void> {
+  await graphqlRequest<{ logout: { success: boolean; message: string | null } }>(LOGOUT_MUTATION)
+}
+
+async function graphqlAuthRegister(body: RegisterBody): Promise<void> {
+  const data = await graphqlRequest<{ register: { success: boolean; message: string | null } }>(
+    REGISTER_MUTATION,
+    {
+      input: {
+        displayName: body.displayName,
+        dob: body.dob,
+        email: body.email,
+        username: body.username,
+        password: body.password,
+      },
+    },
+    'public',
+  )
+  if (!data.register.success) {
+    throw new ApiError(400, data.register.message ?? 'Could not create the account.')
+  }
+}
+
+async function graphqlAuthVerifyEmail(body: VerifyEmailBody): Promise<void> {
+  const data = await graphqlRequest<{ verifyEmail: { success: boolean; message: string | null } }>(
+    VERIFY_EMAIL_MUTATION,
+    { input: { identifier: body.identifier, otp: body.otp } },
+    'public',
+  )
+  if (!data.verifyEmail.success) {
+    throw new ApiError(400, data.verifyEmail.message ?? 'Could not verify the account.')
+  }
+}
+
+async function graphqlAuthResendEmailVerification(body: ResendEmailVerificationBody): Promise<void> {
+  const data = await graphqlRequest<{ resendEmailVerification: { success: boolean; message: string | null } }>(
+    RESEND_EMAIL_VERIFICATION_MUTATION,
+    { input: { identifier: body.identifier } },
+    'public',
+  )
+  if (!data.resendEmailVerification.success) {
+    throw new ApiError(400, data.resendEmailVerification.message ?? 'Could not resend the verification code.')
+  }
 }
 
 async function createMediaUploadRequest(file: File): Promise<MediaUploadRequest> {
@@ -412,12 +648,11 @@ export const api = {
   uploadMedia,
 
   // ----- auth -----
-  register: (body: RegisterBody) =>
-    request<AuthResponse>(AUTH_ROUTES.register, { method: 'POST', body: JSON.stringify(body), auth: 'public' }),
-  login: (body: LoginBody) =>
-    request<AuthResponse>(AUTH_ROUTES.login, { method: 'POST', body: JSON.stringify(body), auth: 'public' }),
-  logout: (refreshToken: string) =>
-    request<void>(AUTH_ROUTES.logout, { method: 'POST', body: JSON.stringify({ refreshToken }) }),
+  register: graphqlAuthRegister,
+  verifyEmail: graphqlAuthVerifyEmail,
+  resendEmailVerification: graphqlAuthResendEmailVerification,
+  login: graphqlAuthLogin,
+  logout: graphqlAuthLogout,
 
   // ----- users -----
   me: () => request<UserProfile>(USER_ROUTES.me),
