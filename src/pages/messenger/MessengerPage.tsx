@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { api } from '../../api/client'
+import { legacyApi as api } from '../../api/client'
 import { createGatewaySocket } from '../../api/realtime'
 import type { MediaUpload, MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 import { Icon } from '../../components/Icon'

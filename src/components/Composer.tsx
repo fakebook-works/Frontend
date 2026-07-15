@@ -1,5 +1,5 @@
 import { type ChangeEvent, useRef, useState } from 'react'
-import { api } from '../api/client'
+import { legacyApi as api } from '../api/client'
 import type { MediaUpload, PostDto, UserSummary } from '../api/types'
 import { firstName, PRIVACY } from '../lib/format'
 import { Avatar } from './Avatar'

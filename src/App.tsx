@@ -1,6 +1,6 @@
 import './App.css'
 import { useAuth } from './lib/auth'
-import { AccountSecurityPage } from './pages/AccountSecurityPage'
+import { AuthenticatedApp } from './pages/AuthenticatedApp'
 import { LoginPage } from './pages/LoginPage'
 
 function App() {
@@ -15,7 +15,7 @@ function App() {
     )
   }
 
-  return user ? <AccountSecurityPage /> : <LoginPage />
+  return user ? <AuthenticatedApp /> : <LoginPage />
 }
 
 export default App

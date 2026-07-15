@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../api/client'
+import { legacyApi as api } from '../api/client'
 import type { CommentDto, PostDto } from '../api/types'
 import { PRIVACY, firstName, privacyMeta, reactionMeta, REACTIONS, timeAgo } from '../lib/format'
 import { Avatar } from './Avatar'

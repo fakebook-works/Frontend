@@ -12,7 +12,7 @@ function formatDate(value: string | null, fallback: string) {
   return Number.isNaN(date.getTime()) ? fallback : date.toLocaleString()
 }
 
-export function AccountSecurityPage() {
+export function AccountSecurityPage({ embedded = false }: { embedded?: boolean }) {
   const { user, logout, logoutAll } = useAuth()
   const { t, locale, setLocale } = useI18n()
   const { theme, toggleTheme } = useTheme()
@@ -92,8 +92,8 @@ export function AccountSecurityPage() {
   if (!user) return null
 
   return (
-    <div className="security-page">
-      <header className="security-topbar">
+    <div className={embedded ? 'security-page security-page-embedded' : 'security-page'}>
+      {!embedded && <header className="security-topbar">
         <img src="/brand/fakebook-full-cropped.png" alt="Fakebook" />
         <div className="security-controls">
           <label className="lang-select" aria-label={t('languageLabel')}>
@@ -109,7 +109,7 @@ export function AccountSecurityPage() {
           </button>
           <button type="button" className="btn-soft" onClick={() => void logout()}>{t('logout')}</button>
         </div>
-      </header>
+      </header>}
 
       <main className="security-layout">
         <section className="security-hero card">

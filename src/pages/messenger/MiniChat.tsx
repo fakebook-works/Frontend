@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { api } from '../../api/client'
+import { legacyApi as api } from '../../api/client'
 import type { MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'

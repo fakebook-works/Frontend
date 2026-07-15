@@ -10,6 +10,7 @@ interface AuthContextValue {
   register: (body: RegisterBody) => Promise<RegistrationResult>
   logout: () => Promise<void>
   logoutAll: () => Promise<void>
+  refreshUser: () => Promise<AuthUser | null>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -56,9 +57,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const refreshUser = useCallback(async () => {
+    const current = getAuth()
+    if (!current) return null
+    const refreshedUser = await api.authMe()
+    persistAuth({
+      accessToken: current.accessToken,
+      refreshTokenExpiresAt: null,
+      user: refreshedUser,
+    })
+    return refreshedUser
+  }, [])
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user, ready, login, register, logout, logoutAll }),
-    [user, ready, login, register, logout, logoutAll],
+    () => ({ user, ready, login, register, logout, logoutAll, refreshUser }),
+    [user, ready, login, register, logout, logoutAll, refreshUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

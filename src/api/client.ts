@@ -15,6 +15,21 @@ import type {
   UserProfile,
   UserSummary,
 } from './types'
+import type {
+  CreateGatewayPostInput,
+  CreateGatewayStoryInput,
+  CreatedContent,
+  GatewayPost,
+  NormalStory,
+  PremiumCheckout,
+  PremiumOrder,
+  PaymentOrderStatus,
+  PremiumPlan,
+  PremiumPlanOffer,
+  RecommendationItem,
+  StoryPage,
+  VisitedGroupPage,
+} from './gatewayTypes'
 
 const DEFAULT_API_GATEWAY_URL = '/api'
 const DEFAULT_GRAPHQL_GATEWAY_URL = '/graphql'
@@ -221,14 +236,35 @@ interface GraphQlEnvelope<T> {
   errors?: GraphQlErrorItem[]
 }
 
-function parseGraphQlEnvelope<T>(text: string): GraphQlEnvelope<T> {
+export function parseGraphQlEnvelope<T>(text: string): GraphQlEnvelope<T> {
   // HotChocolate Long values are JSON numbers. Quote Snowflake-sized identity
   // fields before JSON.parse so JavaScript cannot round them past 2^53 - 1.
   const losslessIdentityJson = text.replace(
-    /("(?:userId|sessionId)"\s*:\s*)(-?\d{16,})(?=\s*[,}])/g,
+    /("(?:id|[A-Za-z][A-Za-z0-9]*Id)"\s*:\s*)(-?\d{16,})(?=\s*[,}])/g,
     '$1"$2"',
   )
   return JSON.parse(losslessIdentityJson) as GraphQlEnvelope<T>
+}
+
+export function graphQlLongLiteral(value: string): string {
+  if (!/^[1-9]\d*$/.test(value)) throw new ApiError(400, 'Invalid identifier.')
+  return value
+}
+
+function normalizeMedia<T extends { id: string | number }>(media: T): T & { id: string } {
+  return { ...media, id: String(media.id) }
+}
+
+function normalizeGatewayPost(post: GatewayPost): GatewayPost {
+  const normalized = {
+    ...post,
+    id: String(post.id),
+    author: { ...post.author, id: String(post.author.id) },
+    media: post.media.map(normalizeMedia),
+  }
+  return post.__typename === 'GroupPostDetail'
+    ? { ...normalized, __typename: 'GroupPostDetail', group: { ...post.group, id: String(post.group.id) } }
+    : { ...normalized, __typename: 'FeedPostDetail' }
 }
 
 function normalizeAuthUser(user: AuthUser): AuthUser {
@@ -491,6 +527,87 @@ async function uploadMedia(file: File): Promise<MediaUpload> {
   return (await res.json()) as MediaUpload
 }
 
+const HOME_POST_FIELDS = `
+  __typename
+  ... on FeedPostDetail {
+    id type content privacy create
+    author { id name avatar isVerified canFollow }
+    media { id type url }
+  }
+  ... on GroupPostDetail {
+    id type content privacy create
+    author { id name avatar isVerified canFollow }
+    group { id name avatar canJoin }
+    media { id type url }
+  }
+`
+
+const HOME_STORY_FIELDS = `
+  __typename
+  ... on NormalStory { id content create media { id type url } }
+  ... on FeedPostShareStory {
+    id content create
+    sharedSource { id content media { id type url } author { id name avatar isVerified } }
+  }
+  ... on ReelShareStory {
+    id content create
+    sharedSource { id content media { id type url } author { id name avatar isVerified } }
+  }
+`
+
+function normalizeStoryPage(page: StoryPage): StoryPage {
+  return {
+    ...page,
+    items: page.items.map((bucket) => ({
+      ...bucket,
+      author: { ...bucket.author, id: String(bucket.author.id) },
+      stories: bucket.stories.map((story) => {
+        const base = { ...story, id: String(story.id) }
+        if (story.__typename === 'NormalStory') {
+          return { ...base, __typename: 'NormalStory', media: story.media.map(normalizeMedia) }
+        }
+        return {
+          ...base,
+          __typename: story.__typename,
+          sharedSource: {
+            ...story.sharedSource,
+            id: String(story.sharedSource.id),
+            media: story.sharedSource.media ? normalizeMedia(story.sharedSource.media) : null,
+            author: story.sharedSource.author
+              ? { ...story.sharedSource.author, id: String(story.sharedSource.author.id) }
+              : null,
+          },
+        }
+      }),
+    })),
+  }
+}
+
+export function validatedCheckoutUrl(value: string): string {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new ApiError(502, 'The payment service returned an invalid checkout URL.')
+  }
+  if (url.protocol !== 'https:') {
+    throw new ApiError(502, 'The payment service returned an insecure checkout URL.')
+  }
+  return url.toString()
+}
+
+export function visibleRecommendationPosts(items: RecommendationItem[]): GatewayPost[] {
+  return items.flatMap((item) => (item.post ? [item.post] : []))
+}
+
+export function nextPageCursor(page: { hasNextPage: boolean; endCursor: string | null }): string | null {
+  return page.hasNextPage ? page.endCursor : null
+}
+
+export function isTerminalPaymentStatus(status: PaymentOrderStatus): boolean {
+  return ['ACTIVATED', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(status)
+}
+
 export const api = {
   // ----- media -----
   uploadMedia,
@@ -643,6 +760,186 @@ export const api = {
     return data.logoutSession
   },
 
+  // ----- composed SocialGraph / Recommendation -----
+  recommendedFeed: async (userId: string, skip = 0, take = 20): Promise<RecommendationItem[]> => {
+    const data = await graphQlRequest<{ recommendFeed: RecommendationItem[] }>(
+      `query RecommendedFeed($userId: ID!, $skip: Int!, $take: Int!) {
+        recommendFeed(userId: $userId, skip: $skip, take: $take) {
+          postId
+          post { ${HOME_POST_FIELDS} }
+        }
+      }`,
+      { userId, skip: Math.max(0, skip), take: Math.min(100, Math.max(1, take)) },
+    )
+    return data.recommendFeed.map((item) => ({
+      postId: String(item.postId),
+      post: item.post ? normalizeGatewayPost(item.post) : null,
+    }))
+  },
+  postDetail: async (postId: string): Promise<GatewayPost | null> => {
+    const id = graphQlLongLiteral(postId)
+    const data = await graphQlRequest<{ postDetail: GatewayPost | null }>(
+      `query PostDetail { postDetail(postId: ${id}) { ${HOME_POST_FIELDS} } }`,
+    )
+    return data.postDetail ? normalizeGatewayPost(data.postDetail) : null
+  },
+  createFeedPost: async (input: CreateGatewayPostInput): Promise<CreatedContent> => {
+    const authorId = graphQlLongLiteral(input.authorId)
+    const data = await graphQlRequest<{ createFeedPost: CreatedContent }>(
+      `mutation CreateFeedPost($content: String!, $privacy: Int!, $media: [MediaInput!]) {
+        createFeedPost(input: {
+          authorId: ${authorId}
+          content: $content
+          privacy: $privacy
+          media: $media
+        }) {
+          id type content privacy create authorId media { id type url }
+        }
+      }`,
+      { content: input.content, privacy: input.privacy, media: input.media ?? null },
+    )
+    return {
+      ...data.createFeedPost,
+      id: String(data.createFeedPost.id),
+      authorId: String(data.createFeedPost.authorId),
+      media: data.createFeedPost.media.map(normalizeMedia),
+    }
+  },
+  homeStories: async (userId: string, limit = 12, cursor: string | null = null): Promise<StoryPage> => {
+    const id = graphQlLongLiteral(userId)
+    const data = await graphQlRequest<{ homeStories: StoryPage }>(
+      `query HomeStories($limit: Int!, $cursor: String) {
+        homeStories(userId: ${id}, limit: $limit, cursor: $cursor) {
+          items {
+            author { id name avatar isVerified }
+            latestCreate
+            stories { ${HOME_STORY_FIELDS} }
+          }
+          endCursor
+          hasNextPage
+        }
+      }`,
+      { limit: Math.min(50, Math.max(1, limit)), cursor },
+    )
+    return normalizeStoryPage(data.homeStories)
+  },
+  myStories: async (userId: string): Promise<StoryPage['items'][number] | null> => {
+    const id = graphQlLongLiteral(userId)
+    const data = await graphQlRequest<{ myStories: StoryPage['items'][number] | null }>(
+      `query MyStories {
+        myStories(userId: ${id}) {
+          author { id name avatar isVerified }
+          latestCreate
+          stories { ${HOME_STORY_FIELDS} }
+        }
+      }`,
+    )
+    if (!data.myStories) return null
+    return normalizeStoryPage({ items: [data.myStories], endCursor: null, hasNextPage: false }).items[0]
+  },
+  createNormalStory: async (input: CreateGatewayStoryInput): Promise<NormalStory> => {
+    const authorId = graphQlLongLiteral(input.authorId)
+    const data = await graphQlRequest<{ createNormalStory: NormalStory }>(
+      `mutation CreateNormalStory($content: String!, $media: MediaInput) {
+        createNormalStory(input: { authorId: ${authorId}, content: $content, media: $media }) {
+          id content create media { id type url }
+        }
+      }`,
+      { content: input.content, media: input.media ?? null },
+    )
+    return {
+      ...data.createNormalStory,
+      __typename: 'NormalStory',
+      id: String(data.createNormalStory.id),
+      media: data.createNormalStory.media.map(normalizeMedia),
+    }
+  },
+  createShareStory: async (authorIdValue: string, sourceIdValue: string, content: string) => {
+    const authorId = graphQlLongLiteral(authorIdValue)
+    const sourceId = graphQlLongLiteral(sourceIdValue)
+    const data = await graphQlRequest<{ createShareStory: { __typename: string; id: string } }>(
+      `mutation CreateShareStory($content: String!) {
+        createShareStory(input: { authorId: ${authorId}, content: $content, sharedSourceId: ${sourceId} }) {
+          ${HOME_STORY_FIELDS}
+        }
+      }`,
+      { content },
+    )
+    return { ...data.createShareStory, id: String(data.createShareStory.id) }
+  },
+  deleteStory: async (authorIdValue: string, storyIdValue: string): Promise<AuthActionResult> => {
+    const authorId = graphQlLongLiteral(authorIdValue)
+    const storyId = graphQlLongLiteral(storyIdValue)
+    const data = await graphQlRequest<{ deleteStory: AuthActionResult }>(
+      `mutation DeleteStory {
+        deleteStory(input: { authorId: ${authorId}, storyId: ${storyId} }) { success message }
+      }`,
+    )
+    return data.deleteStory
+  },
+  visitedGroups: async (userId: string, limit = 8, cursor: string | null = null): Promise<VisitedGroupPage> => {
+    const id = graphQlLongLiteral(userId)
+    const data = await graphQlRequest<{ visitedGroups: VisitedGroupPage }>(
+      `query VisitedGroups($limit: Int!, $cursor: String) {
+        visitedGroups(userId: ${id}, limit: $limit, cursor: $cursor) {
+          items { id name avatar }
+          endCursor
+          hasNextPage
+        }
+      }`,
+      { limit: Math.min(100, Math.max(1, limit)), cursor },
+    )
+    return {
+      ...data.visitedGroups,
+      items: data.visitedGroups.items.map((group) => ({ ...group, id: String(group.id) })),
+    }
+  },
+  recordGroupVisit: async (userIdValue: string, groupIdValue: string): Promise<boolean> => {
+    const userId = graphQlLongLiteral(userIdValue)
+    const groupId = graphQlLongLiteral(groupIdValue)
+    const data = await graphQlRequest<{ recordGroupVisit: boolean }>(
+      `mutation RecordGroupVisit { recordGroupVisit(userId: ${userId}, groupId: ${groupId}) }`,
+    )
+    return data.recordGroupVisit
+  },
+
+  // ----- composed Payment -----
+  premiumPlans: async (): Promise<PremiumPlanOffer[]> => {
+    const data = await graphQlRequest<{ premiumPlans: PremiumPlanOffer[] }>(
+      `query PremiumPlans { premiumPlans { code amount durationMonths } }`,
+    )
+    return data.premiumPlans
+  },
+  createPremiumCheckout: async (plan: PremiumPlan): Promise<PremiumCheckout> => {
+    const data = await graphQlRequest<{ createPremiumCheckout: PremiumCheckout }>(
+      `mutation CreatePremiumCheckout($input: CreatePremiumCheckoutInput!) {
+        createPremiumCheckout(input: $input) { orderCode status checkoutUrl }
+      }`,
+      { input: { plan } },
+    )
+    return {
+      ...data.createPremiumCheckout,
+      orderCode: String(data.createPremiumCheckout.orderCode),
+      checkoutUrl: validatedCheckoutUrl(data.createPremiumCheckout.checkoutUrl),
+    }
+  },
+  premiumOrder: async (orderCode: string): Promise<PremiumOrder> => {
+    const data = await graphQlRequest<{ premiumOrder: PremiumOrder }>(
+      `query PremiumOrder($orderCode: ID!) {
+        premiumOrder(orderCode: $orderCode) {
+          orderCode plan amount status createdAt expiresAt paidAt targetValidDate
+        }
+      }`,
+      { orderCode },
+    )
+    return { ...data.premiumOrder, orderCode: String(data.premiumOrder.orderCode) }
+  },
+}
+
+// Kept only for the unreachable pre-Gateway screens. Separating this object lets
+// the production bundle tree-shake unsupported REST routes from the active app.
+export const legacyApi = {
+  uploadMedia,
   // ----- users -----
   me: () => request<UserProfile>(USER_ROUTES.me),
   user: (id: string) => request<UserProfile>(USER_ROUTES.byId(id)),

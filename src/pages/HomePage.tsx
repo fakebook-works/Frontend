@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { api } from '../api/client'
+import { legacyApi as api } from '../api/client'
 import type { FriendDto, FriendRequestDto, PostDto, UserProfile, UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { Composer } from '../components/Composer'
