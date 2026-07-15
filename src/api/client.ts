@@ -8,7 +8,6 @@ import type {
   FriendDto,
   FriendRequestDto,
   MediaUpload,
-  MediaUploadRequest,
   MessengerConversationDto,
   MessengerMessageDto,
   PostDto,
@@ -267,6 +266,7 @@ function normalizeGatewayPost(post: GatewayPost): GatewayPost {
     : { ...normalized, __typename: 'FeedPostDetail' }
 }
 
+
 function normalizeAuthUser(user: AuthUser): AuthUser {
   return { ...user, userId: String(user.userId) }
 }
@@ -462,19 +462,24 @@ export interface SendMessageBody {
   attachments?: MediaUpload[]
 }
 
-async function createMediaUploadRequest(file: File): Promise<MediaUploadRequest> {
+function directUploadUrl(): string {
+  return UPLOAD_SERVER_URL.endsWith('/media')
+    ? `${UPLOAD_SERVER_URL}/upload`
+    : `${UPLOAD_SERVER_URL}/media/upload`
+}
+
+export function resolveUploadedMediaUrl(value: string, baseUrl = UPLOAD_SERVER_URL): string {
+  if (/^https?:\/\//i.test(value) || !/^https?:\/\//i.test(baseUrl)) return value
+  return new URL(value, `${baseUrl.replace(/\/+$/, '')}/`).toString()
+}
+
+async function uploadMedia(file: File, allowRetry = true): Promise<MediaUpload> {
   const send = (token: string | undefined) => {
-    const headers = jsonHeaders(undefined, true, 'protected')
+    const headers = jsonHeaders(undefined, false, 'protected')
     if (token) headers.set('Authorization', `Bearer ${token}`)
-    return fetch(`${UPLOAD_SERVER_URL}/media/upload-requests`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        fileName: file.name,
-        contentType: file.type,
-        size: file.size,
-      }),
-    })
+    const form = new FormData()
+    form.append('file', file)
+    return fetch(directUploadUrl(), { method: 'POST', headers, body: form })
   }
 
   let res: Response
@@ -485,46 +490,13 @@ async function createMediaUploadRequest(file: File): Promise<MediaUploadRequest>
     throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
   }
 
-  return responseInterceptor<MediaUploadRequest>(res, {
+  const uploaded = await responseInterceptor<MediaUpload>(res, {
     authMode: 'protected',
-    allowRetry: true,
-    parse: (response) => response.json() as Promise<MediaUploadRequest>,
-    retryAfterRefresh: async (auth) => {
-      const retryResponse = await send(auth.accessToken)
-      return responseInterceptor<MediaUploadRequest>(retryResponse, {
-        authMode: 'protected',
-        allowRetry: false,
-        parse: (response) => response.json() as Promise<MediaUploadRequest>,
-        retryAfterRefresh: () => expireSession(),
-      })
-    },
+    allowRetry,
+    parse: (response) => response.json() as Promise<MediaUpload>,
+    retryAfterRefresh: () => uploadMedia(file, false),
   })
-}
-
-// Uploads use a signed URL issued by the backend. The signed upload endpoint
-// still performs full server-side validation before returning a stored media URL.
-async function uploadMedia(file: File): Promise<MediaUpload> {
-  const uploadRequest = await createMediaUploadRequest(file)
-  const form = new FormData()
-  form.append('file', file)
-
-  const uploadUrl = uploadRequest.uploadUrl.startsWith('http')
-    ? uploadRequest.uploadUrl
-    : `${UPLOAD_SERVER_URL}${uploadRequest.uploadUrl}`
-
-  let res: Response
-  try {
-    res = await fetch(uploadUrl, { method: 'PUT', body: form })
-  } catch {
-    notifyGatewayError(503)
-    throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
-  }
-
-  if (!res.ok) {
-    throw new ApiError(res.status, await parseErrorMessage(res, `Upload failed (${res.status})`))
-  }
-
-  return (await res.json()) as MediaUpload
+  return { ...uploaded, url: resolveUploadedMediaUrl(uploaded.url) }
 }
 
 const HOME_POST_FIELDS = `
@@ -554,6 +526,7 @@ const HOME_STORY_FIELDS = `
     sharedSource { id content media { id type url } author { id name avatar isVerified } }
   }
 `
+
 
 function normalizeStoryPage(page: StoryPage): StoryPage {
   return {
@@ -934,6 +907,7 @@ export const api = {
     )
     return { ...data.premiumOrder, orderCode: String(data.premiumOrder.orderCode) }
   },
+
 }
 
 // Kept only for the unreachable pre-Gateway screens. Separating this object lets

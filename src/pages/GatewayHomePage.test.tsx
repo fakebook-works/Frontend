@@ -95,4 +95,30 @@ describe('GatewayHomePage', () => {
     expect(screen.getByText('publishPostSuccess')).toBeInTheDocument()
     await waitFor(() => expect(apiMocks.postDetail).toHaveBeenCalledWith('42'))
   })
+
+  it('uploads media then saves returned URL through createFeedPost', async () => {
+    apiMocks.uploadMedia.mockResolvedValue({
+      url: 'https://uploads.example.com/media/files/photo.png',
+      type: 'image',
+      contentType: 'image/png',
+      size: 4,
+      name: 'photo.png',
+    })
+    apiMocks.createFeedPost.mockResolvedValue({ id: '43' })
+    apiMocks.postDetail.mockResolvedValue(null)
+    render(<GatewayHomePage />)
+
+    const file = new File([new Uint8Array([137, 80, 78, 71])], 'photo.png', { type: 'image/png' })
+    const fileInputs = screen.getAllByLabelText('photoVideo')
+    fireEvent.change(fileInputs[fileInputs.length - 1], { target: { files: [file] } })
+    fireEvent.change(screen.getByPlaceholderText('postComposerPlaceholder'), { target: { value: 'Photo post' } })
+    fireEvent.click(screen.getByRole('button', { name: 'post' }))
+
+    await waitFor(() => expect(apiMocks.createFeedPost).toHaveBeenCalledWith({
+      authorId: '9007199254740993123',
+      content: 'Photo post',
+      privacy: 0,
+      media: [{ type: 0, url: 'https://uploads.example.com/media/files/photo.png' }],
+    }))
+  })
 })

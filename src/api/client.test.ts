@@ -1,16 +1,26 @@
-import { describe, expect, it } from 'vitest'
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ApiError,
+  api,
+  clearAuth,
   graphQlLongLiteral,
   isTerminalPaymentStatus,
   nextPageCursor,
   parseGraphQlEnvelope,
   validatedCheckoutUrl,
   visibleRecommendationPosts,
+  persistAuth,
+  resolveUploadedMediaUrl,
 } from './client'
 import type { RecommendationItem } from './gatewayTypes'
 
 describe('Gateway contract helpers', () => {
+  afterEach(() => {
+    clearAuth()
+    vi.restoreAllMocks()
+  })
+
   it('preserves Snowflake identifiers before JSON parsing can round them', () => {
     const envelope = parseGraphQlEnvelope<{
       post: { id: string; author: { userId: string }; media: { id: string }[] }
@@ -59,5 +69,38 @@ describe('Gateway contract helpers', () => {
     expect(isTerminalPaymentStatus('FAILED')).toBe(true)
     expect(isTerminalPaymentStatus('PENDING')).toBe(false)
     expect(isTerminalPaymentStatus('ACTIVATION_PENDING')).toBe(false)
+  })
+
+  it('uploads media through the Upload Server direct endpoint', async () => {
+    persistAuth({
+      accessToken: 'test-token',
+      refreshTokenExpiresAt: null,
+      user: { userId: '1', email: 'test@example.com', validDate: null, status: 1 },
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      url: '/media/files/image.png',
+      type: 'image',
+      contentType: 'image/png',
+      size: 4,
+      name: 'image.png',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    const file = new File([new Uint8Array([137, 80, 78, 71])], 'image.png', { type: 'image/png' })
+    await api.uploadMedia(file)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/media/upload')
+    expect(init?.method).toBe('POST')
+    expect(init?.headers).toBeInstanceOf(Headers)
+    expect((init?.headers as Headers).get('Authorization')).toBe('Bearer test-token')
+    expect(init?.body).toBeInstanceOf(FormData)
+  })
+
+  it('makes returned media URLs absolute when Upload Server has its own origin', () => {
+    expect(resolveUploadedMediaUrl('/media/files/image.png', 'https://uploads.example.com')).toBe(
+      'https://uploads.example.com/media/files/image.png',
+    )
+    expect(resolveUploadedMediaUrl('/media/files/image.png', '/media')).toBe('/media/files/image.png')
   })
 })

@@ -33,13 +33,6 @@ export interface MediaUpload {
   name: string
 }
 
-export interface MediaUploadRequest {
-  uploadId: string
-  uploadUrl: string
-  expiresAt: string
-  maxSize: number
-}
-
 export interface PostDto {
   id: string
   author: UserSummary

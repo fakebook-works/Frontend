@@ -196,8 +196,12 @@ select {
   gap: 6px;
 }
 .app-shell-nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   position: relative;
-  min-width: 116px;
+  min-width: 82px;
   border: 0;
   border-radius: 8px;
   padding: 0 20px;
@@ -210,6 +214,14 @@ select {
 }
 .app-shell-nav button.active {
   color: var(--blue);
+}
+.app-shell-nav button:disabled {
+  color: var(--tertiary);
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+.app-shell-nav button:disabled:hover {
+  background: transparent;
 }
 .app-shell-nav button.active::after {
   position: absolute;
@@ -702,6 +714,9 @@ select {
     min-width: auto;
     padding: 0 14px;
   }
+  .app-shell-nav button span {
+    display: none;
+  }
   .signed-in-email {
     display: none;
   }
@@ -731,7 +746,7 @@ select {
     gap: 0;
   }
   .app-shell-nav button {
-    padding: 0 8px;
+    padding: 0 7px;
     font-size: 0.82rem;
   }
   .shell-language,

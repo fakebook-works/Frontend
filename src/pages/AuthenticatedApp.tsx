@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Icon } from '../components/Icon'
 import { languageOptions, useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
 import { useTheme } from '../theme'
@@ -23,9 +24,12 @@ export function AuthenticatedApp() {
           <img src="/brand/fakebook-full-cropped.png" alt="Fakebook" />
         </button>
         <nav className="app-shell-nav" aria-label={t('appNavigation')}>
-          <button type="button" className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}>{t('home')}</button>
-          <button type="button" className={view === 'premium' ? 'active' : ''} onClick={() => setView('premium')}>{t('premium')}</button>
-          <button type="button" className={view === 'security' ? 'active' : ''} onClick={() => setView('security')}>{t('security')}</button>
+          <NavButton icon="home" label={t('home')} active={view === 'home'} onClick={() => setView('home')} />
+          <NavButton icon="search" label={t('search')} enabled={false} unavailable={t('featureUnavailable')} />
+          <NavButton icon="messenger" label={t('messages')} enabled={false} unavailable={t('featureUnavailable')} />
+          <NavButton icon="bell" label={t('notifications')} enabled={false} unavailable={t('featureUnavailable')} />
+          <NavButton icon="gift" label={t('premium')} active={view === 'premium'} onClick={() => setView('premium')} />
+          <NavButton icon="settings" label={t('security')} active={view === 'security'} onClick={() => setView('security')} />
         </nav>
         <div className="app-shell-actions">
           <span className="signed-in-email" title={t('loggedInAs', { email: user.email })}>{user.email}</span>
@@ -43,5 +47,22 @@ export function AuthenticatedApp() {
       {view === 'premium' && <PremiumPage />}
       {view === 'security' && <AccountSecurityPage embedded />}
     </div>
+  )
+}
+
+function NavButton({ icon, label, active = false, enabled = true, unavailable, onClick }: {
+  icon: 'home' | 'search' | 'messenger' | 'bell' | 'gift' | 'settings'
+  label: string
+  active?: boolean
+  enabled?: boolean
+  unavailable?: string
+  onClick?: () => void
+}) {
+  const description = enabled ? label : `${label} — ${unavailable}`
+  return (
+    <button type="button" className={active ? 'active' : ''} onClick={onClick} disabled={!enabled} aria-label={description} title={description}>
+      <Icon name={icon} size={21} />
+      <span>{label}</span>
+    </button>
   )
 }
