@@ -28,6 +28,7 @@ export function AuthenticatedApp() {
           <NavButton icon="search" label={t('search')} enabled={false} unavailable={t('featureUnavailable')} />
           <NavButton icon="messenger" label={t('messages')} enabled={false} unavailable={t('featureUnavailable')} />
           <NavButton icon="bell" label={t('notifications')} enabled={false} unavailable={t('featureUnavailable')} />
+          <NavButton icon="video" label={t('reels')} enabled={false} unavailable={t('featureUnavailable')} />
           <NavButton icon="gift" label={t('premium')} active={view === 'premium'} onClick={() => setView('premium')} />
           <NavButton icon="settings" label={t('security')} active={view === 'security'} onClick={() => setView('security')} />
         </nav>
@@ -51,7 +52,7 @@ export function AuthenticatedApp() {
 }
 
 function NavButton({ icon, label, active = false, enabled = true, unavailable, onClick }: {
-  icon: 'home' | 'search' | 'messenger' | 'bell' | 'gift' | 'settings'
+  icon: 'home' | 'search' | 'messenger' | 'bell' | 'video' | 'gift' | 'settings'
   label: string
   active?: boolean
   enabled?: boolean

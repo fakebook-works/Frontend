@@ -30,6 +30,7 @@ describe('AuthenticatedApp service availability', () => {
     expect(screen.getByRole('button', { name: 'search — featureUnavailable' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'messages — featureUnavailable' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'notifications — featureUnavailable' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'reels — featureUnavailable' })).toBeDisabled()
     expect(screen.getAllByRole('button', { name: 'home' }).every((button) => !button.hasAttribute('disabled'))).toBe(true)
     expect(screen.getByRole('button', { name: 'premium' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'security' })).toBeEnabled()
