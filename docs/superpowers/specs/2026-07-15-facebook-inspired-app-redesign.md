@@ -28,7 +28,7 @@ Use a fixed top navigation bar, left navigation rail, centered feed, and right c
 Clicking the header avatar opens a compact anchored menu styled after the supplied reference. It contains:
 
 - The signed-in profile card and a View Profile action.
-- Fakebook Premium.
+- Fakebook Premium, opening its section inside Settings & Privacy.
 - Settings & Privacy.
 - Language.
 - Display & Accessibility for light/dark appearance.
@@ -51,7 +51,7 @@ The available categories are:
 
 Language and light/dark appearance controls live inside this page rather than being permanently scattered around the application shell. Security and account concerns include password changes, verification guidance, active sessions, session history, and device revocation. Search filters existing settings by translated title and description.
 
-Do not present nonfunctional technical placeholders. Premium remains a separate product destination and is also linked from the avatar menu.
+Do not present nonfunctional technical placeholders. Premium becomes a category inside Settings & Privacy and is linked directly from the avatar menu.
 
 ## Content
 
