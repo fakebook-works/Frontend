@@ -88,7 +88,7 @@ function MiniChatBox({
           className="mini-chat-id"
           onClick={(e) => {
             e.stopPropagation()
-            otherParticipant && onOpenProfile(otherParticipant.id)
+            if (otherParticipant) onOpenProfile(otherParticipant.id)
           }}
         >
           <Avatar name={name} src={avatar} size={32} online />

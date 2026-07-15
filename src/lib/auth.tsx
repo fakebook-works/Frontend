@@ -1,53 +1,64 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { LoginBody, RegisterBody } from '../api/client'
-import { api, clearAuth, getAuth, persistAuth, setStoredUser, subscribeAuth } from '../api/client'
-import type { UserSummary } from '../api/types'
+import type { AuthUser, LoginBody, RegisterBody, RegistrationResult } from '../api/client'
+import { api, clearAuth, getAuth, persistAuth, subscribeAuth } from '../api/client'
 
 interface AuthContextValue {
-  user: UserSummary | null
+  user: AuthUser | null
+  ready: boolean
   login: (body: LoginBody) => Promise<void>
-  register: (body: RegisterBody) => Promise<void>
+  register: (body: RegisterBody) => Promise<RegistrationResult>
   logout: () => Promise<void>
-  setUser: (user: UserSummary) => void
+  logoutAll: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<UserSummary | null>(() => getAuth()?.user ?? null)
+  const [user, setUser] = useState<AuthUser | null>(() => getAuth()?.user ?? null)
+  const [ready, setReady] = useState(false)
 
   // Keep React state in sync with token-store changes (refresh rotation, forced logout).
-  useEffect(() => subscribeAuth((auth) => setUser(auth?.user ?? null)), [])
+  useEffect(() => {
+    const unsubscribe = subscribeAuth((auth) => setUser(auth?.user ?? null))
+    let cancelled = false
+    api.restoreSession().finally(() => {
+      if (!cancelled) setReady(true)
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
 
   const login = useCallback(async (body: LoginBody) => {
     persistAuth(await api.login(body))
   }, [])
 
   const register = useCallback(async (body: RegisterBody) => {
-    persistAuth(await api.register(body))
+    return api.register(body)
   }, [])
 
   const logout = useCallback(async () => {
-    const current = getAuth()
-    if (current?.refreshToken) {
-      try {
-        await api.logout(current.refreshToken)
-      } catch {
-        /* best-effort server-side revoke */
-      }
+    try {
+      await api.logout()
+    } catch {
+      /* best-effort server-side revoke; always clear local access */
     }
     clearAuth()
   }, [])
 
-  const updateUser = useCallback((next: UserSummary) => {
-    setStoredUser(next)
-    setUser(next)
+  const logoutAll = useCallback(async () => {
+    try {
+      await api.logoutAll()
+    } finally {
+      clearAuth()
+    }
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, login, register, logout, setUser: updateUser }),
-    [user, login, register, logout, updateUser],
+    () => ({ user, ready, login, register, logout, logoutAll }),
+    [user, ready, login, register, logout, logoutAll],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

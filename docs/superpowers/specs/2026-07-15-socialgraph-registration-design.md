@@ -87,3 +87,13 @@ The GraphQL client will treat HTTP errors, GraphQL errors, and a `success: false
 - No changes to login, refresh-token, or logout contracts in this slice.
 - No username generation or profile username policy.
 - No automatic login after registration.
+
+## Approved Scope Additions
+
+The user subsequently prioritized completing Authentication before every other service. The frontend therefore also implements the existing public Gateway contracts for email verification/resend, email-only login, cookie-backed refresh, logout/logout-all, password reset/change, current identity, active sessions, session history, and per-session revocation.
+
+Email verification uses a dedicated desktop confirmation page rather than a modal. A matching two-factor challenge layout is prepared for the future `TWO_FACTOR_REQUIRED` response, but the current Authentication service exposes no 2FA verification mutation and documents MFA as a placeholder; the frontend must not invent an unsupported operation.
+
+Marketplace was explicitly removed from the frontend, including its page, navigation, API calls, DTOs, helpers, icon, translations, and CSS. Other backend service integrations remain deferred.
+
+All corrupted localized text is normalized to Unicode. When no locale is stored, the frontend may select a supported locale from an IP country lookup and falls back to browser language. An explicit user language choice is persisted to `localStorage` and is never overwritten by automatic detection.

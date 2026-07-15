@@ -10,19 +10,17 @@ import { PostCard } from '../components/PostCard'
 import { Stories } from '../components/Stories'
 import { useAuth } from '../lib/auth'
 import { firstName, timeAgo } from '../lib/format'
-import { MarketplacePage } from './MarketplacePage'
 import { MessengerPage, MiniChat } from './messenger'
 import { languageOptions, useI18n } from '../i18n'
 import { useTheme } from '../theme'
 
 const PAGE = 20
 
-type View = { type: 'feed' } | { type: 'profile'; userId: string } | { type: 'marketplace' } | { type: 'messenger' }
+type View = { type: 'feed' } | { type: 'profile'; userId: string } | { type: 'messenger' }
 
-export function HomePage() {
-  const { user, logout } = useAuth()
+export function HomePage({ me }: { me: UserSummary }) {
+  const { logout } = useAuth()
   const { t } = useI18n()
-  const me = user as UserSummary
 
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [feed, setFeed] = useState<PostDto[]>([])
@@ -68,7 +66,7 @@ export function HomePage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   async function loadMore() {
     setLoadingMore(true)
@@ -190,18 +188,15 @@ export function HomePage() {
         onAddFriend={addFriend}
         onHome={goHome}
         onLogout={logout}
-        onOpenMarketplace={() => setView({ type: 'marketplace' })}
         onOpenMessenger={() => setView({ type: 'messenger' })}
         activeView={view.type}
       />
 
-      {view.type === 'marketplace' ? (
-        <MarketplacePage onOpenProfile={openProfile} />
-      ) : view.type === 'messenger' ? (
+      {view.type === 'messenger' ? (
         <MessengerPage me={me} friends={friends.map((f) => f.user)} onOpenProfile={openProfile} />
       ) : (
       <div className="layout">
-        <LeftRail me={me} onOpenProfile={() => openProfile(me.id)} onOpenMarketplace={() => setView({ type: 'marketplace' })} />
+        <LeftRail me={me} onOpenProfile={() => openProfile(me.id)} />
 
         <main className="center">
           {view.type === 'feed' ? (
@@ -295,7 +290,6 @@ function TopBar({
   onAddFriend,
   onHome,
   onLogout,
-  onOpenMarketplace,
   onOpenMessenger,
   activeView,
 }: {
@@ -306,9 +300,8 @@ function TopBar({
   onAddFriend: (id: string) => void
   onHome: () => void
   onLogout: () => void
-  onOpenMarketplace: () => void
   onOpenMessenger: () => void
-  activeView: 'feed' | 'profile' | 'marketplace' | 'messenger'
+  activeView: 'feed' | 'profile' | 'messenger'
 }) {
   const { t, locale, setLocale } = useI18n()
   const { theme, toggleTheme } = useTheme()
@@ -335,7 +328,6 @@ function TopBar({
   const tabs: { name: IconName; label: string }[] = [
     { name: 'home', label: t('home') },
     { name: 'watch', label: t('watch') },
-    { name: 'marketplace', label: t('marketplace') },
     { name: 'groups', label: t('groups') },
   ]
 
@@ -396,15 +388,13 @@ function TopBar({
 
       <nav className="topbar-tabs" aria-label={t('primaryNavLabel')}>
         {tabs.map((t) => {
-          const isActive =
-            (t.name === 'home' && activeView === 'feed') ||
-            (t.name === 'marketplace' && activeView === 'marketplace')
+          const isActive = t.name === 'home' && activeView === 'feed'
           return (
             <button
               key={t.name}
               type="button"
               className={`tab${isActive ? ' active' : ''}`}
-              onClick={t.name === 'marketplace' ? onOpenMarketplace : onHome}
+              onClick={onHome}
               aria-label={t.label}
               title={t.label}
             >
@@ -485,13 +475,12 @@ function TopBar({
   )
 }
 
-function LeftRail({ me, onOpenProfile, onOpenMarketplace }: { me: UserSummary; onOpenProfile: () => void; onOpenMarketplace: () => void }) {
+function LeftRail({ me, onOpenProfile }: { me: UserSummary; onOpenProfile: () => void }) {
   const { t } = useI18n()
   const [expanded, setExpanded] = useState(false)
   const items: { icon: IconName; label: string }[] = [
     { icon: 'friends', label: t('friends') },
     { icon: 'groups', label: t('groups') },
-    { icon: 'marketplace', label: t('marketplace') },
     { icon: 'watch', label: t('video') },
     { icon: 'bookmark', label: t('saved') },
     { icon: 'location', label: t('memories') },
@@ -510,7 +499,6 @@ function LeftRail({ me, onOpenProfile, onOpenMarketplace }: { me: UserSummary; o
           type="button"
           className="rail-item"
           key={it.label}
-          onClick={it.label === 'Marketplace' ? onOpenMarketplace : undefined}
         >
           <span className="rail-icon">
             <Icon name={it.icon} size={22} />
@@ -748,7 +736,6 @@ function EditProfileModal({
   onClose: () => void
   onSaved: (p: UserProfile) => void
 }) {
-  const { setUser } = useAuth()
   const { t } = useI18n()
   const [displayName, setDisplayName] = useState(profile.displayName)
   const [bio, setBio] = useState(profile.bio ?? '')
@@ -778,7 +765,6 @@ function EditProfileModal({
       if ((avatarUrl.trim() || null) !== (profile.avatarUrl ?? null)) {
         result = await api.updateAvatar(avatarUrl.trim())
       }
-      setUser({ id: result.id, username: result.username, displayName: result.displayName, avatarUrl: result.avatarUrl })
       onSaved(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : t('saveProfileError'))

@@ -61,38 +61,3 @@ export function timeAgo(value: string, labels?: { justNow: string; minuteShort: 
 export function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name
 }
-
-export function money(n: number): string {
-  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
-}
-
-// Human countdown for an auction end timestamp. Reads "now" each call, so a
-// component that re-renders on a timer shows a live value.
-export function timeLeft(iso: string | null, labels?: { ended: string; left: string }): string {
-  if (!iso) return ''
-  const ms = new Date(iso).getTime() - Date.now()
-  if (ms <= 0) return labels?.ended ?? 'Ended'
-  const mins = Math.floor(ms / 60000)
-  const days = Math.floor(mins / 1440)
-  const hours = Math.floor((mins % 1440) / 60)
-  const m = mins % 60
-  if (days > 0) return (labels?.left ?? '{value} left').replace('{value}', `${days}d ${hours}h`)
-  if (hours > 0) return (labels?.left ?? '{value} left').replace('{value}', `${hours}h ${m}m`)
-  return (labels?.left ?? '{value} left').replace('{value}', `${m}m`)
-}
-
-export const LISTING_CATEGORIES: { value: number; label: string }[] = [
-  { value: 1, label: 'Vehicles' },
-  { value: 2, label: 'Electronics' },
-  { value: 3, label: 'Home & Garden' },
-  { value: 4, label: 'Clothing' },
-  { value: 5, label: 'Toys & Games' },
-  { value: 6, label: 'Sporting Goods' },
-  { value: 7, label: 'Hobbies' },
-  { value: 8, label: 'Property' },
-  { value: 0, label: 'Other' },
-]
-
-export function categoryLabel(value: number): string {
-  return LISTING_CATEGORIES.find((c) => c.value === value)?.label ?? 'Other'
-}
