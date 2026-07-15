@@ -4,16 +4,16 @@ import { ApiError } from '../api/client'
 import { api } from '../api/client'
 import type { RegisterBody } from '../api/client'
 import { useAuth } from '../lib/auth'
-import { useI18n } from '../i18n'
+import { languageOptions, useI18n } from '../i18n'
 
 export function LoginPage() {
   const { login, register } = useAuth()
-  const { t } = useI18n()
+  const { t, locale, setLocale } = useI18n()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [registerOpen, setRegisterOpen] = useState(false)
+  const [screen, setScreen] = useState<'login' | 'signup'>('login')
   const [challenge, setChallenge] = useState<{ mode: 'email' | 'twoFactor'; email: string } | null>(null)
   const [resetOpen, setResetOpen] = useState(false)
 
@@ -52,15 +52,26 @@ export function LoginPage() {
     )
   }
 
+  if (screen === 'signup') {
+    return <RegisterPage onBack={() => setScreen('login')} onRegister={register} onNeedsVerification={(registeredEmail) => {
+      setEmail(registeredEmail)
+      setScreen('login')
+      setChallenge({ mode: 'email', email: registeredEmail })
+    }} />
+  }
+
   return (
     <div className="auth-page">
       <div className="auth-hero">
         <div className="auth-pitch">
           <img src="/brand/fakebook-full-cropped.png" alt="Fakebook" className="auth-logo" />
+          <h1>{t('loginWelcome')}</h1>
           <p>{t('loginPitch')}</p>
+          <div className="auth-photo-mosaic" aria-hidden="true"><span /><span /><span /><span /></div>
         </div>
 
         <div className="auth-card-wrap">
+          <div className="auth-card-heading"><h2>{t('loginLogIn')}</h2><p>{t('loginAccountPrompt')}</p></div>
           <form className="card auth-card" onSubmit={onLogin}>
             <input type="email" placeholder={t('emailAddress')} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" autoFocus />
             <input type="password" placeholder={t('loginPassword')} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
@@ -70,33 +81,22 @@ export function LoginPage() {
             </button>
             <button type="button" className="auth-forgot" onClick={() => setResetOpen(true)}>{t('forgottenPassword')}</button>
             <div className="auth-divider" />
-            <button type="button" className="btn-create" onClick={() => setRegisterOpen(true)}>{t('createAccount')}</button>
+            <button type="button" className="btn-create" onClick={() => setScreen('signup')}>{t('createAccount')}</button>
           </form>
         </div>
       </div>
-
-      {registerOpen && (
-        <RegisterModal
-          onClose={() => setRegisterOpen(false)}
-          onRegister={register}
-          onNeedsVerification={(registeredEmail) => {
-            setRegisterOpen(false)
-            setEmail(registeredEmail)
-            setChallenge({ mode: 'email', email: registeredEmail })
-          }}
-        />
-      )}
+      <footer className="auth-footer"><div className="auth-languages">{languageOptions.filter((option) => option.locale === 'en' || option.locale === 'vi').map((option) => <button type="button" className={locale === option.locale ? 'active' : ''} key={option.locale} onClick={() => setLocale(option.locale)}>{option.label}</button>)}</div><p>{t('footerLinks')}</p></footer>
       {resetOpen && <PasswordResetModal initialEmail={email} onClose={() => setResetOpen(false)} />}
     </div>
   )
 }
 
-function RegisterModal({
-  onClose,
+function RegisterPage({
+  onBack,
   onRegister,
   onNeedsVerification,
 }: {
-  onClose: () => void
+  onBack: () => void
   onRegister: (body: RegisterBody) => Promise<{ success: boolean; message: string | null }>
   onNeedsVerification: (email: string) => void
 }) {
@@ -145,13 +145,12 @@ function RegisterModal({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={() => !busy && onClose()}>
-      <div className="modal auth-register" role="dialog" aria-modal="true" aria-labelledby="register-title" onClick={(e) => e.stopPropagation()}>
-        <header className="modal-head register-head">
-          <div><h2 id="register-title">{t('signUp')}</h2><p>{t('signupProfileNote')}</p></div>
-          <button type="button" className="icon-circle subtle" onClick={onClose} aria-label={t('close')}>✕</button>
-        </header>
-        <form className="modal-body register-form" onSubmit={submit}>
+    <div className="signup-page">
+      <header className="signup-topbar"><button type="button" onClick={onBack} aria-label={t('backToLogin')}><img src="/brand/fakebook-full-cropped.png" alt="Fakebook" /></button><button type="button" className="btn-soft" onClick={onBack}>{t('alreadyHaveAccount')}</button></header>
+      <main className="signup-main">
+        <section className="signup-card" aria-labelledby="register-title">
+          <header className="register-head"><span className="signup-kicker">{t('joinFakebook')}</span><h1 id="register-title">{t('createAccount')}</h1><p>{t('signupProfileNote')}</p></header>
+          <form className="register-form" onSubmit={submit}>
           <input placeholder={t('fullName')} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" autoFocus required />
           <input type="email" placeholder={t('emailAddress')} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
           <input type="password" placeholder={t('newPassword')} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required />
@@ -160,11 +159,13 @@ function RegisterModal({
             <label><span>{t('genderLabel')}</span><select value={gender} onChange={(e) => setGender(e.target.value)} required><option value="">{t('selectGender')}</option><option value="female">{t('genderFemale')}</option><option value="male">{t('genderMale')}</option></select></label>
           </div>
           <input placeholder={t('locationLabel')} value={location} onChange={(e) => setLocation(e.target.value)} autoComplete="address-level2" required />
-          <p className="field-note">{t('profileDataOwnedBySocialGraph')}</p>
+          <p className="field-note">{t('signupPrivacyNote')}</p>
           {error && <p className="form-error">{error}</p>}
           <button type="submit" className="btn-create lg" disabled={busy || !name.trim() || !email.trim() || !password || !gender || !birthdate || !location.trim()}>{busy ? t('creating') : t('signUp')}</button>
-        </form>
-      </div>
+          <button type="button" className="signup-login-link" onClick={onBack}>{t('alreadyHaveAccount')}</button>
+          </form>
+        </section>
+      </main>
     </div>
   )
 }

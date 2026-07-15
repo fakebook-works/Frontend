@@ -12,7 +12,7 @@ function formatDate(value: string | null, fallback: string) {
   return Number.isNaN(date.getTime()) ? fallback : date.toLocaleString()
 }
 
-export function AccountSecurityPage({ embedded = false }: { embedded?: boolean }) {
+export function AccountSecurityPage({ embedded = false, section = 'all' }: { embedded?: boolean; section?: 'all' | 'security' | 'sessions' }) {
   const { user, logout, logoutAll } = useAuth()
   const { t, locale, setLocale } = useI18n()
   const { theme, toggleTheme } = useTheme()
@@ -99,7 +99,7 @@ export function AccountSecurityPage({ embedded = false }: { embedded?: boolean }
           <label className="lang-select" aria-label={t('languageLabel')}>
             <span>{t('languageLabel')}</span>
             <select value={locale} onChange={(e) => setLocale(e.target.value as typeof locale)}>
-              {languageOptions.map((option) => (
+              {languageOptions.filter((option) => option.locale === 'en' || option.locale === 'vi').map((option) => (
                 <option key={option.locale} value={option.locale}>{option.label}</option>
               ))}
             </select>
@@ -112,7 +112,7 @@ export function AccountSecurityPage({ embedded = false }: { embedded?: boolean }
       </header>}
 
       <main className="security-layout">
-        <section className="security-hero card">
+        {section !== 'sessions' && <section className="security-hero card">
           <div>
             <p className="eyebrow">{t('accountSecurity')}</p>
             <h1>{t('welcomeEmail', { email: user.email })}</h1>
@@ -121,13 +121,12 @@ export function AccountSecurityPage({ embedded = false }: { embedded?: boolean }
           <dl className="identity-grid">
             <div><dt>{t('emailAddress')}</dt><dd>{user.email}</dd></div>
             <div><dt>{t('accountStatus')}</dt><dd>{user.status === 1 ? t('accountActive') : t('accountPending')}</dd></div>
-            <div><dt>{t('userId')}</dt><dd>{user.userId}</dd></div>
             <div><dt>{t('premiumUntil')}</dt><dd>{formatDate(user.validDate, t('notActive'))}</dd></div>
           </dl>
-        </section>
+        </section>}
 
         <div className="security-columns">
-          <section className="card security-panel">
+          {section !== 'security' && <section className="card security-panel">
             <div className="panel-heading">
               <div><h2>{t('activeSessions')}</h2><p>{t('activeSessionsHelp')}</p></div>
               <button type="button" className="btn-soft sm" onClick={() => void loadSessions()} disabled={loading}>{t('refresh')}</button>
@@ -152,9 +151,9 @@ export function AccountSecurityPage({ embedded = false }: { embedded?: boolean }
               </div>
             )}
             <button type="button" className="btn-danger block" onClick={() => void logoutAll()}>{t('logoutAllDevices')}</button>
-          </section>
+          </section>}
 
-          <section className="card security-panel">
+          {section !== 'sessions' && <section className="card security-panel">
             <div className="panel-heading"><div><h2>{t('changePassword')}</h2><p>{t('changePasswordHelp')}</p></div></div>
             <form className="security-form" onSubmit={changePassword}>
               <label><span>{t('currentPassword')}</span><input type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required /></label>
@@ -163,10 +162,10 @@ export function AccountSecurityPage({ embedded = false }: { embedded?: boolean }
               {passwordMessage && <p className={passwordMessage === t('passwordChanged') ? 'form-success' : 'form-error'}>{passwordMessage}</p>}
               <button type="submit" className="btn-primary block" disabled={passwordBusy}>{passwordBusy ? t('saving') : t('changePassword')}</button>
             </form>
-          </section>
+          </section>}
         </div>
 
-        <section className="card security-panel">
+        {section !== 'security' && <section className="card security-panel">
           <div className="panel-heading"><div><h2>{t('sessionHistory')}</h2><p>{t('sessionHistoryHelp')}</p></div></div>
           {history.length === 0 ? <p className="muted">{t('noSessionHistory')}</p> : (
             <div className="history-grid">
@@ -179,7 +178,7 @@ export function AccountSecurityPage({ embedded = false }: { embedded?: boolean }
               ))}
             </div>
           )}
-        </section>
+        </section>}
       </main>
     </div>
   )

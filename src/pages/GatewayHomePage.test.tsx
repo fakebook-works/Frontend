@@ -92,6 +92,7 @@ describe('GatewayHomePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'post' }))
 
     expect(await screen.findByText('Hello Gateway')).toBeInTheDocument()
+    expect(screen.getByLabelText('verifiedAccount')).toBeInTheDocument()
     expect(screen.getByText('publishPostSuccess')).toBeInTheDocument()
     await waitFor(() => expect(apiMocks.postDetail).toHaveBeenCalledWith('42'))
   })

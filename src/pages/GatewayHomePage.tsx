@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, visibleRecommendationPosts } from '../api/client'
 import type { GatewayPost, StoryBucket, VisitedGroup } from '../api/gatewayTypes'
+import type { UserProfile } from '../api/types'
 import { Avatar } from '../components/Avatar'
+import { Icon } from '../components/Icon'
+import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
 
@@ -12,7 +15,7 @@ function mediaType(type: 'image' | 'video') {
   return type === 'video' ? 1 : 0
 }
 
-export function GatewayHomePage() {
+export function GatewayHomePage({ profile = null }: { profile?: UserProfile | null }) {
   const { user } = useAuth()
   const { t, locale } = useI18n()
   const [posts, setPosts] = useState<GatewayPost[]>([])
@@ -114,6 +117,11 @@ export function GatewayHomePage() {
   return (
     <main className="gateway-home">
       <aside className="gateway-left-rail" aria-label={t('visitedGroups')}>
+        <nav className="home-shortcuts" aria-label={t('primaryNavLabel')}>
+          <button type="button"><Avatar name={profile?.displayName || user.email} src={profile?.avatarUrl} size={36} /><strong>{profile?.displayName || user.email.split('@')[0]}<VerifiedBadge verified={profile?.isVerified} size={13} /></strong></button>
+          <button type="button" disabled title={t('featureUnavailable')}><span className="shortcut-icon friends"><Icon name="friends" size={20} /></span><strong>{t('friends')}</strong></button>
+          <button type="button" disabled title={t('featureUnavailable')}><span className="shortcut-icon saved"><Icon name="bookmark" size={20} /></span><strong>{t('saved')}</strong></button>
+        </nav>
         <section className="card service-panel">
           <div className="service-heading">
             <div><h2>{t('visitedGroups')}</h2><p>{t('visitedGroupsSubtitle')}</p></div>
@@ -134,7 +142,6 @@ export function GatewayHomePage() {
             </div>
           )}
         </section>
-        <p className="service-contract-note">{t('serviceDataNote')}</p>
       </aside>
 
       <div className="gateway-feed-column">
@@ -147,14 +154,13 @@ export function GatewayHomePage() {
         />
         <PostComposer
           userId={user.userId}
-          email={user.email}
+          email={profile?.displayName || user.email}
           onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])}
         />
 
         <section className="feed-section" aria-labelledby="recommended-feed-title">
           <div className="feed-heading">
             <div>
-              <p className="eyebrow">Recommendation</p>
               <h1 id="recommended-feed-title">{t('recommendedFeed')}</h1>
               <p>{t('recommendedFeedSubtitle')}</p>
             </div>
@@ -177,6 +183,18 @@ export function GatewayHomePage() {
           )}
         </section>
       </div>
+
+      <aside className="gateway-right-rail" aria-label={t('contacts')}>
+        <section className="right-rail-module">
+          <h2>{t('birthdays')}</h2>
+          <div className="birthday-row"><span aria-hidden="true">🎁</span><p>{t('birthdayEmpty')}</p></div>
+        </section>
+        <section className="right-rail-module contacts-module">
+          <header><h2>{t('contacts')}</h2><div><button type="button" disabled aria-label={t('search')}><Icon name="search" size={17} /></button><button type="button" disabled aria-label={t('more')}><Icon name="more" size={17} /></button></div></header>
+          <p>{t('noContactsYet')}</p>
+        </section>
+        <p className="right-rail-footer">{t('footerLinks')}</p>
+      </aside>
     </main>
   )
 }
@@ -184,7 +202,10 @@ export function GatewayHomePage() {
 function PostComposer({ userId, email, onCreated }: { userId: string; email: string; onCreated: (post: GatewayPost) => void }) {
   const { t } = useI18n()
   const [content, setContent] = useState('')
-  const [privacy, setPrivacy] = useState(0)
+  const [privacy, setPrivacy] = useState(() => {
+    const saved = Number(localStorage.getItem('fb.defaultPostPrivacy'))
+    return saved === 1 || saved === 2 ? saved : 0
+  })
   const [file, setFile] = useState<File | null>(null)
   const [fileKey, setFileKey] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -298,7 +319,7 @@ function StorySection({ buckets, loading, error, userId, onReload }: { buckets: 
               <article className="story-tile" key={bucket.author.id}>
                 {preview && <img className="story-cover" src={preview} alt="" loading="lazy" />}
                 <Avatar name={bucket.author.name} src={bucket.author.avatar || null} size={38} />
-                <strong>{bucket.author.name}</strong>
+                <strong>{bucket.author.name}<VerifiedBadge verified={bucket.author.isVerified} size={13} /></strong>
                 <span>{latest?.content || t('stories')}</span>
                 {bucket.author.id === userId && latest && <button type="button" onClick={() => void deleteLatest(bucket)}>{t('deleteStory')}</button>}
               </article>
@@ -319,13 +340,14 @@ function GatewayPostCard({ post, locale }: { post: GatewayPost; locale: string }
       <header>
         <Avatar name={post.author.name} src={post.author.avatar || null} size={44} />
         <div>
-          <strong>{post.author.name}{post.author.isVerified && <span className="verified-mark" title={t('verifiedAccount')}>✓</span>}</strong>
+          <strong>{post.author.name}<VerifiedBadge verified={post.author.isVerified} /></strong>
           <span>{post.__typename === 'GroupPostDetail' ? t('groupPostLabel', { group: post.group.name }) : time}</span>
           {post.__typename === 'GroupPostDetail' && <small>{time}</small>}
         </div>
       </header>
       {post.content && <p className="gateway-post-content">{post.content}</p>}
       {post.media.length > 0 && <div className={post.media.length > 1 ? 'gateway-media media-grid' : 'gateway-media'}>{post.media.map((media) => media.type === 1 ? <video key={media.id} src={media.url} controls preload="metadata" /> : <img key={media.id} src={media.url} alt="" loading="lazy" />)}</div>}
+      <footer className="gateway-post-actions"><button type="button" disabled><Icon name="like" size={18} />{t('like')}</button><button type="button" disabled><Icon name="comment" size={18} />{t('comment')}</button><button type="button" disabled><Icon name="share" size={18} />{t('share')}</button></footer>
     </article>
   )
 }

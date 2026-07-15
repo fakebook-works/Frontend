@@ -3,8 +3,10 @@ import type { FormEvent } from 'react'
 import type { MediaUpload, MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
+import { VerifiedBadge } from '../../components/VerifiedBadge'
 import { EmojiButton } from './EmojiButton'
 import { conversationAvatar, conversationName, formatTime, shouldShowAvatar, shouldShowTimestamp } from './helpers'
+import { useI18n } from '../../i18n'
 
 interface MessageThreadProps {
   me: UserSummary
@@ -41,6 +43,7 @@ export function MessageThread({
   onToggleDetail,
   onBack,
 }: MessageThreadProps) {
+  const { t } = useI18n()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -76,7 +79,7 @@ export function MessageThread({
         >
           <Avatar name={name} src={avatar} size={40} online />
           <span>
-            <strong>{name}</strong>
+            <strong>{name}<VerifiedBadge verified={otherParticipant?.isVerified} size={13} /></strong>
             <small>Active now</small>
           </span>
         </button>
@@ -102,12 +105,8 @@ export function MessageThread({
       <div className="messenger-messages">
         <div className="messenger-intro">
           <Avatar name={name} src={avatar} size={72} online />
-          <h2>{name}</h2>
-          <p>
-            {apiState === 'gateway'
-              ? 'Connected through the API Gateway.'
-              : 'Preview data — API Gateway route pending.'}
-          </p>
+          <h2>{name}<VerifiedBadge verified={otherParticipant?.isVerified} /></h2>
+          <p>{apiState === 'gateway' ? t('messengerReadyMessage') : t('messengerPreviewMessage')}</p>
         </div>
 
         {messages.map((message, idx) => {

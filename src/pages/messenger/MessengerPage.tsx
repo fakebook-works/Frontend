@@ -255,7 +255,6 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
           <ConversationDetail
             me={me}
             conversation={selected}
-            apiState={apiState}
             onOpenProfile={onOpenProfile}
           />
         )}

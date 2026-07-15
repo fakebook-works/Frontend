@@ -561,10 +561,10 @@ export function validatedCheckoutUrl(value: string): string {
   try {
     url = new URL(value)
   } catch {
-    throw new ApiError(502, 'The payment service returned an invalid checkout URL.')
+    throw new ApiError(502, 'Checkout could not be started. Please try again.')
   }
   if (url.protocol !== 'https:') {
-    throw new ApiError(502, 'The payment service returned an insecure checkout URL.')
+    throw new ApiError(502, 'The checkout link could not be verified.')
   }
   return url.toString()
 }

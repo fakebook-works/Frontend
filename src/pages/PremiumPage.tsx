@@ -125,7 +125,6 @@ export function PremiumPage() {
     <main className="premium-page">
       <section className="premium-hero">
         <div>
-          <p className="eyebrow">Payment × Authentication</p>
           <h1>{t('premiumTitle')}</h1>
           <p>{t('premiumSubtitle')}</p>
         </div>
@@ -138,7 +137,7 @@ export function PremiumPage() {
       {orderCode && (
         <section className="card pending-order">
           <div className="service-heading">
-            <div><p className="eyebrow">PayOS</p><h2>{t('pendingOrder')}</h2></div>
+            <div><h2>{t('pendingOrder')}</h2></div>
             <button type="button" className="btn-soft sm" disabled={orderBusy} onClick={() => void loadOrder(orderCode)}>{orderBusy ? t('checkingPayment') : t('refreshPaymentStatus')}</button>
           </div>
           <dl>
@@ -152,7 +151,7 @@ export function PremiumPage() {
       )}
 
       <section className="premium-plans" aria-labelledby="premium-plans-title">
-        <div className="premium-section-heading"><p className="eyebrow">Payment service</p><h2 id="premium-plans-title">{t('choosePremiumPlan')}</h2></div>
+        <div className="premium-section-heading"><h2 id="premium-plans-title">{t('choosePremiumPlan')}</h2></div>
         {plansLoading ? <div className="card state-card"><span className="spinner" /><p>{t('loadingMore')}</p></div> : plansError ? (
           <div className="card state-card"><p className="form-error">{plansError}</p><button type="button" className="btn-primary" onClick={() => void loadPlans()}>{t('tryAgain')}</button></div>
         ) : (
@@ -162,6 +161,7 @@ export function PremiumPage() {
                 <span className="plan-code">{plan.code === 'MONTHLY' ? t('monthlyPlan') : t('yearlyPlan')}</span>
                 <strong>{currency.format(plan.amount)}</strong>
                 <p>{t('planDuration', { count: plan.durationMonths })}</p>
+                <ul className="plan-benefits"><li>{t('premiumVerifiedBenefit')}</li><li>{t('premiumSupportBenefit')}</li></ul>
                 <button type="button" className={plan.code === 'YEARLY' ? 'btn-primary block' : 'btn-soft block'} disabled={checkoutBusy !== null} onClick={() => void checkout(plan.code)}>
                   {checkoutBusy === plan.code ? t('creatingCheckout') : t('startCheckout')}
                 </button>

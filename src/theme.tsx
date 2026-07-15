@@ -20,6 +20,7 @@ function getInitialTheme(): Theme {
 
 type ThemeContextValue = {
   theme: Theme
+  setTheme: (theme: Theme) => void
   toggleTheme: () => void
 }
 
@@ -40,6 +41,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ThemeContextValue>(
     () => ({
       theme,
+      setTheme,
       toggleTheme: () => setTheme((prev) => (prev === 'light' ? 'dark' : 'light')),
     }),
     [theme],

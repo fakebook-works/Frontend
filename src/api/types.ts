@@ -7,6 +7,7 @@ export interface UserSummary {
   username: string
   displayName: string
   avatarUrl: string | null
+  isVerified?: boolean
 }
 
 export interface UserProfile {
@@ -15,6 +16,7 @@ export interface UserProfile {
   email: string
   displayName: string
   avatarUrl: string | null
+  isVerified?: boolean
   bio: string | null
   birthDate: string | null
   gender: string | null

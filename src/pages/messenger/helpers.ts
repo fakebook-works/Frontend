@@ -45,11 +45,11 @@ export function shouldShowAvatar(messages: MessengerMessageDto[], index: number)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Seed data (fallback when API Gateway is unreachable)               */
+/*  Fallback conversation samples                                      */
 /* ------------------------------------------------------------------ */
 
 const SEED_SNIPPETS = [
-  'Can you check the new API gateway route?',
+  'Are you free to catch up later?',
   'Looks good on my side 👍',
   'I sent the screenshots in the group.',
   'Wanna grab lunch later?',
@@ -96,9 +96,9 @@ export function seedMessages(conversation: MessengerConversationDto, me: UserSum
 
   return [
     { id: `${conversation.id}-m1`, conversationId: conversation.id, sender: other, body: 'Hey! How is everything going?', createdAt: new Date(base).toISOString(), status: 'read', attachments: [] },
-    { id: `${conversation.id}-m2`, conversationId: conversation.id, sender: me, body: 'Great, thanks! Working on the messenger UI right now.', createdAt: new Date(base + 1000 * 60 * 5).toISOString(), status: 'read', attachments: [] },
-    { id: `${conversation.id}-m3`, conversationId: conversation.id, sender: other, body: 'Nice! The API gateway routes are being set up on the backend.', createdAt: new Date(base + 1000 * 60 * 12).toISOString(), status: 'read', attachments: [] },
-    { id: `${conversation.id}-m4`, conversationId: conversation.id, sender: me, body: 'Perfect. The UI will connect through the gateway once the endpoints are live.', createdAt: new Date(base + 1000 * 60 * 18).toISOString(), status: 'read', attachments: [] },
+    { id: `${conversation.id}-m2`, conversationId: conversation.id, sender: me, body: 'Great, thanks! I have had a busy but productive day.', createdAt: new Date(base + 1000 * 60 * 5).toISOString(), status: 'read', attachments: [] },
+    { id: `${conversation.id}-m3`, conversationId: conversation.id, sender: other, body: 'Glad to hear it! Want to grab something to eat later?', createdAt: new Date(base + 1000 * 60 * 12).toISOString(), status: 'read', attachments: [] },
+    { id: `${conversation.id}-m4`, conversationId: conversation.id, sender: me, body: 'Sounds good. Send me the place when you decide.', createdAt: new Date(base + 1000 * 60 * 18).toISOString(), status: 'read', attachments: [] },
     { id: `${conversation.id}-m5`, conversationId: conversation.id, sender: other, body: conversation.lastMessage?.body ?? 'Sounds good, keep me posted!', createdAt: conversation.updatedAt, status: conversation.lastMessage?.status ?? 'delivered', attachments: conversation.lastMessage?.attachments ?? [] },
   ]
 }
