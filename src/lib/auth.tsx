@@ -23,11 +23,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = subscribeAuth((auth) => setUser(auth?.user ?? null))
     let cancelled = false
-    api.restoreSession().finally(() => {
+    const readyFallback = window.setTimeout(() => {
+      if (!cancelled) setReady(true)
+    }, 5000)
+    api.restoreSession().catch(() => null).finally(() => {
+      window.clearTimeout(readyFallback)
       if (!cancelled) setReady(true)
     })
     return () => {
       cancelled = true
+      window.clearTimeout(readyFallback)
       unsubscribe()
     }
   }, [])

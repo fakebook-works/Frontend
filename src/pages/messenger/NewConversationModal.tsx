@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
+import { useI18n } from '../../i18n'
 
 interface NewConversationModalProps {
   friends: UserSummary[]
@@ -10,6 +11,7 @@ interface NewConversationModalProps {
 }
 
 export function NewConversationModal({ friends, onStart, onClose }: NewConversationModalProps) {
+  const { t } = useI18n()
   const [search, setSearch] = useState('')
 
   const filtered = useMemo(() => {
@@ -29,25 +31,25 @@ export function NewConversationModal({ friends, onStart, onClose }: NewConversat
         onClick={(e) => e.stopPropagation()}
       >
         <header className="modal-head">
-          <h2>New Message</h2>
-          <button type="button" className="icon-circle subtle" onClick={onClose} aria-label="Close">
+          <h2>{t('newMessage')}</h2>
+          <button type="button" className="icon-circle subtle" onClick={onClose} aria-label={t('close')}>
             <Icon name="close" size={20} />
           </button>
         </header>
 
         <label className="msg-new-search">
-          <span>To:</span>
+          <span>{t('to')}:</span>
           <input
             autoFocus
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search friends..."
+            placeholder={t('searchFriends')}
           />
         </label>
 
         <div className="msg-new-list">
           {filtered.length === 0 ? (
-            <p className="muted small pad">No friends found.</p>
+            <p className="muted small pad">{t('noFriendsFound')}</p>
           ) : (
             filtered.map((f) => (
               <button type="button" key={f.id} className="msg-new-row" onClick={() => onStart(f)}>

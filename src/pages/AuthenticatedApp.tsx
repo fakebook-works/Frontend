@@ -14,12 +14,20 @@ import type { SettingsSection } from './SettingsPage'
 
 type AppView = 'home' | 'profile' | 'messenger' | 'settings'
 
+function initialDestination(): { view: AppView; settingsSection: SettingsSection } {
+  return window.location.pathname === '/premium/payment'
+    ? { view: 'settings', settingsSection: 'premium' }
+    : { view: 'home', settingsSection: 'overview' }
+}
+
 export function AuthenticatedApp() {
   const { user, logout } = useAuth()
   const { t } = useI18n()
-  const [view, setView] = useState<AppView>('home')
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>('profile')
+  const initial = useRef(initialDestination()).current
+  const [view, setView] = useState<AppView>(initial.view)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>(initial.settingsSection)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuView, setMenuView] = useState<'root' | 'settings'>('root')
   const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null)
   const [viewedProfile, setViewedProfile] = useState<UserProfile | null>(null)
   const [profileLoading, setProfileLoading] = useState(true)
@@ -31,22 +39,30 @@ export function AuthenticatedApp() {
   useEffect(() => {
     if (!menuOpen) return
     const closeOutside = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false)
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false)
+        setMenuView('root')
+      }
     }
     const closeEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (menuView === 'settings') {
+          setMenuView('root')
+          return
+        }
         setMenuOpen(false)
+        setMenuView('root')
         window.setTimeout(() => menuTriggerRef.current?.focus(), 0)
       }
     }
-    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    window.setTimeout(() => menuRef.current?.querySelector<HTMLButtonElement>('.account-dropdown button')?.focus(), 0)
     document.addEventListener('mousedown', closeOutside)
     document.addEventListener('keydown', closeEscape)
     return () => {
       document.removeEventListener('mousedown', closeOutside)
       document.removeEventListener('keydown', closeEscape)
     }
-  }, [menuOpen])
+  }, [menuOpen, menuView])
 
   useEffect(() => {
     let active = true
@@ -69,11 +85,13 @@ export function AuthenticatedApp() {
     setSettingsSection(section)
     setView('settings')
     setMenuOpen(false)
+    setMenuView('root')
   }
 
   async function openProfile(userId?: string) {
     const targetUserId = userId ?? user!.userId
     setMenuOpen(false)
+    setMenuView('root')
     setView('profile')
     if (targetUserId === user!.userId && currentProfile) {
       setViewedProfile(currentProfile)
@@ -115,24 +133,25 @@ export function AuthenticatedApp() {
           <button type="button" className={view === 'messenger' ? 'icon-circle active' : 'icon-circle'} aria-label={t('messages')} onClick={() => setView('messenger')}><Icon name="messenger" size={20} /></button>
           <button type="button" className="icon-circle" disabled aria-label={`${t('notifications')} — ${t('featureUnavailable')}`} title={t('featureUnavailable')}><Icon name="bell" size={20} /></button>
           <div className="account-menu-wrap" ref={menuRef}>
-            <button ref={menuTriggerRef} type="button" className="shell-avatar-button" aria-haspopup="dialog" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
+            <button ref={menuTriggerRef} type="button" className="shell-avatar-button" aria-haspopup="dialog" aria-expanded={menuOpen} onClick={() => { setMenuOpen((open) => !open); setMenuView('root') }}>
               <Avatar name={displayName} src={avatarUrl} size={40} />
             </button>
             {menuOpen && (
-              <div className="account-dropdown" role="dialog" aria-label={t('accountMenu')}>
-                <div className="account-profile-card">
-                  <button type="button" onClick={() => void openProfile()}>
-                    <Avatar name={displayName} src={avatarUrl} size={58} />
-                    <span><strong>{displayName}<VerifiedBadge verified={currentProfile?.isVerified} /></strong><small>{user.email}</small></span>
-                  </button>
-                  <button type="button" className="view-profile-link" onClick={() => void openProfile()}>{t('seeYourProfile')}</button>
-                </div>
-                <MenuItem icon="gift" label={t('premium')} detail={t('premiumMenuDesc')} onClick={() => openSettings('premium')} />
-                <MenuItem icon="settings" label={t('settingsPrivacy')} detail={t('settingsMenuDesc')} onClick={() => openSettings('profile')} />
-                <MenuItem icon="globe" label={t('languageLabel')} onClick={() => openSettings('language')} />
-                <MenuItem icon="settings" label={t('settingsAppearance')} onClick={() => openSettings('appearance')} />
-                <MenuItem icon="logout" label={t('logout')} onClick={() => void logout()} />
-                <p className="account-menu-footer">{t('footerLinks')}</p>
+              <div className={`account-dropdown account-dropdown-${menuView}`} role="dialog" aria-label={t('accountMenu')}>
+                {menuView === 'root' ? <>
+                  <div className="account-profile-card">
+                    <button type="button" onClick={() => void openProfile()}>
+                      <Avatar name={displayName} src={avatarUrl} size={58} />
+                      <span><strong>{displayName}<VerifiedBadge verified={currentProfile?.isVerified} /></strong><small>{user.email}</small></span>
+                    </button>
+                    <button type="button" className="view-profile-link" onClick={() => void openProfile()}>{t('seeYourProfile')}</button>
+                  </div>
+                  <MenuItem icon="gift" label={t('premium')} detail={t('premiumMenuDesc')} onClick={() => openSettings('premium')} />
+                  <MenuItem icon="settings" label={t('settingsPrivacy')} detail={t('settingsMenuDesc')} onClick={() => setMenuView('settings')} />
+                  <MenuItem icon="settings" label={t('settingsAppearance')} onClick={() => openSettings('appearance')} />
+                  <MenuItem icon="logout" label={t('logout')} onClick={() => void logout()} />
+                  <p className="account-menu-footer">{t('footerLinks')}</p>
+                </> : <SettingsSubmenu onBack={() => setMenuView('root')} onOpen={openSettings} />}
               </div>
             )}
           </div>
@@ -145,6 +164,23 @@ export function AuthenticatedApp() {
       {view === 'settings' && <SettingsPage initialSection={settingsSection} />}
     </div>
   )
+}
+
+function SettingsSubmenu({ onBack, onOpen }: { onBack: () => void; onOpen: (section: SettingsSection) => void }) {
+  const { t } = useI18n()
+  return <div className="account-submenu">
+    <header><button type="button" className="account-submenu-back" onClick={onBack} aria-label={t('back')}>‹</button><h2>{t('settingsPrivacy')}</h2></header>
+    <SettingsMenuItem icon="settings" label={t('settingsGeneral')} onClick={() => onOpen('overview')} />
+    <SettingsMenuItem icon="globe" label={t('languageLabel')} onClick={() => onOpen('language')} />
+    <SettingsMenuItem icon="friends" label={t('privacyCheckup')} onClick={() => onOpen('privacy')} />
+    <SettingsMenuItem icon="lock" label={t('privacyCenter')} onClick={() => onOpen('security')} />
+    <SettingsMenuItem icon="clock" label={t('activityLog')} onClick={() => onOpen('sessions')} />
+    <SettingsMenuItem icon="settings" label={t('contentPreferences')} onClick={() => onOpen('appearance')} />
+  </div>
+}
+
+function SettingsMenuItem({ icon, label, onClick }: { icon: 'settings' | 'globe' | 'friends' | 'lock' | 'clock'; label: string; onClick: () => void }) {
+  return <button type="button" className="account-menu-item account-submenu-item" onClick={onClick}><span className="account-menu-icon"><Icon name={icon} size={21} /></span><strong>{label}</strong>{icon === 'globe' && <span className="account-menu-chevron">›</span>}</button>
 }
 
 function MenuItem({ icon, label, detail, onClick }: { icon: 'gift' | 'settings' | 'globe' | 'logout'; label: string; detail?: string; onClick: () => void }) {

@@ -8,7 +8,7 @@ import { ConversationDetail } from './ConversationDetail'
 import { ConversationList } from './ConversationList'
 import { MessageThread } from './MessageThread'
 import { NewConversationModal } from './NewConversationModal'
-import { seedConversations, seedMessages } from './helpers'
+import { useI18n } from '../../i18n'
 import './MessengerPage.css'
 
 /* ------------------------------------------------------------------ */
@@ -26,6 +26,7 @@ interface MessengerPageProps {
 /* ------------------------------------------------------------------ */
 
 export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps) {
+  const { t } = useI18n()
   const [conversations, setConversations] = useState<MessengerConversationDto[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Record<string, MessengerMessageDto[]>>({})
@@ -34,7 +35,7 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
   const [pendingAttachments, setPendingAttachments] = useState<MediaUpload[]>([])
   const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [apiState, setApiState] = useState<'gateway' | 'seed'>('gateway')
+  const [apiState, setApiState] = useState<'gateway' | 'unavailable'>('gateway')
   const [showNewModal, setShowNewModal] = useState(false)
   const [mobileShowThread, setMobileShowThread] = useState(false)
   const [showDetail, setShowDetail] = useState(true)
@@ -72,16 +73,14 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
       try {
         const res = await api.messengerConversations()
         if (cancelled) return
-        const list = res.length ? res : seedConversations(me, friends)
-        setConversations(list)
-        setSelectedId((cur) => cur ?? list[0]?.id ?? null)
-        setApiState(res.length ? 'gateway' : 'seed')
+        setConversations(res)
+        setSelectedId((cur) => cur ?? res[0]?.id ?? null)
+        setApiState('gateway')
       } catch {
         if (cancelled) return
-        const seeded = seedConversations(me, friends)
-        setConversations(seeded)
-        setSelectedId((cur) => cur ?? seeded[0]?.id ?? null)
-        setApiState('seed')
+        setConversations([])
+        setSelectedId(null)
+        setApiState('unavailable')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -98,7 +97,12 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
     let cancelled = false
     api.messengerMessages(selected.id)
       .then((res) => { if (!cancelled) setMessages((prev) => ({ ...prev, [selected.id]: res })) })
-      .catch(() => { if (!cancelled) setMessages((prev) => ({ ...prev, [selected.id]: seedMessages(selected, me) })) })
+      .catch(() => {
+        if (!cancelled) {
+          setMessages((prev) => ({ ...prev, [selected.id]: [] }))
+          setApiState('unavailable')
+        }
+      })
     return () => { cancelled = true }
   }, [selected, messages, me])
 
@@ -141,15 +145,13 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
       )
       setApiState('gateway')
     } catch {
-      const delivered = { ...optimistic, status: 'sent' as const }
       setMessages((prev) => ({
         ...prev,
-        [selected.id]: (prev[selected.id] ?? []).map((m) => (m.id === optimistic.id ? delivered : m)),
+        [selected.id]: (prev[selected.id] ?? []).filter((m) => m.id !== optimistic.id),
       }))
-      setConversations((prev) =>
-        prev.map((c) => (c.id === selected.id ? { ...c, lastMessage: delivered } : c)),
-      )
-      setApiState('seed')
+      setDraft(text)
+      setPendingAttachments(attachments)
+      setApiState('unavailable')
     }
   }
 
@@ -162,26 +164,16 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
       setMobileShowThread(true)
       return
     }
-    let newConvo: MessengerConversationDto
     try {
-      newConvo = await api.startConversation(person)
+      const newConvo = await api.startConversation(person)
       setApiState('gateway')
+      setConversations((prev) => [newConvo, ...prev])
+      setSelectedId(newConvo.id)
+      setMessages((prev) => ({ ...prev, [newConvo.id]: [] }))
+      setMobileShowThread(true)
     } catch {
-      newConvo = {
-        id: `new-${Date.now()}`,
-        participants: [me, person],
-        title: null,
-        avatarUrl: person.avatarUrl,
-        updatedAt: new Date().toISOString(),
-        unreadCount: 0,
-        lastMessage: null,
-      }
-      setApiState('seed')
+      setApiState('unavailable')
     }
-    setConversations((prev) => [newConvo, ...prev])
-    setSelectedId(newConvo.id)
-    setMessages((prev) => ({ ...prev, [newConvo.id]: [] }))
-    setMobileShowThread(true)
   }
 
   async function attachFiles(files: FileList | null) {
@@ -192,7 +184,7 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
       setPendingAttachments((prev) => [...prev, ...uploaded].slice(0, 10))
       setApiState('gateway')
     } catch {
-      setApiState('seed')
+      setApiState('unavailable')
     } finally {
       setUploading(false)
     }
@@ -246,8 +238,8 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
         ) : (
           <section className="messenger-empty">
             <Icon name="messenger" size={56} />
-            <h2>Select a chat</h2>
-            <p>Choose a conversation or start a new one.</p>
+            <h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2>
+            <p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p>
           </section>
         )}
 

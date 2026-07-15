@@ -10,8 +10,9 @@ import { useAuth } from '../lib/auth'
 import { useTheme } from '../theme'
 import { AccountSecurityPage } from './AccountSecurityPage'
 import { PremiumPage } from './PremiumPage'
+import { birthDateBounds, isAllowedBirthDate } from './birthDate'
 
-export type SettingsSection = 'profile' | 'security' | 'privacy' | 'sessions' | 'language' | 'appearance' | 'premium'
+export type SettingsSection = 'overview' | 'profile' | 'security' | 'privacy' | 'sessions' | 'language' | 'appearance' | 'premium'
 
 const sectionMeta: Array<{ id: SettingsSection; icon: 'settings' | 'lock' | 'globe' | 'clock' | 'gift' | 'friends'; title: string; description: string }> = [
   { id: 'profile', icon: 'settings', title: 'settingsProfile', description: 'settingsProfileDesc' },
@@ -23,7 +24,7 @@ const sectionMeta: Array<{ id: SettingsSection; icon: 'settings' | 'lock' | 'glo
   { id: 'premium', icon: 'gift', title: 'premium', description: 'settingsPremiumDesc' },
 ]
 
-export function SettingsPage({ initialSection = 'profile' }: { initialSection?: SettingsSection }) {
+export function SettingsPage({ initialSection = 'overview' }: { initialSection?: SettingsSection }) {
   const { t } = useI18n()
   const [section, setSection] = useState<SettingsSection>(initialSection)
   const [query, setQuery] = useState('')
@@ -57,12 +58,7 @@ export function SettingsPage({ initialSection = 'profile' }: { initialSection?: 
       </aside>
 
       <section className="settings-content">
-        <div className="settings-overview-tools">
-          <label className="settings-main-search"><Icon name="search" size={20} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('searchSettings')} /></label>
-          <div className="settings-shortcuts" aria-label={t('frequentSettings')}>
-            {sectionMeta.slice(0, 3).map((item) => <button type="button" key={item.id} onClick={() => setSection(item.id)}><span className="settings-nav-icon"><Icon name={item.icon} size={19} /></span><strong>{t(item.title)}</strong></button>)}
-          </div>
-        </div>
+        {section === 'overview' && <SettingsOverview query={query} onQueryChange={setQuery} onOpen={setSection} />}
         {section === 'profile' && <ProfileSettings />}
         {section === 'security' && <AccountSecurityPage embedded section="security" />}
         {section === 'sessions' && <AccountSecurityPage embedded section="sessions" />}
@@ -73,6 +69,30 @@ export function SettingsPage({ initialSection = 'profile' }: { initialSection?: 
       </section>
     </main>
   )
+}
+
+function SettingsOverview({ query, onQueryChange, onOpen }: { query: string; onQueryChange: (value: string) => void; onOpen: (section: SettingsSection) => void }) {
+  const { t } = useI18n()
+  const shortcuts: Array<{ id: SettingsSection; icon: 'friends' | 'clock' | 'settings'; title: string; description: string }> = [
+    { id: 'privacy', icon: 'friends', title: 'privacyCheckup', description: 'settingsPrivacyDesc' },
+    { id: 'sessions', icon: 'clock', title: 'activityLog', description: 'settingsSessionsDesc' },
+    { id: 'appearance', icon: 'settings', title: 'themeDark', description: 'settingsAppearanceDesc' },
+  ]
+  return <div className="settings-overview">
+    <section className="settings-overview-search">
+      <h2>{t('findSettingsYouNeed')}</h2>
+      <label className="settings-main-search"><Icon name="search" size={22} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={t('searchSettings')} /></label>
+    </section>
+    <section className="settings-overview-panel">
+      <h2>{t('frequentSettings')}</h2>
+      <div className="settings-shortcuts">
+        {shortcuts.map((item) => <button type="button" key={item.id} onClick={() => onOpen(item.id)}><span className="settings-shortcut-icon"><Icon name={item.icon} size={36} /></span><span><strong>{t(item.title)}</strong><small>{t(item.description)}</small></span></button>)}
+      </div>
+      <h2 className="settings-more-heading">{t('lookingForSomethingElse')}</h2>
+      <button type="button" className="settings-resource-row" onClick={() => onOpen('privacy')}><span className="settings-shortcut-icon"><Icon name="lock" size={30} /></span><span><strong>{t('privacyCenter')}</strong><small>{t('settingsPrivacyDesc')}</small></span><b>›</b></button>
+      <button type="button" className="settings-resource-row" onClick={() => onOpen('profile')}><span className="settings-shortcut-icon"><Icon name="settings" size={30} /></span><span><strong>{t('settingsProfile')}</strong><small>{t('settingsProfileDesc')}</small></span><b>›</b></button>
+    </section>
+  </div>
 }
 
 function SettingsHeading({ title, description }: { title: string; description: string }) {
@@ -92,6 +112,7 @@ function ProfileSettings() {
   const [gender, setGender] = useState('')
   const [birthDate, setBirthDate] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
+  const dateBounds = useMemo(() => birthDateBounds(), [])
 
   useEffect(() => {
     let active = true
@@ -111,6 +132,7 @@ function ProfileSettings() {
   async function save(event: FormEvent) {
     event.preventDefault()
     if (!displayName.trim()) return setMessage(t('nameRequired'))
+    if (birthDate && !isAllowedBirthDate(birthDate)) return setMessage(t('birthDateAgeError'))
     setSaving(true)
     setMessage(null)
     try {
@@ -137,7 +159,7 @@ function ProfileSettings() {
     <div className="settings-section profile-settings">
       <SettingsHeading title={t('settingsProfile')} description={t('settingsProfileDesc')} />
       {loading ? <div className="settings-loading"><span className="spinner" /></div> : (
-        <form className="settings-card profile-settings-form" onSubmit={save}>
+        <form className="settings-card profile-settings-form" onSubmit={save} noValidate>
           <div className="settings-profile-summary">
             <Avatar name={displayName || user?.email || 'Fakebook'} src={avatarUrl || null} size={76} />
             <div><strong>{displayName || user?.email}<VerifiedBadge verified={profile?.isVerified} /></strong><span>{user?.email}</span></div>
@@ -147,7 +169,7 @@ function ProfileSettings() {
             <label><span>{t('avatarUrlLabel')}</span><input value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="https://…" /></label>
             <label className="wide"><span>{t('bioLabel')}</span><textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} /></label>
             <label><span>{t('locationLabel')}</span><input value={location} onChange={(e) => setLocation(e.target.value)} /></label>
-            <label><span>{t('birthDateLabel')}</span><input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} /></label>
+            <label><span>{t('birthDateLabel')}</span><input type="date" min={dateBounds.min} max={dateBounds.max} value={birthDate} onChange={(e) => setBirthDate(e.target.value)} /></label>
             <label><span>{t('genderLabel')}</span><select value={gender} onChange={(e) => setGender(e.target.value)}><option value="">{t('genderPreferNot')}</option><option value="female">{t('genderFemale')}</option><option value="male">{t('genderMale')}</option><option value="custom">{t('genderCustom')}</option></select></label>
           </div>
           {message && <p className={message === t('profileSaved') ? 'form-success' : 'form-error'}>{message}</p>}

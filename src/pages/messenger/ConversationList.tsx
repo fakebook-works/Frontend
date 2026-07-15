@@ -4,6 +4,7 @@ import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { timeAgo } from '../../lib/format'
 import { conversationAvatar, conversationName } from './helpers'
+import { useI18n } from '../../i18n'
 
 interface ConversationListProps {
   me: UserSummary
@@ -32,6 +33,7 @@ export function ConversationList({
   onTabChange,
   onNewMessage,
 }: ConversationListProps) {
+  const { t } = useI18n()
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
     if (!needle) return conversations
@@ -39,17 +41,17 @@ export function ConversationList({
   }, [conversations, me, query])
 
   return (
-    <aside className="messenger-list" aria-label="Chats">
+    <aside className="messenger-list" aria-label={t('chats')}>
       <header className="messenger-list-head">
         <h1>
-          Chats
+          {t('chats')}
           {totalUnread > 0 && <span className="messenger-badge">{totalUnread}</span>}
         </h1>
         <div className="messenger-actions">
-          <button type="button" className="icon-circle subtle" aria-label="Messenger settings">
+          <button type="button" className="icon-circle subtle" aria-label={t('messengerSettings')}>
             <Icon name="settings" size={18} />
           </button>
-          <button type="button" className="icon-circle subtle" aria-label="New message" onClick={onNewMessage}>
+          <button type="button" className="icon-circle subtle" aria-label={t('newMessage')} onClick={onNewMessage}>
             <Icon name="edit" size={18} />
           </button>
         </div>
@@ -57,23 +59,23 @@ export function ConversationList({
 
       <label className="messenger-search">
         <Icon name="search" size={16} />
-        <input value={query} onChange={(e) => onQueryChange(e.target.value)} placeholder="Search Messenger" />
+        <input value={query} onChange={(e) => onQueryChange(e.target.value)} placeholder={t('searchMessenger')} />
       </label>
 
-      <div className="messenger-tabs" role="tablist" aria-label="Inbox filters">
+      <div className="messenger-tabs" role="tablist" aria-label={t('inboxFilters')}>
         <button
           type="button"
           className={activeTab === 'inbox' ? 'active' : ''}
           onClick={() => onTabChange('inbox')}
         >
-          Inbox
+          {t('inbox')}
         </button>
         <button
           type="button"
           className={activeTab === 'communities' ? 'active' : ''}
           onClick={() => onTabChange('communities')}
         >
-          Communities
+          {t('communities')}
         </button>
       </div>
 
@@ -83,7 +85,7 @@ export function ConversationList({
             <span className="spinner" />
           </div>
         ) : filtered.length === 0 ? (
-          <p className="muted small pad">No chats found.</p>
+          <p className="muted small pad">{t('noChatsFound')}</p>
         ) : (
           filtered.map((conversation) => {
             const name = conversationName(conversation, me)
@@ -100,8 +102,8 @@ export function ConversationList({
                 <span className="messenger-row-copy">
                   <strong>{name}</strong>
                   <span>
-                    {conversation.lastMessage?.sender.id === me.id ? 'You: ' : ''}
-                    {conversation.lastMessage?.body ?? 'Start the conversation'}
+                    {conversation.lastMessage?.sender.id === me.id ? `${t('you')}: ` : ''}
+                    {conversation.lastMessage?.body ?? t('startConversation')}
                   </span>
                 </span>
                 <span className="messenger-row-meta">

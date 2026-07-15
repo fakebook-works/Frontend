@@ -15,7 +15,7 @@ interface MessageThreadProps {
   draft: string
   pendingAttachments: MediaUpload[]
   uploading: boolean
-  apiState: 'gateway' | 'seed'
+  apiState: 'gateway' | 'unavailable'
   showDetail: boolean
   onDraftChange: (value: string) => void
   onAttachFiles: (files: FileList | null) => void
@@ -69,7 +69,7 @@ export function MessageThread({
     <section className="messenger-thread" aria-label={name}>
       {/* Header */}
       <header className="messenger-thread-head">
-        <button type="button" className="messenger-back" onClick={onBack} aria-label="Back to chats">
+        <button type="button" className="messenger-back" onClick={onBack} aria-label={t('backToChats')}>
           <Icon name="caret" size={20} />
         </button>
         <button
@@ -80,20 +80,20 @@ export function MessageThread({
           <Avatar name={name} src={avatar} size={40} online />
           <span>
             <strong>{name}<VerifiedBadge verified={otherParticipant?.isVerified} size={13} /></strong>
-            <small>Active now</small>
+            <small>{t('activeNow')}</small>
           </span>
         </button>
         <div className="messenger-actions">
-          <button type="button" className="icon-circle subtle" aria-label="Start audio call">
+          <button type="button" className="icon-circle subtle" aria-label={t('startAudioCall')}>
             <Icon name="phone" size={19} />
           </button>
-          <button type="button" className="icon-circle subtle" aria-label="Start video call">
+          <button type="button" className="icon-circle subtle" aria-label={t('startVideoCall')}>
             <Icon name="video" size={19} />
           </button>
           <button
             type="button"
             className={`icon-circle subtle${showDetail ? ' active' : ''}`}
-            aria-label="Conversation info"
+            aria-label={t('conversationInfo')}
             onClick={onToggleDetail}
           >
             <Icon name="info" size={19} />
@@ -106,7 +106,7 @@ export function MessageThread({
         <div className="messenger-intro">
           <Avatar name={name} src={avatar} size={72} online />
           <h2>{name}<VerifiedBadge verified={otherParticipant?.isVerified} /></h2>
-          <p>{apiState === 'gateway' ? t('messengerReadyMessage') : t('messengerPreviewMessage')}</p>
+          <p>{apiState === 'gateway' ? t('messengerReadyMessage') : t('messengerUnavailableDesc')}</p>
         </div>
 
         {messages.map((message, idx) => {
@@ -175,7 +175,7 @@ export function MessageThread({
         <button
           type="button"
           className="icon-circle subtle"
-          aria-label="Add attachment"
+          aria-label={t('addAttachment')}
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
         >
@@ -184,13 +184,13 @@ export function MessageThread({
         <button
           type="button"
           className="icon-circle subtle"
-          aria-label="Attach photo"
+          aria-label={t('attachPhoto')}
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
         >
           <Icon name="photo" size={19} />
         </button>
-        <button type="button" className="icon-circle subtle" aria-label="Record voice">
+        <button type="button" className="icon-circle subtle" aria-label={t('recordVoice')}>
           <Icon name="mic" size={19} />
         </button>
         <label className="messenger-input-wrap">
@@ -206,7 +206,7 @@ export function MessageThread({
         <button
           type="submit"
           className={`icon-circle subtle send${draft.trim() ? ' ready' : ''}`}
-          aria-label="Send message"
+          aria-label={t('sendMessage')}
           disabled={uploading || (!draft.trim() && pendingAttachments.length === 0)}
         >
           {draft.trim() || pendingAttachments.length ? <Icon name="send" size={18} /> : <Icon name="like" size={22} />}
@@ -214,7 +214,7 @@ export function MessageThread({
       </form>
       {(pendingAttachments.length > 0 || uploading) && (
         <div className="messenger-attachment-tray">
-          {uploading && <span className="attachment-chip">Uploading...</span>}
+          {uploading && <span className="attachment-chip">{t('uploading')}</span>}
           {pendingAttachments.map((attachment) => (
             <button
               key={attachment.url}

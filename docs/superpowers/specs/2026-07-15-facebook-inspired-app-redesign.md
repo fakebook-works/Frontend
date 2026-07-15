@@ -1,23 +1,47 @@
-# Facebook-Inspired Fakebook Redesign
+# Accurate Facebook UI/UX Clone for Fakebook
 
 ## Goal
 
-Redesign Fakebook's authentication and core application shell to follow the familiar hierarchy, density, and interaction patterns shown in the supplied Facebook references while retaining Fakebook branding, existing data flows, and original assets.
+Clone the supplied Facebook UI/UX references as accurately as the existing React application permits while retaining Fakebook branding, existing data flows, and local assets. Fidelity includes layout proportions, component dimensions, spacing, typography hierarchy, colors, borders, shadows, interaction states, menus, responsive collapse order, and form behavior.
+
+## Authoritative References
+
+The following screenshots are the visual source of truth:
+
+- `C:\Users\ngoan\Downloads\facebook ui\dang nhap fb.png`
+- `C:\Users\ngoan\Downloads\facebook ui\dang ky fb.png`
+- `C:\Users\ngoan\Downloads\facebook ui\dang ky2 fb.png`
+- `C:\Users\ngoan\Downloads\facebook ui\facebook.png`
+- `C:\Users\ngoan\Downloads\facebook ui\dropdown menu avatar.png`
+- `C:\Users\ngoan\Downloads\facebook ui\settings.png`
+- `C:\Users\ngoan\Downloads\facebook ui\settings page.png`
+
+When this document and a screenshot differ visually, the screenshot wins unless following it would break an existing functional or accessibility contract.
 
 ## Visual Direction
 
 - Use a restrained Facebook-like system with clean grotesk typography, strong blue actions, flat surfaces, subtle dividers, circular avatars, and compact navigation.
 - Dark home surfaces use `#18191a`, `#242526`, `#3a3b3c`, soft gray text, and a Fakebook blue close to `#0866ff`.
 - Authentication and settings use spacious light surfaces with white backgrounds, gray borders, black primary text, and blue links/actions.
-- Do not copy Facebook photography, logos, or proprietary assets. Use Fakebook branding and existing local imagery.
+- Keep Fakebook branding and existing local imagery, but match the screenshots' geometry and visual treatment closely. Do not introduce external Facebook photography or copyrighted Facebook logos.
 
 ## Login
 
 Create a responsive split-screen login experience. The left side contains the Fakebook logo, a lifestyle image composition, and a short brand statement. The right side contains email, password, primary login, password recovery, account creation, and language controls. On mobile, the image composition collapses and the form becomes the primary view.
 
+The password control includes an accessible eye button that toggles visibility without losing focus or changing the value. The button exposes translated show/hide labels and remains keyboard operable.
+
 ## Signup
 
-Replace the registration modal with a dedicated signup screen. Use a focused form column containing name, date of birth, gender, email, location, password, user-friendly privacy text, primary signup, existing-account navigation, and the language/footer area. Preserve the existing registration request and email-verification flow.
+Replace the registration modal with a dedicated signup screen. Use a focused form column containing name, date of birth, gender, email, location, password, password confirmation, user-friendly privacy text, primary signup, existing-account navigation, and the language/footer area. Preserve the existing registration request and email-verification flow.
+
+Registration password behavior:
+
+- Password and password-confirmation fields both have accessible visibility toggles.
+- Confirmation must match before the registration request is sent.
+- A live strength meter reports weak, fair, good, or strong using length and character-class checks.
+- The meter is guidance, while the existing backend-compatible minimum of eight characters remains the submission gate.
+- Date of birth must represent an age from 14 through 120 inclusive. The date input exposes matching `min`/`max` values and submit-time validation rejects bypass attempts.
 
 ## Authenticated Home
 
@@ -61,7 +85,7 @@ Continue the approved end-user copy cleanup. Render benefits, actions, and recov
 
 ## Remaining Screens
 
-Apply the same Facebook-inspired design system to every remaining user-facing screen and state, including profile, profile editing, Messenger, Premium, email verification, two-factor prompts, password recovery/reset, session/device management, empty states, loading states, errors, modals, menus, and responsive navigation.
+Apply the same accurately cloned Facebook design system to every remaining user-facing screen and state, including profile, profile editing, Messenger, Premium, email verification, two-factor prompts, password recovery/reset, session/device management, empty states, loading states, errors, modals, menus, and responsive navigation.
 
 Reuse shared Fakebook components and tokens rather than creating page-specific visual systems. Match the supplied references closely in layout language, density, color, borders, typography, icon framing, navigation behavior, and responsive hierarchy while retaining Fakebook branding and avoiding copied Facebook assets or photography.
 
@@ -72,17 +96,17 @@ Reuse shared Fakebook components and tokens rather than creating page-specific v
 - Preserve English/Vietnamese translations and fallback behavior for other locales.
 - Do not require Docker lifecycle changes.
 
-## Image-First Workflow
+## Screenshot-Led Workflow
 
-Generate five standalone implementation references before coding:
+Implement in five fidelity passes using the supplied screenshots directly:
 
-1. Login screen.
-2. Signup screen.
-3. Authenticated home screen.
-4. Settings & Privacy screen.
-5. Header avatar-menu detail.
+1. Login and signup, including all password and birth-date behavior.
+2. Authenticated top bar, navigation rails, composer, stories, and feed proportions.
+3. Header avatar-menu placement, sizing, focus behavior, and menu rows.
+4. Settings drawer and full settings page.
+5. Responsive collapse and final cross-screen token cleanup.
 
-Analyze layout, typography, spacing, controls, colors, responsive behavior, and reusable component rules from each image before implementation.
+After each pass, render the local app at the reference viewport, capture a screenshot, and compare geometry, typography, spacing, controls, and colors against the matching source image before moving to the next pass.
 
 ## Verification
 
@@ -91,3 +115,6 @@ Analyze layout, typography, spacing, controls, colors, responsive behavior, and 
 - No user-facing infrastructure terminology remains.
 - Keyboard and pointer interactions work for the avatar menu and settings navigation.
 - Login, signup, home, and settings remain usable at desktop, tablet, and mobile widths.
+- Registration tests prove password confirmation, strength feedback, visibility toggles, and age validation.
+- Login tests prove its password visibility toggle is keyboard accessible and does not alter submitted credentials.
+- Browser screenshots are captured at the reference viewport sizes and reviewed side by side with all seven supplied images.

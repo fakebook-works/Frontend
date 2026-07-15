@@ -3,6 +3,7 @@ import { api, isTerminalPaymentStatus } from '../api/client'
 import type { PremiumOrder, PremiumPlan, PremiumPlanOffer } from '../api/gatewayTypes'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
+import { parsePayOSReturn } from './payosReturn'
 
 const POLL_INTERVAL_MS = 5_000
 const MAX_POLL_ATTEMPTS = 24
@@ -34,8 +35,10 @@ export function PremiumPage() {
   const [plansLoading, setPlansLoading] = useState(true)
   const [plansError, setPlansError] = useState<string | null>(null)
   const [checkoutBusy, setCheckoutBusy] = useState<PremiumPlan | null>(null)
-  const [orderCode, setOrderCode] = useState<string | null>(() => user ? readPendingOrder(user.userId) : null)
+  const [payOSReturn] = useState(() => parsePayOSReturn(window.location.search))
+  const [orderCode, setOrderCode] = useState<string | null>(() => payOSReturn?.orderCode ?? (user ? readPendingOrder(user.userId) : null))
   const [order, setOrder] = useState<PremiumOrder | null>(null)
+  const [reconcilingReturn, setReconcilingReturn] = useState(payOSReturn !== null)
   const [orderBusy, setOrderBusy] = useState(false)
   const [orderError, setOrderError] = useState<string | null>(null)
 
@@ -72,7 +75,23 @@ export function PremiumPage() {
   }, [loadPlans])
 
   useEffect(() => {
-    if (!orderCode) return
+    if (!user || !payOSReturn) return
+    let active = true
+    savePendingOrder(user.userId, payOSReturn.orderCode)
+    window.history.replaceState({}, '', '/premium/payment')
+    api.reconcilePremiumCheckout(payOSReturn.orderCode)
+      .then(async (current) => {
+        if (!active) return
+        setOrder(current)
+        if (current.status === 'ACTIVATED') await refreshUser()
+      })
+      .catch(() => active && setOrderError(t('premiumOrderLoadError')))
+      .finally(() => active && setReconcilingReturn(false))
+    return () => { active = false }
+  }, [payOSReturn, refreshUser, t, user])
+
+  useEffect(() => {
+    if (!orderCode || reconcilingReturn) return
     let cancelled = false
     let attempts = 0
     let timer: number | null = null
@@ -90,7 +109,7 @@ export function PremiumPage() {
       cancelled = true
       if (timer !== null) window.clearTimeout(timer)
     }
-  }, [loadOrder, orderCode])
+  }, [loadOrder, orderCode, reconcilingReturn])
 
   const premiumActive = useMemo(() => {
     if (!user?.validDate) return false

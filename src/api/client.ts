@@ -907,6 +907,17 @@ export const api = {
     )
     return { ...data.premiumOrder, orderCode: String(data.premiumOrder.orderCode) }
   },
+  reconcilePremiumCheckout: async (orderCode: string): Promise<PremiumOrder> => {
+    const data = await graphQlRequest<{ reconcilePremiumCheckout: PremiumOrder }>(
+      `mutation ReconcilePremiumCheckout($orderCode: ID!) {
+        reconcilePremiumCheckout(orderCode: $orderCode) {
+          orderCode plan amount status createdAt expiresAt paidAt targetValidDate
+        }
+      }`,
+      { orderCode: graphQlLongLiteral(orderCode) },
+    )
+    return { ...data.reconcilePremiumCheckout, orderCode: String(data.reconcilePremiumCheckout.orderCode) }
+  },
 
 }
 
