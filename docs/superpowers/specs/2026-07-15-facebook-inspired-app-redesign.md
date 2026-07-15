@@ -53,6 +53,8 @@ Language and light/dark appearance controls live inside this page rather than be
 
 Do not present nonfunctional technical placeholders. Premium becomes a category inside Settings & Privacy and is linked directly from the avatar menu.
 
+Premium plan cards and the Premium settings section list a verified profile badge as a user-facing benefit. This addition is presentation copy only; the frontend must not grant or forge verification state.
+
 ## Content
 
 Continue the approved end-user copy cleanup. Render benefits, actions, and recovery guidance instead of internal service names, endpoints, or backend status.
