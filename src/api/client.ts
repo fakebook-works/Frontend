@@ -2,18 +2,7 @@
 // Authentication uses the Gateway GraphQL endpoint. Only the short-lived
 // access token is available to JavaScript; the Gateway owns the HttpOnly
 // refresh cookie and rotates it during refresh requests.
-import type {
-  ActivityDto,
-  CommentDto,
-  FriendDto,
-  FriendRequestDto,
-  MediaUpload,
-  MessengerConversationDto,
-  MessengerMessageDto,
-  PostDto,
-  UserProfile,
-  UserSummary,
-} from './types'
+import type { MediaUpload } from './types'
 import type {
   CreateGatewayPostInput,
   CreateGatewayStoryInput,
@@ -30,36 +19,17 @@ import type {
   VisitedGroupPage,
 } from './gatewayTypes'
 
-const DEFAULT_API_GATEWAY_URL = '/api'
 const DEFAULT_GRAPHQL_GATEWAY_URL = '/graphql'
 const DEFAULT_JSON_HEADERS = {
   Accept: 'application/json',
   'Content-Type': 'application/json',
 }
 
-const API_V1_PREFIX = '/v1'
-const USERS_API_PREFIX = `${API_V1_PREFIX}/users`
-
-const USERS_ME_ROUTE = `${USERS_API_PREFIX}/me`
-
-const USER_ROUTES = {
-  me: USERS_ME_ROUTE,
-  byId: (id: string) => `${USERS_API_PREFIX}/${encodeURIComponent(id)}`,
-  updateProfile: USERS_ME_ROUTE,
-  updateAvatar: `${USERS_ME_ROUTE}/avatar`,
-  search: (q: string) => `${USERS_API_PREFIX}/search?q=${encodeURIComponent(q)}`,
-  activities: (take: number) => `${USERS_ME_ROUTE}/activities?take=${take}`,
-} as const
-
 const GATEWAY_ERROR_STATUSES = new Set([502, 503, 504])
 const GATEWAY_ERROR_MESSAGE = 'Server is temporarily unreachable.'
 const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please log in again.'
 
 type ApiAuthMode = 'protected' | 'public'
-
-interface ApiRequestInit extends RequestInit {
-  auth?: ApiAuthMode
-}
 
 type ApiEvent =
   | { type: 'gateway-error'; status: number; message: string }
@@ -74,26 +44,17 @@ type ResponseInterceptorContext<T> = {
   retryAfterRefresh: (auth: StoredAuth) => Promise<T>
 }
 
-function normalizeBaseUrl(value: string | undefined): string {
+function normalizeBaseUrl(value: string | undefined, fallback: string): string {
   const trimmed = value?.trim()
-  if (!trimmed) return DEFAULT_API_GATEWAY_URL
-  return trimmed.replace(/\/+$/, '') || DEFAULT_API_GATEWAY_URL
+  if (!trimmed) return fallback
+  return trimmed.replace(/\/+$/, '') || fallback
 }
 
-export const API_GATEWAY_URL = normalizeBaseUrl(import.meta.env.VITE_API_GATEWAY_URL)
 export const GRAPHQL_GATEWAY_URL = normalizeBaseUrl(
   import.meta.env.VITE_GRAPHQL_GATEWAY_URL ?? DEFAULT_GRAPHQL_GATEWAY_URL,
+  DEFAULT_GRAPHQL_GATEWAY_URL,
 )
-export const UPLOAD_SERVER_URL = normalizeBaseUrl(import.meta.env.VITE_UPLOAD_SERVER_URL ?? '/media')
-
-function apiUrl(path: string): string {
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  return `${API_GATEWAY_URL}${normalizedPath}`
-}
-
-function authModeForPath(_path: string, authMode?: ApiAuthMode): ApiAuthMode {
-  return authMode ?? 'protected'
-}
+export const UPLOAD_SERVER_URL = normalizeBaseUrl(import.meta.env.VITE_UPLOAD_SERVER_URL ?? '/media', '/media')
 
 function jsonHeaders(overrides?: HeadersInit, hasBody = false, authMode: ApiAuthMode = 'protected'): Headers {
   const headers = new Headers(DEFAULT_JSON_HEADERS)
@@ -275,7 +236,7 @@ function normalizeSession(session: AuthSession): AuthSession {
   return { ...session, sessionId: String(session.sessionId) }
 }
 
-async function graphQlRequest<T>(
+export async function gatewayGraphQl<T>(
   document: string,
   variables: Record<string, unknown> = {},
   authMode: ApiAuthMode = 'protected',
@@ -312,7 +273,7 @@ async function graphQlRequest<T>(
   if ((res.status === 401 || code === 'UNAUTHENTICATED') && authMode === 'protected') {
     if (allowRetry) {
       const refreshed = await ensureRefresh()
-      if (refreshed) return graphQlRequest<T>(document, variables, authMode, false)
+      if (refreshed) return gatewayGraphQl<T>(document, variables, authMode, false)
     }
     return expireSession()
   }
@@ -324,12 +285,16 @@ async function graphQlRequest<T>(
   return envelope.data
 }
 
+// Existing feature modules in this file keep the local alias while newer
+// modules import the public, typed Gateway transport above.
+const graphQlRequest = gatewayGraphQl
+
 // Share a single in-flight refresh across concurrent 401s.
 let refreshing: Promise<StoredAuth | null> | null = null
 
 async function refreshTokens(): Promise<StoredAuth | null> {
   try {
-    const data = await graphQlRequest<{ refreshToken: LoginResult }>(
+    const data = await gatewayGraphQl<{ refreshToken: LoginResult }>(
       `mutation RefreshSession {
         refreshToken {
           accessToken
@@ -377,12 +342,6 @@ async function parseErrorMessage(res: Response, fallback: string): Promise<strin
   }
 }
 
-async function parseJsonOrEmpty<T>(res: Response): Promise<T> {
-  if (res.status === 204) return undefined as T
-  const text = await res.text()
-  return (text ? JSON.parse(text) : undefined) as T
-}
-
 async function responseInterceptor<T>(res: Response, context: ResponseInterceptorContext<T>): Promise<T> {
   if (res.status === 401 && context.authMode === 'protected') {
     if (context.allowRetry) {
@@ -404,27 +363,6 @@ async function responseInterceptor<T>(res: Response, context: ResponseIntercepto
   return context.parse(res)
 }
 
-async function request<T>(path: string, options: ApiRequestInit = {}, allowRetry = true): Promise<T> {
-  const { auth, headers: headerOverrides, ...fetchOptions } = options
-  const authMode = authModeForPath(path, auth)
-  const headers = jsonHeaders(headerOverrides, fetchOptions.body != null, authMode)
-
-  let res: Response
-  try {
-    res = await fetch(apiUrl(path), { ...fetchOptions, headers })
-  } catch {
-    notifyGatewayError(503)
-    throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
-  }
-
-  return responseInterceptor<T>(res, {
-    authMode,
-    allowRetry,
-    parse: parseJsonOrEmpty,
-    retryAfterRefresh: () => request<T>(path, options, false),
-  })
-}
-
 export interface RegisterBody {
   name: string
   gender: boolean
@@ -444,24 +382,6 @@ export interface VerifyEmailBody {
 export interface ResetPasswordBody extends VerifyEmailBody {
   newPassword: string
 }
-export interface CreatePostBody {
-  content: string
-  imageUrl: string | null
-  mediaType: string | null
-  privacy: number
-}
-export interface UpdateProfileBody {
-  displayName?: string
-  bio?: string
-  location?: string
-  gender?: string
-  birthDate?: string | null
-}
-export interface SendMessageBody {
-  body: string
-  attachments?: MediaUpload[]
-}
-
 function directUploadUrl(): string {
   return UPLOAD_SERVER_URL.endsWith('/media')
     ? `${UPLOAD_SERVER_URL}/upload`
@@ -919,77 +839,4 @@ export const api = {
     return { ...data.reconcilePremiumCheckout, orderCode: String(data.reconcilePremiumCheckout.orderCode) }
   },
 
-}
-
-// Kept only for the unreachable pre-Gateway screens. Separating this object lets
-// the production bundle tree-shake unsupported REST routes from the active app.
-export const legacyApi = {
-  uploadMedia,
-  // ----- users -----
-  me: () => request<UserProfile>(USER_ROUTES.me),
-  user: (id: string) => request<UserProfile>(USER_ROUTES.byId(id)),
-  updateProfile: (body: UpdateProfileBody) =>
-    request<UserProfile>(USER_ROUTES.updateProfile, { method: 'PUT', body: JSON.stringify(body) }),
-  updateAvatar: (avatarUrl: string) =>
-    request<UserProfile>(USER_ROUTES.updateAvatar, { method: 'PUT', body: JSON.stringify({ avatarUrl }) }),
-  searchUsers: (q: string) => request<UserSummary[]>(USER_ROUTES.search(q)),
-  activities: (take = 12) => request<ActivityDto[]>(USER_ROUTES.activities(take)),
-
-  // ----- friends -----
-  friends: () => request<FriendDto[]>('/friends'),
-  incomingRequests: () => request<FriendRequestDto[]>('/friends/requests/incoming'),
-  outgoingRequests: () => request<FriendRequestDto[]>('/friends/requests/outgoing'),
-  sendFriendRequest: (targetUserId: string) =>
-    request<{ friendshipId: string }>('/friends/requests', {
-      method: 'POST',
-      body: JSON.stringify({ targetUserId }),
-    }),
-  acceptRequest: (friendshipId: string) =>
-    request<void>(`/friends/requests/${friendshipId}/accept`, { method: 'POST' }),
-  declineRequest: (friendshipId: string) =>
-    request<void>(`/friends/requests/${friendshipId}/decline`, { method: 'POST' }),
-  unfriend: (friendshipId: string) => request<void>(`/friends/${friendshipId}`, { method: 'DELETE' }),
-
-  // ----- posts / feed -----
-  feed: (skip = 0, take = 20) => request<PostDto[]>(`/feed?skip=${skip}&take=${take}`),
-  userPosts: (userId: string, skip = 0, take = 20) =>
-    request<PostDto[]>(`/posts/user/${userId}?skip=${skip}&take=${take}`),
-  createPost: (body: CreatePostBody) =>
-    request<PostDto>('/posts', { method: 'POST', body: JSON.stringify(body) }),
-  updatePost: (id: string, body: CreatePostBody) =>
-    request<PostDto>(`/posts/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
-  deletePost: (id: string) => request<void>(`/posts/${id}`, { method: 'DELETE' }),
-  sharePost: (id: string, message: string | null) =>
-    request<PostDto>(`/posts/${id}/share`, { method: 'POST', body: JSON.stringify({ message }) }),
-
-  // ----- comments / reactions -----
-  comments: (postId: string) => request<CommentDto[]>(`/posts/${postId}/comments`),
-  addComment: (postId: string, content: string, parentCommentId: string | null = null) =>
-    request<CommentDto>(`/posts/${postId}/comments`, {
-      method: 'POST',
-      body: JSON.stringify({ content, parentCommentId }),
-    }),
-  react: (postId: string, type: number) =>
-    request<void>(`/posts/${postId}/reactions`, { method: 'POST', body: JSON.stringify({ type }) }),
-  unreact: (postId: string) => request<void>(`/posts/${postId}/reactions`, { method: 'DELETE' }),
-
-  // ----- messenger -----
-  messengerConversations: () => request<MessengerConversationDto[]>('/messenger/conversations'),
-  messengerMessages: (conversationId: string) =>
-    request<MessengerMessageDto[]>(`/messenger/conversations/${conversationId}/messages`),
-  sendMessengerMessage: (conversationId: string, body: SendMessageBody) =>
-    request<MessengerMessageDto>(`/messenger/conversations/${conversationId}/messages`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  startConversation: (participant: UserSummary) =>
-    request<MessengerConversationDto>('/messenger/conversations', {
-      method: 'POST',
-      body: JSON.stringify({
-        participantId: participant.id,
-        username: participant.username,
-        displayName: participant.displayName,
-        avatarUrl: participant.avatarUrl,
-      }),
-    }),
 }

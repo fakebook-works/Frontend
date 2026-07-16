@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { legacyApi } from '../api/client'
-import type { UserProfile } from '../api/types'
+import { api } from '../api/client'
+import { socialApi, type SocialOwnedMedia, type SocialProfile } from '../api/social'
 import { Avatar } from '../components/Avatar'
+import { ImageCropModal } from '../components/ImageCropModal'
 import { Icon } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { languageOptions, useI18n } from '../i18n'
@@ -102,7 +103,7 @@ function SettingsHeading({ title, description }: { title: string; description: s
 function ProfileSettings() {
   const { user } = useAuth()
   const { t } = useI18n()
-  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [profile, setProfile] = useState<SocialProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -112,11 +113,17 @@ function ProfileSettings() {
   const [gender, setGender] = useState('')
   const [birthDate, setBirthDate] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
+  const [cropTarget, setCropTarget] = useState<{ file: File; kind: 'avatar' | 'background'; fromExisting: boolean } | null>(null)
+  const [removingImage, setRemovingImage] = useState<'avatar' | 'background' | null>(null)
+  const [ownedImages, setOwnedImages] = useState<SocialOwnedMedia[]>([])
+  const [existingPicker, setExistingPicker] = useState<'avatar' | 'background' | null>(null)
   const dateBounds = useMemo(() => birthDateBounds(), [])
 
   useEffect(() => {
     let active = true
-    legacyApi.me().then((value) => {
+    if (!user) return
+    socialApi.getProfile(user.userId, user.email).then((value) => {
+      if (!value) throw new Error('Profile not found')
       if (!active) return
       setProfile(value)
       setDisplayName(value.displayName)
@@ -127,7 +134,14 @@ function ProfileSettings() {
       setAvatarUrl(value.avatarUrl ?? '')
     }).catch(() => setMessage(t('profileLoadError'))).finally(() => active && setLoading(false))
     return () => { active = false }
-  }, [t])
+  }, [t, user])
+
+  useEffect(() => {
+    let active = true
+    if (!user) return
+    socialApi.getOwnedMedia(user.userId, 0, 40).then((page) => active && setOwnedImages(page.items)).catch(() => active && setOwnedImages([]))
+    return () => { active = false }
+  }, [user])
 
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -136,17 +150,20 @@ function ProfileSettings() {
     setSaving(true)
     setMessage(null)
     try {
-      let updated = await legacyApi.updateProfile({ displayName: displayName.trim(), bio: bio.trim(), location: location.trim(), gender, birthDate: birthDate || null })
-      if ((avatarUrl.trim() || null) !== (profile?.avatarUrl ?? null)) {
-        try {
-          updated = await legacyApi.updateAvatar(avatarUrl.trim())
-        } catch {
-          setProfile(updated)
-          setMessage(t('profileSavedAvatarError'))
-          return
-        }
-      }
+      if (!user) return
+      const updated = await socialApi.updateProfile(user.userId, {
+        name: displayName.trim(),
+        avatar: avatarUrl.trim() || null,
+        background: profile?.backgroundUrl ?? null,
+        bio: bio.trim() || null,
+        location: location.trim() || null,
+        gender: gender === 'male' ? true : gender === 'female' ? false : null,
+        birthdate: birthDate || null,
+        privacy: profile?.privacy ?? null,
+      })
+      if (!updated) throw new Error('Profile not found')
       setProfile(updated)
+      window.dispatchEvent(new CustomEvent('fakebook:profile-updated', { detail: updated }))
       setMessage(t('profileSaved'))
     } catch {
       setMessage(t('saveProfileError'))
@@ -155,29 +172,89 @@ function ProfileSettings() {
     }
   }
 
+  async function saveCroppedImage(original: File, cropped: File) {
+    if (!user || !cropTarget) return
+    setMessage(null)
+    const [originalUpload, croppedUpload] = await Promise.all([
+      cropTarget.fromExisting ? Promise.resolve(null) : api.uploadMedia(original),
+      api.uploadMedia(cropped),
+    ])
+    const updated = cropTarget.kind === 'avatar'
+      ? await socialApi.changeUserAvatar(user.userId, croppedUpload.url, originalUpload?.url ?? null)
+      : await socialApi.changeUserBackground(user.userId, croppedUpload.url, originalUpload?.url ?? null)
+    if (!updated) throw new Error('Profile image update failed')
+    setProfile(updated)
+    setAvatarUrl(updated.avatarUrl ?? '')
+    window.dispatchEvent(new CustomEvent('fakebook:profile-updated', { detail: updated }))
+    setCropTarget(null)
+    setMessage(t('profileImageSaved'))
+    void socialApi.getOwnedMedia(user.userId, 0, 40).then((page) => setOwnedImages(page.items)).catch(() => undefined)
+  }
+
+  async function removeProfileImage(kind: 'avatar' | 'background') {
+    if (!user) return
+    setRemovingImage(kind)
+    setMessage(null)
+    try {
+      const updated = kind === 'avatar'
+        ? await socialApi.removeUserAvatar(user.userId)
+        : await socialApi.removeUserBackground(user.userId)
+      if (!updated) throw new Error('Profile image removal failed')
+      setProfile(updated)
+      setAvatarUrl(updated.avatarUrl ?? '')
+      window.dispatchEvent(new CustomEvent('fakebook:profile-updated', { detail: updated }))
+      setMessage(t('profileImageRemoved'))
+    } catch {
+      setMessage(t('profileImageRemoveError'))
+    } finally {
+      setRemovingImage(null)
+    }
+  }
+
+  async function chooseOwnedImage(media: SocialOwnedMedia, kind: 'avatar' | 'background') {
+    setMessage(null)
+    try {
+      const response = await fetch(media.url, { credentials: 'include' })
+      if (!response.ok) throw new Error('Could not fetch media')
+      const blob = await response.blob()
+      const extension = blob.type.split('/')[1] || 'jpg'
+      setCropTarget({ file: new File([blob], `fakebook-photo.${extension}`, { type: blob.type || 'image/jpeg' }), kind, fromExisting: true })
+      setExistingPicker(null)
+    } catch {
+      setMessage(t('existingPhotoLoadError'))
+    }
+  }
+
   return (
     <div className="settings-section profile-settings">
       <SettingsHeading title={t('settingsProfile')} description={t('settingsProfileDesc')} />
       {loading ? <div className="settings-loading"><span className="spinner" /></div> : (
         <form className="settings-card profile-settings-form" onSubmit={save} noValidate>
+          <div className="settings-profile-cover" style={profile?.backgroundUrl ? { backgroundImage: `url(${profile.backgroundUrl})` } : undefined}><div className="settings-image-actions">{profile?.backgroundUrl && <button type="button" className="btn-soft danger-text" disabled={removingImage != null} onClick={() => void removeProfileImage('background')}><Icon name="trash" size={17} />{t('removeBackground')}</button>}{ownedImages.length > 0 && <button type="button" className="btn-soft" onClick={() => setExistingPicker('background')}><Icon name="photo" size={17} />{t('chooseExistingPhoto')}</button>}<label className="btn-soft"><Icon name="camera" size={17} />{t('changeBackground')}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setCropTarget({ file, kind: 'background', fromExisting: false }); event.currentTarget.value = '' }} /></label></div></div>
           <div className="settings-profile-summary">
-            <Avatar name={displayName || user?.email || 'Fakebook'} src={avatarUrl || null} size={76} />
-            <div><strong>{displayName || user?.email}<VerifiedBadge verified={profile?.isVerified} /></strong><span>{user?.email}</span></div>
+            <div className="settings-avatar-editor"><Avatar name={displayName || user?.email || 'Fakebook'} src={avatarUrl || null} size={76} /><label className="camera-badge" aria-label={t('changeAvatar')}><Icon name="camera" size={16} /><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setCropTarget({ file, kind: 'avatar', fromExisting: false }); event.currentTarget.value = '' }} /></label></div>
+            <div><strong>{displayName || user?.email}<VerifiedBadge verified={profile?.isVerified} /></strong><span>{user?.email}</span><div className="profile-image-inline-actions">{ownedImages.length > 0 && <button type="button" onClick={() => setExistingPicker('avatar')}>{t('chooseExistingPhoto')}</button>}{avatarUrl && <button type="button" className="danger-text" disabled={removingImage != null} onClick={() => void removeProfileImage('avatar')}>{t('removeAvatar')}</button>}</div></div>
           </div>
           <div className="settings-form-grid">
             <label><span>{t('nameLabel')}</span><input value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label>
-            <label><span>{t('avatarUrlLabel')}</span><input value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="https://…" /></label>
             <label className="wide"><span>{t('bioLabel')}</span><textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} /></label>
             <label><span>{t('locationLabel')}</span><input value={location} onChange={(e) => setLocation(e.target.value)} /></label>
             <label><span>{t('birthDateLabel')}</span><input type="date" min={dateBounds.min} max={dateBounds.max} value={birthDate} onChange={(e) => setBirthDate(e.target.value)} /></label>
             <label><span>{t('genderLabel')}</span><select value={gender} onChange={(e) => setGender(e.target.value)}><option value="">{t('genderPreferNot')}</option><option value="female">{t('genderFemale')}</option><option value="male">{t('genderMale')}</option><option value="custom">{t('genderCustom')}</option></select></label>
           </div>
-          {message && <p className={message === t('profileSaved') ? 'form-success' : 'form-error'}>{message}</p>}
+          {message && <p className={message === t('profileSaved') || message === t('profileImageSaved') || message === t('profileImageRemoved') ? 'form-success' : 'form-error'}>{message}</p>}
           <div className="settings-actions"><button type="submit" className="btn-primary" disabled={saving}>{saving ? t('saving') : t('saveChanges')}</button></div>
         </form>
       )}
+      {cropTarget && <ImageCropModal file={cropTarget.file} kind={cropTarget.kind} onClose={() => setCropTarget(null)} onConfirm={saveCroppedImage} />}
+      {existingPicker && <ExistingPhotoPicker images={ownedImages} kind={existingPicker} onClose={() => setExistingPicker(null)} onSelect={(media) => void chooseOwnedImage(media, existingPicker)} />}
     </div>
   )
+}
+
+function ExistingPhotoPicker({ images, kind, onClose, onSelect }: { images: SocialOwnedMedia[]; kind: 'avatar' | 'background'; onClose: () => void; onSelect: (media: SocialOwnedMedia) => void }) {
+  const { t } = useI18n()
+  return <div className="modal-backdrop existing-photo-backdrop" role="presentation" onClick={onClose}><section className="modal existing-photo-modal" role="dialog" aria-modal="true" aria-label={t('chooseExistingPhoto')} onClick={(event) => event.stopPropagation()}><header className="modal-head"><div><h2>{t('chooseExistingPhoto')}</h2><p>{kind === 'avatar' ? t('chooseAvatarPhotoDesc') : t('chooseBackgroundPhotoDesc')}</p></div><button type="button" className="icon-circle subtle" onClick={onClose}><Icon name="close" /></button></header><div className="existing-photo-grid">{images.map((media) => <button type="button" key={media.id} onClick={() => onSelect(media)}><img src={media.url} alt="" loading="lazy" /></button>)}</div></section></div>
 }
 
 function PrivacySettings() {

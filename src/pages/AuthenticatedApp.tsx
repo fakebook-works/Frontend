@@ -1,40 +1,57 @@
 import { useEffect, useRef, useState } from 'react'
-import { legacyApi } from '../api/client'
-import type { UserProfile, UserSummary } from '../api/types'
+import type { FormEvent } from 'react'
+import { api } from '../api/client'
+import { notificationApi } from '../api/notifications'
+import { searchApi, type QuickSearchItem, type SearchTab } from '../api/search'
+import { socialApi, type SocialProfile } from '../api/social'
+import type { GatewayPost } from '../api/gatewayTypes'
+import type { UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { Icon } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
-import { GatewayHomePage } from './GatewayHomePage'
-import { MessengerPage } from './messenger'
+import { groupMemberRoute, pathSegment, useAppLocation } from '../lib/router'
+import { FriendsPage } from './FriendsPage'
+import { GatewayHomePage, GatewayPostCard } from './GatewayHomePage'
+import { GroupProfilePage, GroupsPage } from './GroupsPage'
+import { NotificationsPage } from './NotificationsPage'
 import { ProfilePage } from './ProfilePage'
+import { ReelsPage } from './ReelsPage'
+import { SavedPage } from './SavedPage'
+import { SearchPage } from './SearchPage'
 import { SettingsPage } from './SettingsPage'
 import type { SettingsSection } from './SettingsPage'
+import { UserInGroupProfilePage } from './UserInGroupProfilePage'
+import { MessengerPage } from './messenger'
 
-type AppView = 'home' | 'profile' | 'messenger' | 'settings'
-
-function initialDestination(): { view: AppView; settingsSection: SettingsSection } {
-  return window.location.pathname === '/premium/payment'
-    ? { view: 'settings', settingsSection: 'premium' }
-    : { view: 'home', settingsSection: 'overview' }
-}
+const SETTINGS = new Set<SettingsSection>(['overview', 'profile', 'security', 'privacy', 'sessions', 'language', 'appearance', 'premium'])
 
 export function AuthenticatedApp() {
   const { user, logout } = useAuth()
   const { t } = useI18n()
-  const initial = useRef(initialDestination()).current
-  const [view, setView] = useState<AppView>(initial.view)
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>(initial.settingsSection)
+  const [location, navigate] = useAppLocation()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [appsMenuOpen, setAppsMenuOpen] = useState(false)
   const [menuView, setMenuView] = useState<'root' | 'settings'>('root')
-  const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null)
-  const [viewedProfile, setViewedProfile] = useState<UserProfile | null>(null)
+  const [currentProfile, setCurrentProfile] = useState<SocialProfile | null>(null)
+  const [viewedProfile, setViewedProfile] = useState<SocialProfile | null>(null)
   const [profileLoading, setProfileLoading] = useState(true)
   const [profileError, setProfileError] = useState<string | null>(null)
   const [friends, setFriends] = useState<UserSummary[]>([])
+  const [unreadNotifications, setUnreadNotifications] = useState(0)
+  const [searchText, setSearchText] = useState(() => location.params.get('q') ?? '')
+  const [quickResults, setQuickResults] = useState<QuickSearchItem[]>([])
+  const [quickLoading, setQuickLoading] = useState(false)
+  const [quickOpen, setQuickOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const appsMenuRef = useRef<HTMLDivElement>(null)
   const menuTriggerRef = useRef<HTMLButtonElement>(null)
+  const searchRef = useRef<HTMLFormElement>(null)
+
+  useEffect(() => {
+    if (location.pathname === '/search') setSearchText(new URLSearchParams(location.search).get('q') ?? '')
+  }, [location.pathname, location.search])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -45,17 +62,13 @@ export function AuthenticatedApp() {
       }
     }
     const closeEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        if (menuView === 'settings') {
-          setMenuView('root')
-          return
-        }
+      if (event.key !== 'Escape') return
+      if (menuView === 'settings') setMenuView('root')
+      else {
         setMenuOpen(false)
-        setMenuView('root')
         window.setTimeout(() => menuTriggerRef.current?.focus(), 0)
       }
     }
-    window.setTimeout(() => menuRef.current?.querySelector<HTMLButtonElement>('.account-dropdown button')?.focus(), 0)
     document.addEventListener('mousedown', closeOutside)
     document.addEventListener('keydown', closeEscape)
     return () => {
@@ -65,136 +78,243 @@ export function AuthenticatedApp() {
   }, [menuOpen, menuView])
 
   useEffect(() => {
-    let active = true
-    legacyApi.me().then((value) => {
-      if (!active) return
-      setCurrentProfile(value)
-      setViewedProfile(value)
-    }).catch(() => active && setProfileError(t('profileLoadError'))).finally(() => active && setProfileLoading(false))
-    return () => { active = false }
-  }, [t])
+    if (!appsMenuOpen) return
+    const close = (event: MouseEvent) => {
+      if (!appsMenuRef.current?.contains(event.target as Node)) setAppsMenuOpen(false)
+    }
+    const closeEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAppsMenuOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', closeEscape)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', closeEscape)
+    }
+  }, [appsMenuOpen])
+
+  const profileId = location.pathname.startsWith('/profile/') ? pathSegment(location.pathname, 1) : null
 
   useEffect(() => {
-    if (view !== 'messenger' || friends.length > 0) return
-    legacyApi.friends().then((items) => setFriends(items.map((item) => item.user))).catch(() => setFriends([]))
-  }, [friends.length, view])
+    if (!user) return
+    let active = true
+    setProfileLoading(true)
+    socialApi.getProfile(user.userId, user.email).then((profile) => {
+      if (!active) return
+      setCurrentProfile(profile)
+    }).catch(() => active && setProfileError(t('profileLoadError'))).finally(() => active && setProfileLoading(false))
+    return () => { active = false }
+  }, [t, user])
+
+  useEffect(() => {
+    const update = (event: Event) => {
+      const profile = (event as CustomEvent<SocialProfile>).detail
+      if (!profile) return
+      setCurrentProfile(profile)
+      if (profileId === profile.id) setViewedProfile(profile)
+    }
+    window.addEventListener('fakebook:profile-updated', update)
+    return () => window.removeEventListener('fakebook:profile-updated', update)
+  }, [profileId])
+
+  useEffect(() => {
+    if (!profileId || !user) return
+    if (profileId === user.userId && currentProfile) {
+      setViewedProfile(currentProfile)
+      setProfileLoading(false)
+      return
+    }
+    let active = true
+    setProfileLoading(true)
+    setProfileError(null)
+    socialApi.getProfile(profileId).then((profile) => active && setViewedProfile(profile)).catch(() => active && setProfileError(t('profileLoadError'))).finally(() => active && setProfileLoading(false))
+    return () => { active = false }
+  }, [currentProfile, profileId, t, user])
+
+  useEffect(() => {
+    if (!user || location.pathname !== '/messenger') return
+    socialApi.getRelationProfiles(user.userId, 0).then((profiles) => setFriends(profiles.map(toSummary))).catch(() => setFriends([]))
+  }, [location.pathname, user])
+
+  useEffect(() => {
+    notificationApi.notifications(1).then((page) => setUnreadNotifications(page.unreadCount)).catch(() => setUnreadNotifications(0))
+    return notificationApi.subscribeNotifications((notification) => {
+      if (!notification.isRead) setUnreadNotifications((count) => count + 1)
+    })
+  }, [])
+
+  useEffect(() => {
+    const query = searchText.trim()
+    if (!quickOpen || query.length < 2) {
+      setQuickResults([])
+      setQuickLoading(false)
+      return
+    }
+    let active = true
+    setQuickLoading(true)
+    const timer = window.setTimeout(() => {
+      searchApi.fastSearch(query).then((items) => active && setQuickResults(items)).catch(() => active && setQuickResults([])).finally(() => active && setQuickLoading(false))
+    }, 250)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [quickOpen, searchText])
 
   if (!user) return null
 
-  function openSettings(section: SettingsSection) {
-    setSettingsSection(section)
-    setView('settings')
-    setMenuOpen(false)
-    setMenuView('root')
-  }
-
-  async function openProfile(userId?: string) {
-    const targetUserId = userId ?? user!.userId
-    setMenuOpen(false)
-    setMenuView('root')
-    setView('profile')
-    if (targetUserId === user!.userId && currentProfile) {
-      setViewedProfile(currentProfile)
-      return
-    }
-    if (viewedProfile?.id === targetUserId) return
-    setProfileLoading(true)
-    setProfileError(null)
-    try {
-      setViewedProfile(await legacyApi.user(targetUserId))
-    } catch {
-      setProfileError(t('profileLoadError'))
-    } finally {
-      setProfileLoading(false)
-    }
-  }
-
   const displayName = currentProfile?.displayName || user.email.split('@')[0]
   const avatarUrl = currentProfile?.avatarUrl ?? null
+  const searchTab = normalizeSearchTab(location.params.get('tab'))
+  const settingsSection = settingsSectionFor(location.pathname)
+  const memberRoute = groupMemberRoute(location.pathname)
+  const groupRouteId = memberRoute?.groupId ?? (location.pathname.startsWith('/groups/') ? pathSegment(location.pathname, 1) : null)
+  const groupMemberProfileId = memberRoute?.profileId ?? null
+  const groupId = groupMemberProfileId ? null : groupRouteId
 
-  return (
-    <div className="authenticated-app">
-      <header className="app-shell-topbar">
-        <div className="shell-brand-search">
-          <button type="button" className="app-brand" onClick={() => setView('home')} aria-label={t('home')}>
-            <img src="/brand/fakebook-minimal-cropped.png" alt="Fakebook" />
-          </button>
-          <label className="shell-search"><Icon name="search" size={18} /><input placeholder={t('searchPlaceholder')} aria-label={t('searchPlaceholder')} disabled title={t('featureUnavailable')} /></label>
+  function go(path: string) {
+    setMenuOpen(false)
+    setAppsMenuOpen(false)
+    setMenuView('root')
+    setQuickOpen(false)
+    navigate(path)
+  }
+
+  function runSearch() {
+    const query = searchText.trim()
+    if (query.length < 2) return
+    go(`/search?q=${encodeURIComponent(query)}&tab=posts`)
+  }
+
+  function submitSearch(event: FormEvent) {
+    event.preventDefault()
+    runSearch()
+  }
+
+  function openQuickResult(item: QuickSearchItem) {
+    void searchApi.recordSearchResultView(item.referenceId).catch(() => undefined)
+    go(item.kind === 'user' ? `/profile/${item.id}` : `/groups/${item.id}`)
+  }
+
+  return <div className="authenticated-app">
+    <header className="app-shell-topbar">
+      <div className="shell-brand-search">
+        <button type="button" className="app-brand" onClick={() => go('/home')} aria-label={t('home')}><img src="/brand/fakebook-minimal-cropped.png" alt="Fakebook" /></button>
+        <form ref={searchRef} className="shell-search-wrap" onSubmit={submitSearch} onFocus={() => setQuickOpen(true)} onBlur={() => window.setTimeout(() => { if (!searchRef.current?.contains(document.activeElement)) setQuickOpen(false) }, 0)}>
+          <label className="shell-search"><Icon name="search" size={18} /><input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder={t('searchPlaceholder')} aria-label={t('searchPlaceholder')} /></label>
+          {quickOpen && searchText.trim().length >= 2 && <QuickSearchDropdown items={quickResults} loading={quickLoading} onOpen={openQuickResult} onSeeAll={runSearch} />}
+        </form>
+      </div>
+
+      <nav className="app-shell-nav" aria-label={t('appNavigation')}>
+        <NavButton icon="home" label={t('home')} active={location.pathname === '/' || location.pathname === '/home'} onClick={() => go('/home')} />
+        <NavButton icon="friends" label={t('friends')} active={location.pathname.startsWith('/friends')} onClick={() => go('/friends')} />
+        <NavButton icon="video" label={t('reels')} active={location.pathname.startsWith('/reels')} onClick={() => go('/reels')} />
+        <NavButton icon="groups" label={t('groups')} active={location.pathname.startsWith('/groups')} onClick={() => go('/groups')} />
+      </nav>
+
+      <div className="app-shell-actions">
+        <div className="apps-menu-wrap" ref={appsMenuRef}><button type="button" className="icon-circle shell-menu-button" aria-label={t('menu')} title={t('menu')} aria-expanded={appsMenuOpen} onClick={() => setAppsMenuOpen((open) => !open)}><Icon name="menu" size={20} /></button>{appsMenuOpen && <AppsMenu onNavigate={go} />}</div>
+        <button type="button" className={location.pathname === '/messenger' ? 'icon-circle active' : 'icon-circle'} aria-label={t('messages')} onClick={() => go('/messenger')}><Icon name="messenger" size={20} /></button>
+        <button type="button" className={location.pathname === '/notifications' ? 'icon-circle active badge-button' : 'icon-circle badge-button'} aria-label={t('notifications')} onClick={() => { setUnreadNotifications(0); go('/notifications') }}><Icon name="bell" size={20} />{unreadNotifications > 0 && <span>{Math.min(99, unreadNotifications)}</span>}</button>
+        <div className="account-menu-wrap" ref={menuRef}>
+          <button ref={menuTriggerRef} type="button" className="shell-avatar-button" aria-haspopup="dialog" aria-expanded={menuOpen} aria-label={displayName} onClick={() => { setMenuOpen((open) => !open); setMenuView('root') }}><Avatar name={displayName} src={avatarUrl} size={40} /></button>
+          {menuOpen && <div className={`account-dropdown account-dropdown-${menuView}`} role="dialog" aria-label={t('accountMenu')}>
+            {menuView === 'root' ? <>
+              <div className="account-profile-card"><button type="button" onClick={() => go(`/profile/${user.userId}`)}><Avatar name={displayName} src={avatarUrl} size={58} /><span><strong>{displayName}<VerifiedBadge verified={currentProfile?.isVerified} /></strong><small>{user.email}</small></span></button><button type="button" className="view-profile-link" onClick={() => go(`/profile/${user.userId}`)}>{t('seeYourProfile')}</button></div>
+              <MenuItem icon="gift" label={t('premium')} detail={t('premiumMenuDesc')} onClick={() => go('/settings/premium')} />
+              <MenuItem icon="settings" label={t('settingsPrivacy')} detail={t('settingsMenuDesc')} onClick={() => setMenuView('settings')} />
+              <MenuItem icon="settings" label={t('settingsAppearance')} onClick={() => go('/settings/appearance')} />
+              <MenuItem icon="logout" label={t('logout')} onClick={() => void logout()} />
+              <p className="account-menu-footer">{t('footerLinks')}</p>
+            </> : <SettingsSubmenu onBack={() => setMenuView('root')} onOpen={(section) => go(`/settings/${section}`)} />}
+          </div>}
         </div>
+      </div>
+    </header>
 
-        <nav className="app-shell-nav" aria-label={t('appNavigation')}>
-          <NavButton icon="home" label={t('home')} active={view === 'home'} onClick={() => setView('home')} />
-          <NavButton icon="friends" label={t('friends')} enabled={false} unavailable={t('featureUnavailable')} />
-          <NavButton icon="video" label={t('reels')} enabled={false} unavailable={t('featureUnavailable')} />
-          <NavButton icon="groups" label={t('groups')} enabled={false} unavailable={t('featureUnavailable')} />
-        </nav>
+    {(location.pathname === '/' || location.pathname === '/home') && <GatewayHomePage profile={currentProfile} onNavigate={go} />}
+    {location.pathname === '/search' && <SearchPage query={location.params.get('q') ?? ''} tab={searchTab} userId={user.userId} onNavigate={go} />}
+    {location.pathname.startsWith('/friends') && <FriendsPage userId={user.userId} section={normalizeFriendSection(pathSegment(location.pathname, 1))} onNavigate={go} />}
+    {location.pathname.startsWith('/reels') && <ReelsPage userId={user.userId} mode={normalizeReelMode(pathSegment(location.pathname, 1))} onNavigate={go} />}
+    {location.pathname === '/groups' && <GroupsPage userId={user.userId} onNavigate={go} />}
+    {groupId && <GroupProfilePage groupId={groupId} userId={user.userId} onBack={() => go('/groups')} onNavigate={go} />}
+    {groupRouteId && groupMemberProfileId && <UserInGroupProfilePage groupId={groupRouteId} profileId={groupMemberProfileId} viewerId={user.userId} onBack={() => go(`/groups/${groupRouteId}`)} onNavigate={go} />}
+    {profileId && <ProfilePage profile={viewedProfile} loading={profileLoading} error={profileError} canEdit={profileId === user.userId} viewerId={user.userId} onEdit={() => go('/settings/profile')} onNavigate={go} />}
+    {location.pathname === '/messenger' && <div className="shell-messenger"><MessengerPage me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} onOpenProfile={(id) => go(`/profile/${id}`)} /></div>}
+    {location.pathname === '/notifications' && <NotificationsPage onNavigate={go} />}
+    {location.pathname === '/saved' && <SavedPage userId={user.userId} onNavigate={go} />}
+    {location.pathname.startsWith('/settings') && <SettingsPage initialSection={settingsSection} />}
+    {location.pathname === '/premium' && <SettingsPage initialSection="premium" />}
+    {location.pathname === '/premium/payment' && <SettingsPage initialSection="premium" />}
+    {location.pathname.startsWith('/content/') && <ContentPage contentId={pathSegment(location.pathname, 1)!} viewerId={user.userId} onNavigate={go} onBack={() => go('/home')} />}
+    {!isKnownPath(location.pathname) && <main className="unknown-page"><div className="card state-card"><h1>{t('pageNotFound')}</h1><p>{t('pageNotFoundDesc')}</p><button className="btn-primary" onClick={() => go('/home')}>{t('backToHome')}</button></div></main>}
+  </div>
+}
 
-        <div className="app-shell-actions">
-          <button type="button" className={view === 'messenger' ? 'icon-circle active' : 'icon-circle'} aria-label={t('messages')} onClick={() => setView('messenger')}><Icon name="messenger" size={20} /></button>
-          <button type="button" className="icon-circle" disabled aria-label={`${t('notifications')} — ${t('featureUnavailable')}`} title={t('featureUnavailable')}><Icon name="bell" size={20} /></button>
-          <div className="account-menu-wrap" ref={menuRef}>
-            <button ref={menuTriggerRef} type="button" className="shell-avatar-button" aria-haspopup="dialog" aria-expanded={menuOpen} onClick={() => { setMenuOpen((open) => !open); setMenuView('root') }}>
-              <Avatar name={displayName} src={avatarUrl} size={40} />
-            </button>
-            {menuOpen && (
-              <div className={`account-dropdown account-dropdown-${menuView}`} role="dialog" aria-label={t('accountMenu')}>
-                {menuView === 'root' ? <>
-                  <div className="account-profile-card">
-                    <button type="button" onClick={() => void openProfile()}>
-                      <Avatar name={displayName} src={avatarUrl} size={58} />
-                      <span><strong>{displayName}<VerifiedBadge verified={currentProfile?.isVerified} /></strong><small>{user.email}</small></span>
-                    </button>
-                    <button type="button" className="view-profile-link" onClick={() => void openProfile()}>{t('seeYourProfile')}</button>
-                  </div>
-                  <MenuItem icon="gift" label={t('premium')} detail={t('premiumMenuDesc')} onClick={() => openSettings('premium')} />
-                  <MenuItem icon="settings" label={t('settingsPrivacy')} detail={t('settingsMenuDesc')} onClick={() => setMenuView('settings')} />
-                  <MenuItem icon="settings" label={t('settingsAppearance')} onClick={() => openSettings('appearance')} />
-                  <MenuItem icon="logout" label={t('logout')} onClick={() => void logout()} />
-                  <p className="account-menu-footer">{t('footerLinks')}</p>
-                </> : <SettingsSubmenu onBack={() => setMenuView('root')} onOpen={openSettings} />}
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
+function AppsMenu({ onNavigate }: { onNavigate: (path: string) => void }) {
+  const { t } = useI18n()
+  const destinations: Array<{ path: string; label: string; icon: 'search' | 'friends' | 'video' | 'groups' | 'bookmark' | 'gift' | 'settings' }> = [
+    { path: '/search', label: t('searchResults'), icon: 'search' },
+    { path: '/friends', label: t('friends'), icon: 'friends' },
+    { path: '/reels', label: t('reels'), icon: 'video' },
+    { path: '/groups', label: t('groups'), icon: 'groups' },
+    { path: '/saved', label: t('saved'), icon: 'bookmark' },
+    { path: '/settings/premium', label: t('premium'), icon: 'gift' },
+    { path: '/settings/overview', label: t('settingsPrivacy'), icon: 'settings' },
+  ]
+  return <div className="apps-menu-panel" role="dialog" aria-label={t('menu')}><h2>{t('menu')}</h2><div>{destinations.map((item) => <button type="button" key={item.path} onClick={() => onNavigate(item.path)}><span><Icon name={item.icon} size={22} /></span><strong>{item.label}</strong></button>)}</div></div>
+}
 
-      {view === 'home' && <GatewayHomePage profile={currentProfile} />}
-      {view === 'profile' && <ProfilePage profile={viewedProfile} loading={profileLoading} error={profileError} canEdit={viewedProfile?.id === user.userId} onEdit={() => openSettings('profile')} />}
-      {view === 'messenger' && <div className="shell-messenger"><MessengerPage me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} onOpenProfile={(id) => void openProfile(id)} /></div>}
-      {view === 'settings' && <SettingsPage initialSection={settingsSection} />}
-    </div>
-  )
+function toSummary(profile: SocialProfile): UserSummary {
+  return { id: profile.id, username: profile.username, displayName: profile.displayName, avatarUrl: profile.avatarUrl, isVerified: profile.isVerified }
+}
+
+function QuickSearchDropdown({ items, loading, onOpen, onSeeAll }: { items: QuickSearchItem[]; loading: boolean; onOpen: (item: QuickSearchItem) => void; onSeeAll: () => void }) {
+  const { t } = useI18n()
+  return <div className="quick-search-results">{loading ? <div className="quick-search-state"><span className="spinner" /></div> : items.length === 0 ? <p className="muted">{t('noSearchResults')}</p> : items.map((item) => <button type="button" key={`${item.kind}-${item.id}`} onMouseDown={(event) => event.preventDefault()} onClick={() => onOpen(item)}><Avatar name={item.kind === 'user' ? item.profile.displayName : item.group.name} src={item.kind === 'user' ? item.profile.avatarUrl : item.group.avatarUrl} size={44} /><span><strong>{item.kind === 'user' ? item.profile.displayName : item.group.name}{item.kind === 'user' && <VerifiedBadge verified={item.profile.isVerified} />}</strong><small>{item.kind === 'user' ? item.profile.followerCount > 0 ? t('followersCount', { count: item.profile.followerCount }) : t('personResult') : item.group.memberCount == null ? t('groupResult') : t('membersCount', { count: item.group.memberCount })}</small></span></button>)}<button type="button" className="quick-search-all" onMouseDown={(event) => event.preventDefault()} onClick={onSeeAll}><Icon name="search" size={18} />{t('seeAllResults')}</button></div>
+}
+
+function ContentPage({ contentId, viewerId, onNavigate, onBack }: { contentId: string; viewerId: string; onNavigate: (path: string) => void; onBack: () => void }) {
+  const { t, locale } = useI18n()
+  const [post, setPost] = useState<GatewayPost | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  useEffect(() => { let active = true; api.postDetail(contentId).then((value) => active && setPost(value)).catch(() => active && setError(true)).finally(() => active && setLoading(false)); return () => { active = false } }, [contentId])
+  return <main className="single-content-page">{loading ? <div className="card state-card"><span className="spinner" /></div> : post ? <><button className="btn-soft content-back" onClick={onBack}>{t('back')}</button><GatewayPostCard post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} /></> : <div className="card state-card"><h2>{t('contentUnavailable')}</h2><p>{error ? t('genericError') : t('contentUnavailableDesc')}</p><button className="btn-primary" onClick={onBack}>{t('backToHome')}</button></div>}</main>
+}
+
+function settingsSectionFor(pathname: string): SettingsSection {
+  const value = pathSegment(pathname, 1) as SettingsSection | null
+  return value && SETTINGS.has(value) ? value : 'overview'
+}
+
+function normalizeSearchTab(value: string | null): SearchTab {
+  return value === 'people' || value === 'reels' || value === 'groups' ? value : 'posts'
+}
+
+function normalizeFriendSection(value: string | null): 'friends' | 'incoming' | 'outgoing' | 'blocked' {
+  return value === 'incoming' || value === 'outgoing' || value === 'blocked' ? value : 'friends'
+}
+
+function normalizeReelMode(value: string | null): 'for-you' | 'following' | 'mine' | 'saved' | 'liked' | 'shared' | 'watched' {
+  return value === 'following' || value === 'mine' || value === 'saved' || value === 'liked' || value === 'shared' || value === 'watched' ? value : 'for-you'
+}
+
+function isKnownPath(pathname: string) {
+  return pathname === '/' || pathname === '/home' || pathname === '/search' || pathname === '/groups' || pathname === '/messenger' || pathname === '/notifications' || pathname === '/saved' || pathname === '/premium' || pathname === '/premium/payment' || ['/friends', '/reels', '/groups/', '/profile/', '/settings', '/content/'].some((prefix) => pathname.startsWith(prefix))
 }
 
 function SettingsSubmenu({ onBack, onOpen }: { onBack: () => void; onOpen: (section: SettingsSection) => void }) {
   const { t } = useI18n()
-  return <div className="account-submenu">
-    <header><button type="button" className="account-submenu-back" onClick={onBack} aria-label={t('back')}>‹</button><h2>{t('settingsPrivacy')}</h2></header>
-    <SettingsMenuItem icon="settings" label={t('settingsGeneral')} onClick={() => onOpen('overview')} />
-    <SettingsMenuItem icon="globe" label={t('languageLabel')} onClick={() => onOpen('language')} />
-    <SettingsMenuItem icon="friends" label={t('privacyCheckup')} onClick={() => onOpen('privacy')} />
-    <SettingsMenuItem icon="lock" label={t('privacyCenter')} onClick={() => onOpen('security')} />
-    <SettingsMenuItem icon="clock" label={t('activityLog')} onClick={() => onOpen('sessions')} />
-    <SettingsMenuItem icon="settings" label={t('contentPreferences')} onClick={() => onOpen('appearance')} />
-  </div>
+  return <div className="account-submenu"><header><button type="button" className="account-submenu-back" onClick={onBack} aria-label={t('back')}>‹</button><h2>{t('settingsPrivacy')}</h2></header><SettingsMenuItem icon="settings" label={t('settingsGeneral')} onClick={() => onOpen('overview')} /><SettingsMenuItem icon="globe" label={t('languageLabel')} onClick={() => onOpen('language')} /><SettingsMenuItem icon="friends" label={t('privacyCheckup')} onClick={() => onOpen('privacy')} /><SettingsMenuItem icon="lock" label={t('privacyCenter')} onClick={() => onOpen('security')} /><SettingsMenuItem icon="clock" label={t('activityLog')} onClick={() => onOpen('sessions')} /><SettingsMenuItem icon="settings" label={t('contentPreferences')} onClick={() => onOpen('appearance')} /></div>
 }
 
 function SettingsMenuItem({ icon, label, onClick }: { icon: 'settings' | 'globe' | 'friends' | 'lock' | 'clock'; label: string; onClick: () => void }) {
   return <button type="button" className="account-menu-item account-submenu-item" onClick={onClick}><span className="account-menu-icon"><Icon name={icon} size={21} /></span><strong>{label}</strong>{icon === 'globe' && <span className="account-menu-chevron">›</span>}</button>
 }
 
-function MenuItem({ icon, label, detail, onClick }: { icon: 'gift' | 'settings' | 'globe' | 'logout'; label: string; detail?: string; onClick: () => void }) {
+function MenuItem({ icon, label, detail, onClick }: { icon: 'gift' | 'settings' | 'logout'; label: string; detail?: string; onClick: () => void }) {
   return <button type="button" className="account-menu-item" onClick={onClick}><span className="account-menu-icon"><Icon name={icon} size={21} /></span><span><strong>{label}</strong>{detail && <small>{detail}</small>}</span>{icon !== 'logout' && <span className="account-menu-chevron">›</span>}</button>
 }
 
-function NavButton({ icon, label, active = false, enabled = true, unavailable, onClick }: {
-  icon: 'home' | 'friends' | 'video' | 'groups'
-  label: string
-  active?: boolean
-  enabled?: boolean
-  unavailable?: string
-  onClick?: () => void
-}) {
-  const description = enabled ? label : `${label} — ${unavailable}`
-  return <button type="button" className={active ? 'active' : ''} onClick={onClick} disabled={!enabled} aria-label={description} title={description}><Icon name={icon} size={25} /><span>{label}</span></button>
+function NavButton({ icon, label, active, onClick }: { icon: 'home' | 'friends' | 'video' | 'groups'; label: string; active: boolean; onClick: () => void }) {
+  return <button type="button" className={active ? 'active' : ''} onClick={onClick} aria-label={label} title={label}><Icon name={icon} size={25} /><span>{label}</span></button>
 }

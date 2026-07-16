@@ -23,6 +23,9 @@ vi.mock('../api/client', () => ({
   visibleRecommendationPosts: (items: Array<{ post: unknown | null }>) => items.flatMap((item) => item.post ? [item.post] : []),
 }))
 
+vi.mock('../api/social', () => ({ socialApi: { getRelationProfiles: vi.fn().mockResolvedValue([]) } }))
+vi.mock('../components/ContentActions', () => ({ ContentActions: () => <div data-testid="content-actions" /> }))
+
 vi.mock('../lib/auth', () => ({
   useAuth: () => ({
     user: { userId: '9007199254740993123', email: 'owner@example.com', validDate: null, status: 1 },

@@ -1,90 +1,101 @@
-import { io, type ManagerOptions, type Socket, type SocketOptions } from 'socket.io-client'
+import { GRAPHQL_GATEWAY_URL, getAuth, parseGraphQlEnvelope } from './client'
 
-import { API_GATEWAY_URL, getAuth } from './client'
-
-const DEFAULT_SOCKET_PATH = '/socket.io'
-const DEFAULT_SOCKET_TRANSPORTS = ['websocket'] as const
-
-export interface GatewaySocketAuthPayload {
-  token?: string
-  authorization?: string
+interface GraphQlSsePayload<T> {
+  data?: T
+  errors?: Array<{ message?: string }>
 }
 
-export type GatewaySocketOptions = Partial<ManagerOptions & SocketOptions> & {
-  authToken?: string | null
+export interface GatewaySubscription<T> {
+  query: string
+  variables?: Record<string, unknown>
+  onData: (data: T) => void
+  onError?: (error: Error) => void
 }
 
-function normalizeOptionalUrl(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed) return undefined
-  if (trimmed === '/') return ''
-  return trimmed.replace(/\/+$/, '')
+export function parseSseFrames(value: string): { payloads: string[]; remainder: string } {
+  const normalized = value.replace(/\r\n/g, '\n')
+  const frames = normalized.split('\n\n')
+  const remainder = frames.pop() ?? ''
+  const payloads = frames.flatMap((frame) => {
+    const data = frame
+      .split('\n')
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trimStart())
+      .join('\n')
+    return data ? [data] : []
+  })
+  return { payloads, remainder }
 }
 
-function socketUrlFromApiGatewayUrl(apiGatewayUrl: string): string {
-  const trimmed = apiGatewayUrl.trim()
-  if (!trimmed || trimmed.startsWith('/')) return ''
+function subscriptionHeaders(): Headers {
+  const headers = new Headers({
+    Accept: 'text/event-stream',
+    'Content-Type': 'application/json',
+  })
+  const token = getAuth()?.accessToken
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  return headers
+}
 
-  try {
-    return new URL(trimmed).origin
-  } catch {
-    return ''
+async function readSubscription<T>(response: Response, subscription: GatewaySubscription<T>, signal: AbortSignal) {
+  if (!response.ok) throw new Error(`Realtime connection failed (${response.status}).`)
+  if (!response.body) throw new Error('Realtime response did not include a stream.')
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (!signal.aborted) {
+    const { value, done } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done })
+    const parsed = parseSseFrames(buffer)
+    buffer = parsed.remainder
+    for (const payloadText of parsed.payloads) {
+      if (payloadText === '[DONE]') return
+      const payload = parseGraphQlEnvelope<T>(payloadText) as GraphQlSsePayload<T>
+      if (payload.errors?.length) throw new Error(payload.errors[0]?.message || 'Realtime operation failed.')
+      if (payload.data) subscription.onData(payload.data)
+    }
+    if (done) return
   }
 }
 
-function normalizeSocketGatewayUrl(socketGatewayUrl: string | undefined, apiGatewayUrl: string): string {
-  return normalizeOptionalUrl(socketGatewayUrl) ?? socketUrlFromApiGatewayUrl(apiGatewayUrl)
-}
+export function subscribeGatewayGraphQl<T>(subscription: GatewaySubscription<T>): () => void {
+  const controller = new AbortController()
+  let retryTimer: number | null = null
+  let retryAttempt = 0
 
-function normalizeSocketPath(value: string | undefined): string {
-  const trimmed = value?.trim()
-  if (!trimmed) return DEFAULT_SOCKET_PATH
-
-  const normalizedPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
-  return normalizedPath.replace(/\/+$/, '') || DEFAULT_SOCKET_PATH
-}
-
-function normalizeNamespace(namespace: string): string {
-  const trimmed = namespace.trim()
-  if (!trimmed || trimmed === '/') return ''
-
-  const normalizedNamespace = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
-  return normalizedNamespace.replace(/\/+$/, '')
-}
-
-export const SOCKET_GATEWAY_URL = normalizeSocketGatewayUrl(import.meta.env.VITE_SOCKET_GATEWAY_URL, API_GATEWAY_URL)
-export const SOCKET_PATH = normalizeSocketPath(import.meta.env.VITE_SOCKET_PATH)
-
-export function getGatewaySocketAuthPayload(token = getAuth()?.accessToken ?? null): GatewaySocketAuthPayload {
-  if (!token) return {}
-
-  return {
-    token,
-    authorization: `Bearer ${token}`,
+  const connect = async () => {
+    if (controller.signal.aborted) return
+    try {
+      const response = await fetch(GRAPHQL_GATEWAY_URL, {
+        method: 'POST',
+        headers: subscriptionHeaders(),
+        credentials: 'include',
+        body: JSON.stringify({ query: subscription.query, variables: subscription.variables ?? {} }),
+        signal: controller.signal,
+      })
+      retryAttempt = 0
+      await readSubscription(response, subscription, controller.signal)
+      if (!controller.signal.aborted) scheduleReconnect()
+    } catch (error) {
+      if (controller.signal.aborted) return
+      subscription.onError?.(error instanceof Error ? error : new Error('Realtime connection failed.'))
+      scheduleReconnect()
+    }
   }
-}
 
-export function getGatewaySocketUrl(namespace = '/'): string {
-  return `${SOCKET_GATEWAY_URL}${normalizeNamespace(namespace)}`
-}
-
-export function getGatewaySocketOptions(options: GatewaySocketOptions = {}): Partial<ManagerOptions & SocketOptions> {
-  const { authToken, auth, path, transports, withCredentials, ...socketOptions } = options
-
-  return {
-    ...socketOptions,
-    path: path ?? SOCKET_PATH,
-    transports: transports ?? [...DEFAULT_SOCKET_TRANSPORTS],
-    withCredentials: withCredentials ?? true,
-    auth:
-      auth ??
-      ((callback) => {
-        const token = authToken === undefined ? getAuth()?.accessToken ?? null : authToken
-        callback(getGatewaySocketAuthPayload(token))
-      }),
+  const scheduleReconnect = () => {
+    if (controller.signal.aborted || retryTimer !== null) return
+    const delay = Math.min(15_000, 1_000 * 2 ** retryAttempt++)
+    retryTimer = window.setTimeout(() => {
+      retryTimer = null
+      void connect()
+    }, delay)
   }
-}
 
-export function createGatewaySocket(namespace = '/', options: GatewaySocketOptions = {}): Socket {
-  return io(getGatewaySocketUrl(namespace), getGatewaySocketOptions(options))
+  void connect()
+  return () => {
+    controller.abort()
+    if (retryTimer !== null) window.clearTimeout(retryTimer)
+  }
 }

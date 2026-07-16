@@ -25,4 +25,12 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ['src/i18n.tsx', 'src/theme.tsx', 'src/lib/auth.tsx'],
+    rules: {
+      // These provider modules intentionally export their hook alongside the
+      // provider so every consumer shares one context instance.
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 )

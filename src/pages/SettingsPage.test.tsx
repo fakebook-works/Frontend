@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SettingsPage } from './SettingsPage'
 
 const apiMocks = vi.hoisted(() => ({
-  me: vi.fn(),
+  getProfile: vi.fn(),
+  getOwnedMedia: vi.fn(),
   updateProfile: vi.fn(),
-  updateAvatar: vi.fn(),
 }))
 
-vi.mock('../api/client', () => ({ legacyApi: apiMocks }))
+vi.mock('../api/social', () => ({ socialApi: apiMocks }))
 vi.mock('../lib/auth', () => ({
   useAuth: () => ({ user: { userId: '1', email: 'owner@example.com' } }),
 }))
@@ -24,12 +24,12 @@ vi.mock('./PremiumPage', () => ({ PremiumPage: () => null }))
 
 describe('Profile birth-date validation', () => {
   beforeEach(() => {
-    apiMocks.me.mockResolvedValue({
+    apiMocks.getProfile.mockResolvedValue({
       id: '1', displayName: 'Owner', bio: null, location: null, gender: null,
-      birthDate: null, avatarUrl: null, isVerified: false,
+      birthDate: null, avatarUrl: null, backgroundUrl: null, privacy: 0, isVerified: false,
     })
     apiMocks.updateProfile.mockReset()
-    apiMocks.updateAvatar.mockReset()
+    apiMocks.getOwnedMedia.mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
   })
 
   afterEach(() => {
