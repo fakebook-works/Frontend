@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api/client'
 import type { GatewayPost } from '../api/gatewayTypes'
-import { socialApi, type GroupMembershipState, type SocialGroup, type SocialProfile } from '../api/social'
-import type { UserSummary } from '../api/types'
+import { socialApi, type GroupMembershipState, type SocialGroup, type SocialPhoto, type SocialProfile } from '../api/social'
+import type { MediaUpload, UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { ImageCropModal } from '../components/ImageCropModal'
 import { Icon } from '../components/Icon'
@@ -131,21 +131,25 @@ function CreateGroupModal({ userId, onClose, onCreated }: { userId: string; onCl
   return <div className="modal-backdrop" role="presentation" onClick={() => !busy && onClose()}><form className="modal compact-form-modal" onSubmit={submit} onClick={(event) => event.stopPropagation()}><header className="modal-head"><h2>{t('createGroup')}</h2><button type="button" className="icon-circle subtle" onClick={onClose}><Icon name="close" /></button></header><div className="modal-body settings-form-grid"><label className="wide"><span>{t('groupName')}</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label><label className="wide"><span>{t('groupDescription')}</span><textarea rows={4} value={bio} onChange={(event) => setBio(event.target.value)} /></label><label className="wide"><span>{t('privacy')}</span><select value={privacy} onChange={(event) => setPrivacy(Number(event.target.value))}><option value={0}>{t('publicGroup')}</option><option value={1}>{t('privateGroup')}</option></select></label>{error && <p className="form-error wide">{error}</p>}</div><footer className="modal-foot"><button className="btn-primary block" disabled={busy || !name.trim()}>{busy ? t('creating') : t('createGroup')}</button></footer></form></div>
 }
 
-type GroupTab = 'posts' | 'about' | 'members' | 'requests'
+type GroupTab = 'posts' | 'photos' | 'about' | 'members' | 'requests'
 
 export function GroupProfilePage({ groupId, userId, onBack, onNavigate }: { groupId: string; userId: string; onBack: () => void; onNavigate: (path: string) => void }) {
   const { t, locale } = useI18n()
   const [group, setGroup] = useState<SocialGroup | null>(null)
   const [membership, setMembership] = useState<GroupMembershipState>({ isMember: false, isAdmin: false, joinRequestPending: false, canViewPosts: false })
   const [posts, setPosts] = useState<GatewayPost[]>([])
+  const [photos, setPhotos] = useState<SocialPhoto[]>([])
   const [postCursor, setPostCursor] = useState<string | null>(null)
   const [postsHaveMore, setPostsHaveMore] = useState(false)
+  const [photoCursor, setPhotoCursor] = useState<string | null>(null)
+  const [photosHaveMore, setPhotosHaveMore] = useState(false)
   const [members, setMembers] = useState<UserSummary[]>([])
   const [admins, setAdmins] = useState<UserSummary[]>([])
   const [requests, setRequests] = useState<SocialProfile[]>([])
   const [tab, setTab] = useState<GroupTab>('posts')
   const [loading, setLoading] = useState(true)
   const [postsLoading, setPostsLoading] = useState(false)
+  const [photosLoading, setPhotosLoading] = useState(false)
   const [peopleLoading, setPeopleLoading] = useState(false)
   const [requestsLoading, setRequestsLoading] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -197,6 +201,31 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate }: { grou
 
   useEffect(() => { void loadPosts() }, [loadPosts])
 
+  const loadPhotos = useCallback(async (cursor: string | null = null, append = false) => {
+    if (!membership.canViewPosts) {
+      setPhotos([])
+      setPhotoCursor(null)
+      setPhotosHaveMore(false)
+      return
+    }
+    setPhotosLoading(true)
+    try {
+      const page = await socialApi.getGroupPhotos(groupId, 60, cursor)
+      setPhotos((current) => append ? [...current, ...page.items] : page.items)
+      setPhotoCursor(page.endCursor)
+      setPhotosHaveMore(page.hasNextPage)
+    } catch {
+      if (!append) setPhotos([])
+      setError(t('profileMediaLoadError'))
+    } finally {
+      setPhotosLoading(false)
+    }
+  }, [groupId, membership.canViewPosts, t])
+
+  useEffect(() => {
+    if (tab === 'photos') void loadPhotos()
+  }, [loadPhotos, tab])
+
   const loadPeople = useCallback(async () => {
     setPeopleLoading(true)
     try {
@@ -229,6 +258,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate }: { grou
   const tabs = useMemo(() => {
     const values: Array<{ id: GroupTab; label: string }> = [
       { id: 'posts', label: t('postsLabel') },
+      { id: 'photos', label: t('photos') },
       { id: 'about', label: t('about') },
       { id: 'members', label: t('members') },
     ]
@@ -236,6 +266,8 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate }: { grou
     return values
   }, [membership.isAdmin, t])
   const excludedInviteIds = useMemo(() => new Set([...members, ...admins].map((person) => person.id)), [admins, members])
+  const adminIds = useMemo(() => new Set(admins.map((person) => person.id)), [admins])
+  const nonAdminMembers = useMemo(() => members.filter((person) => !adminIds.has(person.id)), [adminIds, members])
 
   async function membershipAction(action: 'join' | 'cancel' | 'leave') {
     if (!group) return
@@ -293,16 +325,13 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate }: { grou
     try {
       if (action === 'promote') {
         if (!await socialApi.addGroupAdmin(groupId, person.id)) throw new Error('Action rejected')
-        setMembers((current) => current.filter((item) => item.id !== person.id))
         setAdmins((current) => [person, ...current.filter((item) => item.id !== person.id)])
       } else if (action === 'remove') {
         if (!await socialApi.removeGroupMember(groupId, person.id)) throw new Error('Action rejected')
         setMembers((current) => current.filter((item) => item.id !== person.id))
       } else {
         if (!await socialApi.removeGroupAdmin(groupId, person.id)) throw new Error('Action rejected')
-        if (!await socialApi.addGroupMember(groupId, person.id)) throw new Error('Could not preserve membership')
         setAdmins((current) => current.filter((item) => item.id !== person.id))
-        setMembers((current) => [person, ...current.filter((item) => item.id !== person.id)])
       }
       const latest = await socialApi.getGroup(groupId)
       if (latest) setGroup(latest)
@@ -339,8 +368,9 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate }: { grou
           {(membership.isMember || membership.isAdmin) && <GroupPostComposer userId={userId} groupId={groupId} people={[...new Map([...admins, ...members].map((person) => [person.id, person])).values()]} onCreated={() => void loadPosts()} />}
           {!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupFeedEmpty')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : <>{posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} authorPath={(authorId) => `/groups/${groupId}/members/${authorId}`} />)}{postsHaveMore && <button type="button" className="btn-soft load-more-result" disabled={postsLoading || !postCursor} onClick={() => void loadPosts(postCursor, true)}>{postsLoading ? t('loadingMore') : t('seeMore')}</button>}</>}
         </>}
+        {tab === 'photos' && <div className="card profile-tab-card"><h2>{t('photos')}</h2>{!membership.canViewPosts ? <p className="muted">{t('joinToSeePosts')}</p> : photosLoading && photos.length === 0 ? <div className="state-card"><span className="spinner" /></div> : photos.length === 0 ? <p className="muted">{t('photosEmpty')}</p> : <><div className="profile-photo-grid">{photos.map((photo) => <button type="button" key={`${photo.contentId}-${photo.media.id}`} onClick={() => onNavigate(`/content/${photo.contentId}`)}><img src={photo.media.url} alt="" loading="lazy" /></button>)}</div>{photosHaveMore && <button type="button" className="btn-soft load-more-result" disabled={photosLoading || !photoCursor} onClick={() => void loadPhotos(photoCursor, true)}>{photosLoading ? t('loadingMore') : t('seeMore')}</button>}</>}</div>}
         {tab === 'about' && <div className="card group-detail-card"><h2>{t('aboutThisGroup')}</h2><p>{group.bio || t('noGroupDescription')}</p><dl><div><dt>{t('privacy')}</dt><dd>{group.privacy === 0 ? t('publicGroup') : t('privateGroup')}</dd></div><div><dt>{t('createdAt')}</dt><dd>{group.createdAt || t('notAvailable')}</dd></div></dl></div>}
-        {tab === 'members' && <div className="card group-detail-card"><div className="service-heading"><div><h2>{t('members')}</h2><p>{t('groupMemberSummary', { members: group.memberCount ?? 0, admins: group.adminCount })}</p></div><div className="split-actions">{membership.isAdmin && <button type="button" className="btn-primary sm" onClick={() => setInviting(true)}><Icon name="userPlus" size={16} />{t('invitePeople')}</button>}<button type="button" className="btn-soft sm" onClick={() => void loadPeople()}>{t('refresh')}</button></div></div>{peopleLoading ? <div className="state-card"><span className="spinner" /></div> : <><GroupPeopleList groupId={groupId} title={t('groupAdmins')} people={admins} currentUserId={userId} adminView={membership.isAdmin} busyUserId={busyUserId} onNavigate={onNavigate} onAction={(person) => void managePerson(person, 'demote')} actionLabel={t('removeAdmin')} /><GroupPeopleList groupId={groupId} title={t('groupMembers')} people={members} currentUserId={userId} adminView={membership.isAdmin} busyUserId={busyUserId} onNavigate={onNavigate} onAction={(person, secondary) => void managePerson(person, secondary ? 'remove' : 'promote')} actionLabel={t('makeAdmin')} secondaryActionLabel={t('removeMember')} /></>}</div>}
+        {tab === 'members' && <div className="card group-detail-card"><div className="service-heading"><div><h2>{t('members')}</h2><p>{t('groupMemberSummary', { members: group.memberCount ?? 0, admins: group.adminCount })}</p></div><div className="split-actions">{membership.isAdmin && <button type="button" className="btn-primary sm" onClick={() => setInviting(true)}><Icon name="userPlus" size={16} />{t('invitePeople')}</button>}<button type="button" className="btn-soft sm" onClick={() => void loadPeople()}>{t('refresh')}</button></div></div>{peopleLoading ? <div className="state-card"><span className="spinner" /></div> : <><GroupPeopleList groupId={groupId} title={t('groupAdmins')} people={admins} currentUserId={userId} adminView={membership.isAdmin} busyUserId={busyUserId} onNavigate={onNavigate} onAction={(person) => void managePerson(person, 'demote')} actionLabel={t('removeAdmin')} /><GroupPeopleList groupId={groupId} title={t('groupMembers')} people={nonAdminMembers} currentUserId={userId} adminView={membership.isAdmin} busyUserId={busyUserId} onNavigate={onNavigate} onAction={(person, secondary) => void managePerson(person, secondary ? 'remove' : 'promote')} actionLabel={t('makeAdmin')} secondaryActionLabel={t('removeMember')} /></>}</div>}
         {tab === 'requests' && membership.isAdmin && <div className="card group-admin-panel"><div className="service-heading"><div><h2>{t('joinRequests')}</h2><p>{t('joinRequestsDesc')}</p></div><button type="button" className="btn-soft sm" onClick={() => void loadRequests()}>{t('refresh')}</button></div>{requestsLoading ? <div className="state-card"><span className="spinner" /></div> : requests.length === 0 ? <div className="state-card"><h3>{t('noJoinRequests')}</h3><p>{t('noJoinRequestsDesc')}</p></div> : <div className="group-request-list">{requests.map((profile) => <article key={profile.id}><button type="button" className="request-profile" onClick={() => onNavigate(`/profile/${profile.id}`)}><Avatar name={profile.displayName} src={profile.avatarUrl} size={52} /><span><strong>{profile.displayName}<VerifiedBadge verified={profile.isVerified} /></strong><small>{t('friendsCount', { count: profile.friendCount })}</small></span></button><div><button type="button" className="btn-primary sm" disabled={busyUserId === profile.id} onClick={() => void reviewRequest(profile.id, true)}>{t('approve')}</button><button type="button" className="btn-soft sm" disabled={busyUserId === profile.id} onClick={() => void reviewRequest(profile.id, false)}>{t('decline')}</button></div></article>)}</div>}</div>}
       </section>
     </div>
@@ -357,7 +387,15 @@ function EditGroupModal({ group, onClose, onUpdated }: { group: SocialGroup; onC
   const [privacy, setPrivacy] = useState(group.privacy)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [cropTarget, setCropTarget] = useState<{ file: File; kind: 'avatar' | 'background' } | null>(null)
+  const [cropTarget, setCropTarget] = useState<{ file: File; kind: 'avatar' | 'background'; fromExisting: boolean } | null>(null)
+  const [candidatePhotos, setCandidatePhotos] = useState<SocialPhoto[]>([])
+  const [existingPicker, setExistingPicker] = useState<'avatar' | 'background' | null>(null)
+
+  useEffect(() => {
+    let active = true
+    socialApi.getGroupPhotoCandidates(group.id, 60).then((page) => active && setCandidatePhotos(page.items)).catch(() => active && setCandidatePhotos([]))
+    return () => { active = false }
+  }, [group.id])
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (!name.trim()) return
@@ -378,19 +416,38 @@ function EditGroupModal({ group, onClose, onUpdated }: { group: SocialGroup; onC
     if (!cropTarget) return
     setBusy(true)
     setError(null)
+    let uploads: MediaUpload[] = []
+    let persisted = false
     try {
-      const croppedUpload = await api.uploadMedia(cropped)
-      const originalUpload = cropTarget.kind === 'background' ? await api.uploadMedia(original) : null
+      uploads = await api.uploadMediaFiles(cropTarget.fromExisting ? [cropped] : [original, cropped])
+      const originalUpload = cropTarget.fromExisting ? null : uploads[0]
+      const croppedUpload = uploads[uploads.length - 1]
       const updated = cropTarget.kind === 'avatar'
-        ? await socialApi.changeGroupAvatar(group.id, croppedUpload.url)
+        ? await socialApi.changeGroupAvatar(group.id, croppedUpload.url, originalUpload?.url ?? null)
         : await socialApi.changeGroupBackground(group.id, croppedUpload.url, originalUpload?.url ?? null)
       if (!updated) throw new Error('Missing group image update')
+      persisted = true
       onUpdated(updated)
     } catch {
+      if (!persisted) await Promise.allSettled(uploads.map((item) => api.cancelPendingMedia(item)))
       setError(t('groupImageUpdateError'))
       throw new Error('Group image update failed')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function chooseExistingPhoto(photo: SocialPhoto, kind: 'avatar' | 'background') {
+    setError(null)
+    try {
+      const response = await fetch(photo.media.url, { credentials: 'include' })
+      if (!response.ok) throw new Error('Could not fetch group media')
+      const blob = await response.blob()
+      const extension = blob.type.split('/')[1] || 'jpg'
+      setCropTarget({ file: new File([blob], `fakebook-group-photo.${extension}`, { type: blob.type || 'image/jpeg' }), kind, fromExisting: true })
+      setExistingPicker(null)
+    } catch {
+      setError(t('existingPhotoLoadError'))
     }
   }
 
@@ -410,7 +467,12 @@ function EditGroupModal({ group, onClose, onUpdated }: { group: SocialGroup; onC
     }
   }
 
-  return <><div className="modal-backdrop" role="presentation" onClick={() => !busy && onClose()}><form className="modal compact-form-modal" onSubmit={submit} onClick={(event) => event.stopPropagation()}><header className="modal-head"><h2>{t('editGroup')}</h2><button type="button" className="icon-circle subtle" onClick={onClose}><Icon name="close" /></button></header><div className="modal-body settings-form-grid"><div className="wide group-image-editor"><div className="group-edit-cover" style={group.backgroundUrl ? { backgroundImage: `url(${group.backgroundUrl})` } : undefined}><div>{group.backgroundUrl && <button type="button" className="btn-soft danger-text" disabled={busy} onClick={() => void removeImage('background')}><Icon name="trash" size={16} />{t('removeGroupBackground')}</button>}<label className="btn-soft"><Icon name="camera" size={16} />{t('changeGroupBackground')}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setCropTarget({ file, kind: 'background' }); event.currentTarget.value = '' }} /></label></div></div><div className="group-edit-avatar"><Avatar name={group.name} src={group.avatarUrl} size={76} /><div>{group.avatarUrl && <button type="button" className="btn-soft danger-text" disabled={busy} onClick={() => void removeImage('avatar')}>{t('removeGroupAvatar')}</button>}<label className="btn-soft"><Icon name="camera" size={16} />{t('changeGroupAvatar')}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setCropTarget({ file, kind: 'avatar' }); event.currentTarget.value = '' }} /></label></div></div></div><label className="wide"><span>{t('groupName')}</span><input value={name} onChange={(event) => setName(event.target.value)} /></label><label className="wide"><span>{t('groupDescription')}</span><textarea rows={4} value={bio} onChange={(event) => setBio(event.target.value)} /></label><label className="wide"><span>{t('privacy')}</span><select value={privacy} onChange={(event) => setPrivacy(Number(event.target.value))}><option value={0}>{t('publicGroup')}</option><option value={1}>{t('privateGroup')}</option></select></label>{error && <p className="form-error wide">{error}</p>}</div><footer className="modal-foot"><button type="button" className="btn-soft" onClick={onClose}>{t('cancel')}</button><button type="submit" className="btn-primary" disabled={busy || !name.trim()}>{busy ? t('saving') : t('save')}</button></footer></form></div>{cropTarget && <ImageCropModal file={cropTarget.file} kind={cropTarget.kind} onClose={() => setCropTarget(null)} onConfirm={saveCroppedImage} />}</>
+  return <><div className="modal-backdrop" role="presentation" onClick={() => !busy && onClose()}><form className="modal compact-form-modal" onSubmit={submit} onClick={(event) => event.stopPropagation()}><header className="modal-head"><h2>{t('editGroup')}</h2><button type="button" className="icon-circle subtle" onClick={onClose}><Icon name="close" /></button></header><div className="modal-body settings-form-grid"><div className="wide group-image-editor"><div className="group-edit-cover" style={group.backgroundUrl ? { backgroundImage: `url(${group.backgroundUrl})` } : undefined}><div>{group.backgroundUrl && <button type="button" className="btn-soft danger-text" disabled={busy} onClick={() => void removeImage('background')}><Icon name="trash" size={16} />{t('removeGroupBackground')}</button>}{candidatePhotos.length > 0 && <button type="button" className="btn-soft" disabled={busy} onClick={() => setExistingPicker('background')}><Icon name="photo" size={16} />{t('chooseExistingPhoto')}</button>}<label className="btn-soft"><Icon name="camera" size={16} />{t('changeGroupBackground')}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setCropTarget({ file, kind: 'background', fromExisting: false }); event.currentTarget.value = '' }} /></label></div></div><div className="group-edit-avatar"><Avatar name={group.name} src={group.avatarUrl} size={76} /><div>{group.avatarUrl && <button type="button" className="btn-soft danger-text" disabled={busy} onClick={() => void removeImage('avatar')}>{t('removeGroupAvatar')}</button>}{candidatePhotos.length > 0 && <button type="button" className="btn-soft" disabled={busy} onClick={() => setExistingPicker('avatar')}><Icon name="photo" size={16} />{t('chooseExistingPhoto')}</button>}<label className="btn-soft"><Icon name="camera" size={16} />{t('changeGroupAvatar')}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setCropTarget({ file, kind: 'avatar', fromExisting: false }); event.currentTarget.value = '' }} /></label></div></div></div><label className="wide"><span>{t('groupName')}</span><input value={name} onChange={(event) => setName(event.target.value)} /></label><label className="wide"><span>{t('groupDescription')}</span><textarea rows={4} value={bio} onChange={(event) => setBio(event.target.value)} /></label><label className="wide"><span>{t('privacy')}</span><select value={privacy} onChange={(event) => setPrivacy(Number(event.target.value))}><option value={0}>{t('publicGroup')}</option><option value={1}>{t('privateGroup')}</option></select></label>{error && <p className="form-error wide">{error}</p>}</div><footer className="modal-foot"><button type="button" className="btn-soft" onClick={onClose}>{t('cancel')}</button><button type="submit" className="btn-primary" disabled={busy || !name.trim()}>{busy ? t('saving') : t('save')}</button></footer></form></div>{cropTarget && <ImageCropModal file={cropTarget.file} kind={cropTarget.kind} onClose={() => setCropTarget(null)} onConfirm={saveCroppedImage} />}{existingPicker && <GroupExistingPhotoPicker images={candidatePhotos} kind={existingPicker} onClose={() => setExistingPicker(null)} onSelect={(photo) => void chooseExistingPhoto(photo, existingPicker)} />}</>
+}
+
+function GroupExistingPhotoPicker({ images, kind, onClose, onSelect }: { images: SocialPhoto[]; kind: 'avatar' | 'background'; onClose: () => void; onSelect: (photo: SocialPhoto) => void }) {
+  const { t } = useI18n()
+  return <div className="modal-backdrop existing-photo-backdrop" role="presentation" onClick={onClose}><section className="modal existing-photo-modal" role="dialog" aria-modal="true" aria-label={t('chooseExistingPhoto')} onClick={(event) => event.stopPropagation()}><header className="modal-head"><div><h2>{t('chooseExistingPhoto')}</h2><p>{kind === 'avatar' ? t('chooseAvatarPhotoDesc') : t('chooseBackgroundPhotoDesc')}</p></div><button type="button" className="icon-circle subtle" onClick={onClose}><Icon name="close" /></button></header><div className="existing-photo-grid">{images.map((photo) => <button type="button" key={`${photo.contentId}-${photo.media.id}`} onClick={() => onSelect(photo)}><img src={photo.media.url} alt="" loading="lazy" /></button>)}</div></section></div>
 }
 
 function DeleteGroupModal({ group, onClose, onDeleted }: { group: SocialGroup; onClose: () => void; onDeleted: () => void }) {
@@ -435,38 +497,42 @@ function DeleteGroupModal({ group, onClose, onDeleted }: { group: SocialGroup; o
 function GroupPostComposer({ userId, groupId, people, onCreated }: { userId: string; groupId: string; people: UserSummary[]; onCreated: () => void }) {
   const { t } = useI18n()
   const [content, setContent] = useState('')
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [fileKey, setFileKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [taggedPeople, setTaggedPeople] = useState<UserSummary[]>([])
+  const [mentionedPeople, setMentionedPeople] = useState<UserSummary[]>([])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!content.trim() && !file) return
+    if (!content.trim() && files.length === 0) return
     setBusy(true)
     setError(null)
+    let uploaded: MediaUpload[] = []
+    let persisted = false
     try {
-      const uploaded = file ? await api.uploadMedia(file) : null
-      const created = await socialApi.createGroupPost(userId, groupId, {
+      uploaded = await api.uploadMediaFiles(files)
+      const activeMentions = mentionedPeople.filter((person) => content.includes(`@${person.displayName}`))
+      await socialApi.createGroupPost(userId, groupId, {
         content: content.trim(),
-        media: uploaded ? [{ type: uploaded.type === 'video' ? 1 : 0, url: uploaded.url }] : [],
+        media: uploaded.map((item) => ({ type: item.type === 'video' ? 1 : 0, url: item.url })),
+        mentionedUserIds: activeMentions.map((person) => person.id),
       })
-      const activeTags = taggedPeople.filter((person) => content.includes(`@${person.displayName}`))
-      await Promise.all(activeTags.map((person) => socialApi.tagUser(created.id, person.id)))
+      persisted = true
       setContent('')
-      setFile(null)
+      setFiles([])
       setFileKey((value) => value + 1)
-      setTaggedPeople([])
+      setMentionedPeople([])
       onCreated()
     } catch {
+      if (!persisted) await Promise.allSettled(uploaded.map((item) => api.cancelPendingMedia(item)))
       setError(t('publishPostError'))
     } finally {
       setBusy(false)
     }
   }
 
-  return <form className="card gateway-composer group-post-composer" onSubmit={submit}><div className="mention-compose-field"><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder={t('groupPostPrompt')} rows={3} /><MentionSuggestions text={content} people={people} onTextChange={setContent} onSelected={(person) => setTaggedPeople((current) => current.some((item) => item.id === person.id) ? current : [...current, person])} /></div>{taggedPeople.length > 0 && <div className="tagged-people-row group-tags">{taggedPeople.map((person) => <span key={person.id}><Icon name="tag" size={13} />{person.displayName}</span>)}</div>}<div className="composer-controls"><label className="file-control"><span>{file?.name ?? t('photoVideo')}</span><input key={fileKey} type="file" accept="image/*,video/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label><button type="submit" className="btn-primary" disabled={busy || (!content.trim() && !file)}>{busy ? t('posting') : t('post')}</button></div>{error && <p className="form-error">{error}</p>}</form>
+  return <form className="card gateway-composer group-post-composer" onSubmit={submit}><div className="mention-compose-field"><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder={t('groupPostPrompt')} rows={3} /><MentionSuggestions text={content} people={people} onTextChange={setContent} onSelected={(person) => setMentionedPeople((current) => current.some((item) => item.id === person.id) ? current : [...current, person])} /></div>{mentionedPeople.length > 0 && <div className="tagged-people-row group-tags">{mentionedPeople.map((person) => <span key={person.id}><Icon name="tag" size={13} />{person.displayName}</span>)}</div>}<div className="composer-controls"><label className="file-control"><span>{files.length > 0 ? t('selectedFilesCount', { count: files.length }) : t('photoVideo')}</span><input key={fileKey} type="file" multiple accept="image/*,video/*" onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 10))} /></label><button type="submit" className="btn-primary" disabled={busy || (!content.trim() && files.length === 0)}>{busy ? t('posting') : t('post')}</button></div>{files.length > 0 && <div className="composer-selected-files">{files.map((file) => <span key={`${file.name}-${file.lastModified}`}>{file.name}</span>)}</div>}{error && <p className="form-error">{error}</p>}</form>
 }
 
 function GroupPeopleList({ groupId, title, people, currentUserId, adminView, busyUserId, onNavigate, onAction, actionLabel, secondaryActionLabel }: { groupId: string; title: string; people: UserSummary[]; currentUserId: string; adminView: boolean; busyUserId: string | null; onNavigate: (path: string) => void; onAction: (person: UserSummary, secondary?: boolean) => void; actionLabel: string; secondaryActionLabel?: string }) {

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { GatewayMedia, GatewayPost } from '../api/gatewayTypes'
-import { socialApi, type GroupMembershipState, type SocialGroup, type SocialOwnedMedia, type SocialProfile } from '../api/social'
+import { useCallback, useEffect, useState } from 'react'
+import type { GatewayPost } from '../api/gatewayTypes'
+import { socialApi, type GroupMembershipState, type SocialGroup, type SocialPhoto, type SocialProfile } from '../api/social'
 import { Avatar } from '../components/Avatar'
 import { Icon } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
@@ -22,12 +22,15 @@ export function UserInGroupProfilePage({ groupId, profileId, viewerId, onBack, o
   const [group, setGroup] = useState<SocialGroup | null>(null)
   const [membership, setMembership] = useState<GroupMembershipState>(EMPTY_MEMBERSHIP)
   const [posts, setPosts] = useState<GatewayPost[]>([])
-  const [ownedMedia, setOwnedMedia] = useState<SocialOwnedMedia[]>([])
+  const [photos, setPhotos] = useState<SocialPhoto[]>([])
   const [postCursor, setPostCursor] = useState<string | null>(null)
   const [postsHaveMore, setPostsHaveMore] = useState(false)
+  const [photoCursor, setPhotoCursor] = useState<string | null>(null)
+  const [photosHaveMore, setPhotosHaveMore] = useState(false)
   const [tab, setTab] = useState<GroupProfileTab>('posts')
   const [loading, setLoading] = useState(true)
   const [postsLoading, setPostsLoading] = useState(false)
+  const [photosLoading, setPhotosLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -69,19 +72,30 @@ export function UserInGroupProfilePage({ groupId, profileId, viewerId, onBack, o
 
   useEffect(() => { void loadPosts() }, [loadPosts])
 
-  useEffect(() => {
-    let active = true
-    socialApi.getOwnedMedia(profileId, 0, 60).then((page) => active && setOwnedMedia(page.items)).catch(() => active && setOwnedMedia([]))
-    return () => { active = false }
-  }, [profileId])
+  const loadPhotos = useCallback(async (cursor: string | null = null, append = false) => {
+    if (!membership.canViewPosts) {
+      setPhotos([])
+      setPhotoCursor(null)
+      setPhotosHaveMore(false)
+      return
+    }
+    setPhotosLoading(true)
+    try {
+      const page = await socialApi.getGroupUserPhotos(groupId, profileId, 60, cursor)
+      setPhotos((current) => append ? [...current, ...page.items] : page.items)
+      setPhotoCursor(page.endCursor)
+      setPhotosHaveMore(page.hasNextPage)
+    } catch {
+      if (!append) setPhotos([])
+      setError(t('profileMediaLoadError'))
+    } finally {
+      setPhotosLoading(false)
+    }
+  }, [groupId, membership.canViewPosts, profileId, t])
 
-  const photos = useMemo(() => {
-    const media: GatewayMedia[] = [
-      ...ownedMedia,
-      ...posts.flatMap((post) => post.media.filter((item) => item.type === 0)),
-    ]
-    return [...new Map(media.map((item) => [item.url, item])).values()]
-  }, [ownedMedia, posts])
+  useEffect(() => {
+    if (tab === 'photos') void loadPhotos()
+  }, [loadPhotos, tab])
 
   if (loading) return <main className="profile-destination"><div className="card state-card"><span className="spinner" /></div></main>
   if (!profile || !group) return <main className="profile-destination"><div className="card state-card"><h2>{t('groupMemberProfileUnavailable')}</h2><p>{error || t('groupMemberProfileLoadError')}</p><button type="button" className="btn-soft" onClick={onBack}>{t('backToGroup')}</button></div></main>
@@ -103,7 +117,7 @@ export function UserInGroupProfilePage({ groupId, profileId, viewerId, onBack, o
       <aside className="card profile-intro"><h2>{t('groupContext')}</h2><button type="button" className="group-context-card" onClick={onBack}><Avatar name={group.name} src={group.avatarUrl} size={54} /><span><strong>{group.name}</strong><small>{group.privacy === 0 ? t('publicGroup') : t('privateGroup')}</small></span></button>{profile.bio && <p>{profile.bio}</p>}{profile.location && <p><Icon name="location" size={18} />{t('livesIn', { location: profile.location })}</p>}</aside>
       <section className="profile-post-list">
         {tab === 'posts' && (!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupMemberNoPosts')}</h2><p>{t('groupMemberNoPostsDesc', { name: profile.displayName.split(' ')[0], group: group.name })}</p></div> : <>{posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} authorPath={contextualAuthorPath} />)}{postsHaveMore && <button type="button" className="btn-soft load-more-result" disabled={postsLoading || !postCursor} onClick={() => void loadPosts(postCursor, true)}>{postsLoading ? t('loadingMore') : t('seeMore')}</button>}</>)}
-        {tab === 'photos' && <div className="card profile-tab-card"><h2>{t('groupContextPhotos')}</h2><p className="muted">{t('groupContextPhotosDesc', { group: group.name })}</p>{photos.length === 0 ? <p className="muted">{t('photosEmpty')}</p> : <div className="profile-photo-grid">{photos.map((media) => <a key={media.id} href={media.url} target="_blank" rel="noreferrer"><img src={media.url} alt="" loading="lazy" /></a>)}</div>}</div>}
+        {tab === 'photos' && <div className="card profile-tab-card"><h2>{t('groupContextPhotos')}</h2><p className="muted">{t('groupContextPhotosDesc', { group: group.name })}</p>{!membership.canViewPosts ? <p className="muted">{t('joinToSeePosts')}</p> : photosLoading && photos.length === 0 ? <div className="state-card"><span className="spinner" /></div> : photos.length === 0 ? <p className="muted">{t('photosEmpty')}</p> : <><div className="profile-photo-grid">{photos.map((photo) => <button type="button" key={`${photo.contentId}-${photo.media.id}`} onClick={() => onNavigate(`/content/${photo.contentId}`)}><img src={photo.media.url} alt="" loading="lazy" /></button>)}</div>{photosHaveMore && <button type="button" className="btn-soft load-more-result" disabled={photosLoading || !photoCursor} onClick={() => void loadPhotos(photoCursor, true)}>{photosLoading ? t('loadingMore') : t('seeMore')}</button>}</>}</div>}
         {tab === 'about' && <div className="card profile-tab-card"><h2>{t('about')}</h2><dl><div><dt>{t('bio')}</dt><dd>{profile.bio || t('notAvailable')}</dd></div><div><dt>{t('location')}</dt><dd>{profile.location || t('notAvailable')}</dd></div><div><dt>{t('group')}</dt><dd>{group.name}</dd></div></dl></div>}
       </section>
     </div>

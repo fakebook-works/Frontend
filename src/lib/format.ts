@@ -30,8 +30,9 @@ export interface PrivacyMeta {
 
 export const PRIVACY: PrivacyMeta[] = [
   { value: 0, label: 'Public', icon: 'globe' },
-  { value: 1, label: 'Friends', icon: 'friends' },
-  { value: 2, label: 'Only me', icon: 'lock' },
+  { value: 1, label: 'Friends and followers', icon: 'friends' },
+  { value: 2, label: 'Friends', icon: 'friends' },
+  { value: 3, label: 'Only me', icon: 'lock' },
 ]
 
 export function privacyMeta(value: number): PrivacyMeta {

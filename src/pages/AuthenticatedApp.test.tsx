@@ -70,6 +70,15 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(screen.getByText('saved-page')).toBeInTheDocument()
   })
 
+  it('opens notifications as a topbar overlay without replacing the current page', () => {
+    render(<AuthenticatedApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'notifications' }))
+
+    expect(screen.getByRole('dialog', { name: 'notifications' })).toBeInTheDocument()
+    expect(screen.getByText('home-page')).toBeInTheDocument()
+  })
+
   it('opens the settings and privacy submenu before navigating to settings', () => {
     render(<AuthenticatedApp />)
     fireEvent.click(screen.getByRole('button', { name: 'test' }))

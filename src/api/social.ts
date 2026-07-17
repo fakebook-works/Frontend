@@ -50,7 +50,14 @@ export interface SocialContent {
   author?: UserSummary | null
 }
 
-export type SocialOwnedMedia = GatewayMedia
+export interface SocialPhoto {
+  media: GatewayMedia
+  contentId: string
+  contentType: number
+  createdAt: string
+  authorId: string
+  groupId: string | null
+}
 
 export interface SocialPage<T> {
   items: T[]
@@ -129,6 +136,11 @@ const POST_FIELDS = `
     id type content privacy create
     author { id name avatar isVerified canFollow }
     media { id type url }
+    sharedSource {
+      id isAvailable type content
+      author { id name avatar isVerified }
+      media { id type url }
+    }
   }
   ... on GroupPostDetail {
     id type content privacy create
@@ -229,6 +241,13 @@ function postFromGraphQl(post: GatewayPost): GatewayPost {
     id: String(post.id),
     author: { ...post.author, id: String(post.author.id) },
     media: post.media.map((media) => ({ ...media, id: String(media.id), type: Number(media.type) })),
+    sharedSource: post.sharedSource ? {
+      ...post.sharedSource,
+      id: String(post.sharedSource.id),
+      type: post.sharedSource.type == null ? null : Number(post.sharedSource.type),
+      author: post.sharedSource.author ? { ...post.sharedSource.author, id: String(post.sharedSource.author.id) } : null,
+      media: post.sharedSource.media.map((media) => ({ ...media, id: String(media.id), type: Number(media.type) })),
+    } : null,
   }
   return post.__typename === 'GroupPostDetail'
     ? { ...normalized, __typename: 'GroupPostDetail', group: { ...post.group, id: String(post.group.id) } }
@@ -290,21 +309,94 @@ export async function getProfileReels(userId: string, limit = 20, cursor: string
   return { ...data.profileReels, items: await hydrateContentAuthors(items) }
 }
 
-export async function getOwnedMedia(ownerId: string, type: number | null = null, limit = 60, cursor: string | null = null): Promise<SocialPage<SocialOwnedMedia>> {
-  const owner = graphQlLongLiteral(ownerId)
-  const data = await gatewayGraphQl<{ ownedMedia: { items: GatewayMedia[]; endCursor: string | null; hasNextPage: boolean } }>(
-    `query OwnedMedia($type: Int, $limit: Int!, $cursor: String) {
-      ownedMedia(ownerId: ${owner}, type: $type, limit: $limit, cursor: $cursor) {
-        items { id type url }
-        endCursor hasNextPage
-      }
-    }`,
-    { type, limit, cursor },
-  )
-  return {
-    ...data.ownedMedia,
-    items: data.ownedMedia.items.map((media) => ({ ...media, id: String(media.id), type: Number(media.type) })),
+interface PhotoPageGraphQl {
+  items: Array<{
+    media: GatewayMedia
+    contentId: string
+    contentType: number
+    create: string
+    authorId: string
+    groupId: string | null
+  }>
+  endCursor: string | null
+  hasNextPage: boolean
+}
+
+const PHOTO_PAGE_FIELDS = `
+  items {
+    media { id type url }
+    contentId contentType create authorId groupId
   }
+  endCursor hasNextPage
+`
+
+function photoPageFromGraphQl(page: PhotoPageGraphQl): SocialPage<SocialPhoto> {
+  return {
+    ...page,
+    items: page.items.map((item) => ({
+      media: { ...item.media, id: String(item.media.id), type: Number(item.media.type) },
+      contentId: String(item.contentId),
+      contentType: Number(item.contentType),
+      createdAt: item.create,
+      authorId: String(item.authorId),
+      groupId: item.groupId == null ? null : String(item.groupId),
+    })),
+  }
+}
+
+export async function getUserPhotos(userId: string, limit = 60, cursor: string | null = null): Promise<SocialPage<SocialPhoto>> {
+  const user = graphQlLongLiteral(userId)
+  const data = await gatewayGraphQl<{ userPhotos: PhotoPageGraphQl }>(
+    `query UserPhotos($limit: Int!, $cursor: String) {
+      userPhotos(userId: ${user}, limit: $limit, cursor: $cursor) { ${PHOTO_PAGE_FIELDS} }
+    }`,
+    { limit, cursor },
+  )
+  return photoPageFromGraphQl(data.userPhotos)
+}
+
+export async function getGroupPhotos(groupId: string, limit = 60, cursor: string | null = null): Promise<SocialPage<SocialPhoto>> {
+  const group = graphQlLongLiteral(groupId)
+  const data = await gatewayGraphQl<{ groupPhotos: PhotoPageGraphQl }>(
+    `query GroupPhotos($limit: Int!, $cursor: String) {
+      groupPhotos(groupId: ${group}, limit: $limit, cursor: $cursor) { ${PHOTO_PAGE_FIELDS} }
+    }`,
+    { limit, cursor },
+  )
+  return photoPageFromGraphQl(data.groupPhotos)
+}
+
+export async function getGroupUserPhotos(groupId: string, userId: string, limit = 60, cursor: string | null = null): Promise<SocialPage<SocialPhoto>> {
+  const group = graphQlLongLiteral(groupId)
+  const user = graphQlLongLiteral(userId)
+  const data = await gatewayGraphQl<{ groupUserPhotos: PhotoPageGraphQl }>(
+    `query GroupUserPhotos($limit: Int!, $cursor: String) {
+      groupUserPhotos(groupId: ${group}, userId: ${user}, limit: $limit, cursor: $cursor) { ${PHOTO_PAGE_FIELDS} }
+    }`,
+    { limit, cursor },
+  )
+  return photoPageFromGraphQl(data.groupUserPhotos)
+}
+
+export async function getMyFeedPhotoCandidates(limit = 60, cursor: string | null = null): Promise<SocialPage<SocialPhoto>> {
+  const data = await gatewayGraphQl<{ myFeedPhotoCandidates: PhotoPageGraphQl }>(
+    `query MyFeedPhotoCandidates($limit: Int!, $cursor: String) {
+      myFeedPhotoCandidates(limit: $limit, cursor: $cursor) { ${PHOTO_PAGE_FIELDS} }
+    }`,
+    { limit, cursor },
+  )
+  return photoPageFromGraphQl(data.myFeedPhotoCandidates)
+}
+
+export async function getGroupPhotoCandidates(groupId: string, limit = 60, cursor: string | null = null): Promise<SocialPage<SocialPhoto>> {
+  const group = graphQlLongLiteral(groupId)
+  const data = await gatewayGraphQl<{ groupPhotoCandidates: PhotoPageGraphQl }>(
+    `query GroupPhotoCandidates($limit: Int!, $cursor: String) {
+      groupPhotoCandidates(groupId: ${group}, limit: $limit, cursor: $cursor) { ${PHOTO_PAGE_FIELDS} }
+    }`,
+    { limit, cursor },
+  )
+  return photoPageFromGraphQl(data.groupPhotoCandidates)
 }
 
 const RELATION_FIELDS = {
@@ -699,24 +791,24 @@ export async function deleteGroup(groupId: string): Promise<boolean> {
   return data.deleteGroup
 }
 
-export async function changeUserAvatar(userId: string, avatarUrl: string, originalUrl: string | null = null): Promise<SocialProfile | null> {
+export async function changeUserAvatar(userId: string, avatarUrl: string, originalUrl: string | null = null, privacy: number | null = null): Promise<SocialProfile | null> {
   const user = graphQlLongLiteral(userId)
   const data = await gatewayGraphQl<{ changeUserAvatar: ProfileGraphQl | null }>(
-    `mutation ChangeUserAvatar($avatarUrl: String!, $originalUrl: String) {
-      changeUserAvatar(userId: ${user}, avatarUrl: $avatarUrl, originalUrl: $originalUrl) { ${PROFILE_FIELDS} }
+    `mutation ChangeUserAvatar($avatarUrl: String!, $originalUrl: String, $privacy: Int) {
+      changeUserAvatar(userId: ${user}, avatarUrl: $avatarUrl, originalUrl: $originalUrl, privacy: $privacy) { ${PROFILE_FIELDS} }
     }`,
-    { avatarUrl, originalUrl },
+    { avatarUrl, originalUrl, privacy },
   )
   return data.changeUserAvatar ? profileFromGraphQl(data.changeUserAvatar) : null
 }
 
-export async function changeUserBackground(userId: string, backgroundUrl: string, originalUrl: string | null = null): Promise<SocialProfile | null> {
+export async function changeUserBackground(userId: string, backgroundUrl: string, originalUrl: string | null = null, privacy: number | null = null): Promise<SocialProfile | null> {
   const user = graphQlLongLiteral(userId)
   const data = await gatewayGraphQl<{ changeUserBackground: ProfileGraphQl | null }>(
-    `mutation ChangeUserBackground($backgroundUrl: String!, $originalUrl: String) {
-      changeUserBackground(userId: ${user}, backgroundUrl: $backgroundUrl, originalUrl: $originalUrl) { ${PROFILE_FIELDS} }
+    `mutation ChangeUserBackground($backgroundUrl: String!, $originalUrl: String, $privacy: Int) {
+      changeUserBackground(userId: ${user}, backgroundUrl: $backgroundUrl, originalUrl: $originalUrl, privacy: $privacy) { ${PROFILE_FIELDS} }
     }`,
-    { backgroundUrl, originalUrl },
+    { backgroundUrl, originalUrl, privacy },
   )
   return data.changeUserBackground ? profileFromGraphQl(data.changeUserBackground) : null
 }
@@ -737,11 +829,11 @@ export async function removeUserBackground(userId: string): Promise<SocialProfil
   return data.removeUserBackground ? profileFromGraphQl(data.removeUserBackground) : null
 }
 
-export async function changeGroupAvatar(groupId: string, avatarUrl: string): Promise<SocialGroup | null> {
+export async function changeGroupAvatar(groupId: string, avatarUrl: string, originalUrl: string | null = null): Promise<SocialGroup | null> {
   const group = graphQlLongLiteral(groupId)
   const data = await gatewayGraphQl<{ changeGroupAvatar: Record<string, unknown> | null }>(
-    `mutation ChangeGroupAvatar($avatarUrl: String!) { changeGroupAvatar(groupId: ${group}, avatarUrl: $avatarUrl) { ${GROUP_FIELDS} } }`,
-    { avatarUrl },
+    `mutation ChangeGroupAvatar($avatarUrl: String!, $originalUrl: String) { changeGroupAvatar(groupId: ${group}, avatarUrl: $avatarUrl, originalUrl: $originalUrl) { ${GROUP_FIELDS} } }`,
+    { avatarUrl, originalUrl },
   )
   return data.changeGroupAvatar ? groupFromGraphQl(data.changeGroupAvatar) : null
 }
@@ -881,14 +973,15 @@ export async function createReel(viewerId: string, input: { content: string; med
   return contentFromGraphQl(data.createReel)
 }
 
-export async function createGroupPost(viewerId: string, groupId: string, input: { content: string; media?: Array<{ type: number; url: string }> }): Promise<SocialContent> {
+export async function createGroupPost(viewerId: string, groupId: string, input: { content: string; media?: Array<{ type: number; url: string }>; mentionedUserIds?: string[] }): Promise<SocialContent> {
   const viewer = graphQlLongLiteral(viewerId)
   const group = graphQlLongLiteral(groupId)
+  const mentionedUserIds = [...new Set(input.mentionedUserIds ?? [])].map(graphQlLongLiteral).join(', ')
   const data = await gatewayGraphQl<{ createGroupPost: Record<string, unknown> }>(
     `mutation CreateGroupPost($content: String!, $media: [MediaInput!]) {
-      createGroupPost(input: { authorId: ${viewer}, groupId: ${group}, content: $content, media: $media }) { ${CONTENT_FIELDS} }
+      createGroupPost(input: { authorId: ${viewer}, groupId: ${group}, content: $content, media: $media, mentionedUserIds: [${mentionedUserIds}] }) { ${CONTENT_FIELDS} }
     }`,
-    input,
+    { content: input.content, media: input.media ?? null },
   )
   return contentFromGraphQl(data.createGroupPost)
 }
@@ -1017,7 +1110,11 @@ export const socialApi = {
   getGroups,
   getProfilePosts,
   getProfileReels,
-  getOwnedMedia,
+  getUserPhotos,
+  getGroupPhotos,
+  getGroupUserPhotos,
+  getMyFeedPhotoCandidates,
+  getGroupPhotoCandidates,
   getRelationProfiles,
   getProfileRelationshipState,
   getMemberGroups,

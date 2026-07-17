@@ -1,9 +1,5 @@
 import type { MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 
-/* ------------------------------------------------------------------ */
-/*  Display helpers                                                    */
-/* ------------------------------------------------------------------ */
-
 export function conversationName(conversation: MessengerConversationDto, me: UserSummary): string {
   return (
     (conversation.title ??
@@ -42,63 +38,4 @@ export function shouldShowTimestamp(messages: MessengerMessageDto[], index: numb
 export function shouldShowAvatar(messages: MessengerMessageDto[], index: number): boolean {
   if (index === messages.length - 1) return true
   return messages[index].sender.id !== messages[index + 1].sender.id
-}
-
-/* ------------------------------------------------------------------ */
-/*  Fallback conversation samples                                      */
-/* ------------------------------------------------------------------ */
-
-const SEED_SNIPPETS = [
-  'Are you free to catch up later?',
-  'Looks good on my side 👍',
-  'I sent the screenshots in the group.',
-  'Wanna grab lunch later?',
-  'Check out this meme 😂',
-]
-
-const SEED_PEOPLE: UserSummary[] = [
-  { id: 'seed-linh', username: 'linh.tran', displayName: 'Linh Tran', avatarUrl: null },
-  { id: 'seed-minh', username: 'minh.do', displayName: 'Minh Do', avatarUrl: null },
-  { id: 'seed-anna', username: 'anna.nguyen', displayName: 'Anna Nguyen', avatarUrl: null },
-  { id: 'seed-duc', username: 'duc.pham', displayName: 'Duc Pham', avatarUrl: null },
-  { id: 'seed-mai', username: 'mai.le', displayName: 'Mai Le', avatarUrl: null },
-]
-
-export function seedConversations(me: UserSummary, friends: UserSummary[]): MessengerConversationDto[] {
-  const now = Date.now()
-  const people = friends.length ? friends : SEED_PEOPLE
-
-  return people.slice(0, 8).map((person, i) => {
-    const createdAt = new Date(now - (i + 1) * 1000 * 60 * 17).toISOString()
-    return {
-      id: `seed-${person.id}`,
-      participants: [me, person],
-      title: null,
-      avatarUrl: person.avatarUrl,
-      updatedAt: createdAt,
-      unreadCount: i === 0 ? 2 : i === 2 ? 1 : 0,
-      lastMessage: {
-        id: `seed-last-${person.id}`,
-        conversationId: `seed-${person.id}`,
-        sender: i % 2 ? me : person,
-        body: SEED_SNIPPETS[i % SEED_SNIPPETS.length],
-        createdAt,
-        status: i === 0 ? 'delivered' : 'read',
-        attachments: [],
-      },
-    }
-  })
-}
-
-export function seedMessages(conversation: MessengerConversationDto, me: UserSummary): MessengerMessageDto[] {
-  const other = conversation.participants.find((p) => p.id !== me.id) ?? conversation.participants[0]
-  const base = Date.now() - 1000 * 60 * 120
-
-  return [
-    { id: `${conversation.id}-m1`, conversationId: conversation.id, sender: other, body: 'Hey! How is everything going?', createdAt: new Date(base).toISOString(), status: 'read', attachments: [] },
-    { id: `${conversation.id}-m2`, conversationId: conversation.id, sender: me, body: 'Great, thanks! I have had a busy but productive day.', createdAt: new Date(base + 1000 * 60 * 5).toISOString(), status: 'read', attachments: [] },
-    { id: `${conversation.id}-m3`, conversationId: conversation.id, sender: other, body: 'Glad to hear it! Want to grab something to eat later?', createdAt: new Date(base + 1000 * 60 * 12).toISOString(), status: 'read', attachments: [] },
-    { id: `${conversation.id}-m4`, conversationId: conversation.id, sender: me, body: 'Sounds good. Send me the place when you decide.', createdAt: new Date(base + 1000 * 60 * 18).toISOString(), status: 'read', attachments: [] },
-    { id: `${conversation.id}-m5`, conversationId: conversation.id, sender: other, body: conversation.lastMessage?.body ?? 'Sounds good, keep me posted!', createdAt: conversation.updatedAt, status: conversation.lastMessage?.status ?? 'delivered', attachments: conversation.lastMessage?.attachments ?? [] },
-  ]
 }

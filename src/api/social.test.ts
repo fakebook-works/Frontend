@@ -112,18 +112,25 @@ describe('SocialGraph Gateway adapter', () => {
     expect(gatewayGraphQl.mock.calls[0][0]).toContain('contentEngagement(targetId: 9007199254740993123)')
   })
 
-  it('loads canonical owned media with a lossless owner ID and typed media filter', async () => {
-    gatewayGraphQl.mockResolvedValue({ ownedMedia: {
-      items: [{ id: '9007199254740993999', type: 0, url: '/photo.jpg' }],
+  it('loads visible user feed photos with content context and lossless IDs', async () => {
+    gatewayGraphQl.mockResolvedValue({ userPhotos: {
+      items: [{
+        media: { id: '9007199254740993999', type: 0, url: '/photo.jpg' },
+        contentId: '9007199254740993888', contentType: 0, create: '2026-01-01',
+        authorId: '9007199254740993123', groupId: null,
+      }],
       endCursor: 'next',
       hasNextPage: true,
     } })
 
-    const page = await socialApi.getOwnedMedia('9007199254740993123', 0, 25)
+    const page = await socialApi.getUserPhotos('9007199254740993123', 25)
 
-    expect(page.items[0]).toEqual({ id: '9007199254740993999', type: 0, url: '/photo.jpg' })
-    expect(gatewayGraphQl.mock.calls[0][0]).toContain('ownedMedia(ownerId: 9007199254740993123, type: $type')
-    expect(gatewayGraphQl.mock.calls[0][1]).toMatchObject({ type: 0, limit: 25 })
+    expect(page.items[0]).toMatchObject({
+      media: { id: '9007199254740993999', type: 0, url: '/photo.jpg' },
+      contentId: '9007199254740993888', authorId: '9007199254740993123', groupId: null,
+    })
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('userPhotos(userId: 9007199254740993123')
+    expect(gatewayGraphQl.mock.calls[0][1]).toMatchObject({ limit: 25 })
   })
 
   it('uses the dedicated group-user feed instead of filtering a generic group page in the browser', async () => {

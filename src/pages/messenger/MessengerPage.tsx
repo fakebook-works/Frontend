@@ -15,9 +15,10 @@ interface MessengerPageProps {
   me: UserSummary
   friends: UserSummary[]
   onOpenProfile: (id: string) => void
+  initialConversationId?: string | null
 }
 
-export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps) {
+export function MessengerPage({ me, friends, onOpenProfile, initialConversationId = null }: MessengerPageProps) {
   const { t } = useI18n()
   const [conversations, setConversations] = useState<MessengerConversationDto[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -39,7 +40,9 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
     try {
       const items = await messengerApi.conversations(me.id)
       setConversations(items)
-      setSelectedId((current) => current ?? items[0]?.id ?? null)
+      setSelectedId((current) => initialConversationId && items.some((item) => item.id === initialConversationId)
+        ? initialConversationId
+        : current ?? items[0]?.id ?? null)
       setApiState('gateway')
     } catch {
       if (initial) {
@@ -50,7 +53,7 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
     } finally {
       if (initial) setLoading(false)
     }
-  }, [me.id])
+  }, [initialConversationId, me.id])
 
   useEffect(() => { void loadConversations(true) }, [loadConversations])
 
@@ -113,6 +116,7 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
       setMessages((current) => ({ ...current, [selected.id]: (current[selected.id] ?? []).map((message) => message.id === optimistic.id ? sent : message) }))
       setConversations((current) => current.map((conversation) => conversation.id === selected.id ? { ...conversation, lastMessage: sent, updatedAt: sent.createdAt, unreadCount: 0 } : conversation))
       setApiState('gateway')
+      void api.finalizePendingMedia(attachments).catch(() => setApiState('unavailable'))
     } catch {
       setMessages((current) => ({ ...current, [selected.id]: (current[selected.id] ?? []).filter((message) => message.id !== optimistic.id) }))
       setDraft(text)
@@ -123,18 +127,43 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
 
   async function startConversation(person: UserSummary) {
     setShowNewModal(false)
-    const existing = conversations.find((conversation) => conversation.participants.some((participant) => participant.id === person.id))
-    if (existing) {
-      setSelectedId(existing.id)
-      setMobileShowThread(true)
-      return
-    }
     try {
       const created = await messengerApi.createDirectConversation(person.id, me.id)
-      setConversations((current) => [created, ...current])
+      setConversations((current) => [created, ...current.filter((conversation) => conversation.id !== created.id)])
       setSelectedId(created.id)
-      setMessages((current) => ({ ...current, [created.id]: [] }))
+      setMessages((current) => current[created.id] ? current : ({ ...current, [created.id]: [] }))
       setMobileShowThread(true)
+      setApiState('gateway')
+    } catch {
+      setApiState('unavailable')
+    }
+  }
+
+  async function startGroupConversation(title: string, people: UserSummary[]) {
+    setShowNewModal(false)
+    try {
+      const created = await messengerApi.createGroupConversation(title, people.map((person) => person.id), me.id)
+      setConversations((current) => [created, ...current.filter((conversation) => conversation.id !== created.id)])
+      setSelectedId(created.id)
+      setMessages((current) => current[created.id] ? current : ({ ...current, [created.id]: [] }))
+      setMobileShowThread(true)
+      setApiState('gateway')
+    } catch {
+      setApiState('unavailable')
+    }
+  }
+
+  async function leaveSelectedConversation() {
+    if (!selected || selected.type !== 'GROUP') return
+    try {
+      await messengerApi.leaveConversation(selected.id, me.id)
+      setConversations((current) => current.filter((conversation) => conversation.id !== selected.id))
+      setSelectedId(null)
+      setMessages((current) => {
+        const next = { ...current }
+        delete next[selected.id]
+        return next
+      })
       setApiState('gateway')
     } catch {
       setApiState('unavailable')
@@ -145,7 +174,7 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
     if (!files?.length) return
     setUploading(true)
     try {
-      const uploaded = await Promise.all(Array.from(files).slice(0, 10).map((file) => api.uploadMedia(file)))
+      const uploaded = await api.uploadMediaFiles(Array.from(files).slice(0, 10))
       setPendingAttachments((current) => [...current, ...uploaded].slice(0, 10))
       setApiState('gateway')
     } catch {
@@ -161,12 +190,18 @@ export function MessengerPage({ me, friends, onOpenProfile }: MessengerPageProps
     setConversations((current) => current.map((conversation) => conversation.id === id ? { ...conversation, unreadCount: 0 } : conversation))
   }
 
+  function removePendingAttachment(url: string) {
+    const attachment = pendingAttachments.find((item) => item.url === url)
+    setPendingAttachments((current) => current.filter((item) => item.url !== url))
+    if (attachment) void api.cancelPendingMedia(attachment).catch(() => undefined)
+  }
+
   return <>
     <main className={`messenger-shell${mobileShowThread ? ' thread-open' : ''}${showDetail ? ' detail-open' : ''}`} aria-label="Messenger">
       <ConversationList me={me} conversations={conversations} selectedId={selectedId} query={query} loading={loading} activeTab={activeTab} totalUnread={totalUnread} onSelect={selectConversation} onQueryChange={setQuery} onTabChange={setActiveTab} onNewMessage={() => setShowNewModal(true)} />
-      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={draft} pendingAttachments={pendingAttachments} uploading={uploading} apiState={apiState} showDetail={showDetail} onDraftChange={setDraft} onAttachFiles={attachFiles} onRemoveAttachment={(url) => setPendingAttachments((current) => current.filter((attachment) => attachment.url !== url))} onSubmit={handleSubmit} onOpenProfile={onOpenProfile} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
-      {showDetail && selected && <ConversationDetail me={me} conversation={selected} onOpenProfile={onOpenProfile} />}
+      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={draft} pendingAttachments={pendingAttachments} uploading={uploading} apiState={apiState} showDetail={showDetail} onDraftChange={setDraft} onAttachFiles={attachFiles} onRemoveAttachment={removePendingAttachment} onSubmit={handleSubmit} onOpenProfile={onOpenProfile} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
+      {showDetail && selected && <ConversationDetail me={me} conversation={selected} onOpenProfile={onOpenProfile} onLeave={() => void leaveSelectedConversation()} />}
     </main>
-    {showNewModal && <NewConversationModal friends={friends} onStart={startConversation} onClose={() => setShowNewModal(false)} />}
+    {showNewModal && <NewConversationModal friends={friends} onStart={startConversation} onCreateGroup={startGroupConversation} onClose={() => setShowNewModal(false)} />}
   </>
 }

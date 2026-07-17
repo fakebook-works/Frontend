@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api/client'
+import type { MediaUpload } from '../api/types'
 import { socialApi, type SocialContent } from '../api/social'
 import { Avatar } from '../components/Avatar'
-import { ContentActions } from '../components/ContentActions'
 import { Icon } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 
 type ReelMode = 'for-you' | 'following' | 'mine' | 'saved' | 'liked' | 'shared' | 'watched'
+const ContentActions = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentActions })))
 
 export function ReelsPage({ userId, mode, onNavigate }: { userId: string; mode: ReelMode; onNavigate: (path: string) => void }) {
   const { t } = useI18n()
@@ -39,11 +40,11 @@ export function ReelsPage({ userId, mode, onNavigate }: { userId: string; mode: 
 
 function ReelCard({ reel, viewerId, onNavigate }: { reel: SocialContent; viewerId: string; onNavigate: (path: string) => void }) {
   const { t } = useI18n(); const media = reel.media[0]
-  return <article className="reel-card"><div className="reel-canvas">{media ? media.type === 1 ? <video src={media.url} controls preload="metadata" /> : <img src={media.url} alt="" /> : <div className="reel-missing"><Icon name="video" size={64} /><span>{t('mediaUnavailable')}</span></div>}<div className="reel-overlay"><button type="button" onClick={() => reel.author && onNavigate(`/profile/${reel.author.id}`)}><Avatar name={reel.author?.displayName ?? t('fakebookUser')} src={reel.author?.avatarUrl} size={42} /></button><div><button type="button" className="post-author-name" onClick={() => reel.author && onNavigate(`/profile/${reel.author.id}`)}><strong>{reel.author?.displayName ?? t('fakebookUser')}<VerifiedBadge verified={reel.author?.isVerified} /></strong></button><p>{reel.content}</p></div></div></div><ContentActions viewerId={viewerId} contentId={reel.id} variant="reel" onNavigate={onNavigate} /></article>
+  return <article className="reel-card"><div className="reel-canvas">{media ? media.type === 1 ? <video src={media.url} controls preload="metadata" /> : <img src={media.url} alt="" /> : <div className="reel-missing"><Icon name="video" size={64} /><span>{t('mediaUnavailable')}</span></div>}<div className="reel-overlay"><button type="button" onClick={() => reel.author && onNavigate(`/profile/${reel.author.id}`)}><Avatar name={reel.author?.displayName ?? t('fakebookUser')} src={reel.author?.avatarUrl} size={42} /></button><div><button type="button" className="post-author-name" onClick={() => reel.author && onNavigate(`/profile/${reel.author.id}`)}><strong>{reel.author?.displayName ?? t('fakebookUser')}<VerifiedBadge verified={reel.author?.isVerified} /></strong></button><p>{reel.content}</p></div></div></div><Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={reel.id} variant="reel" onNavigate={onNavigate} /></Suspense></article>
 }
 
 function CreateReelModal({ userId, onClose, onCreated }: { userId: string; onClose: () => void; onCreated: (reel: SocialContent) => void }) {
   const { t } = useI18n(); const [content, setContent] = useState(''); const [file, setFile] = useState<File | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null)
-  async function submit(event: FormEvent) { event.preventDefault(); if (!file) return; setBusy(true); setError(null); try { const uploaded = await api.uploadMedia(file); onCreated(await socialApi.createReel(userId, { content: content.trim(), media: { type: uploaded.type === 'video' ? 1 : 0, url: uploaded.url } })) } catch { setError(t('createReelError')) } finally { setBusy(false) } }
+  async function submit(event: FormEvent) { event.preventDefault(); if (!file) return; setBusy(true); setError(null); let uploaded: MediaUpload | null = null; let persisted = false; try { uploaded = await api.uploadMedia(file); const reel = await socialApi.createReel(userId, { content: content.trim(), media: { type: uploaded.type === 'video' ? 1 : 0, url: uploaded.url } }); persisted = true; onCreated(reel) } catch { if (!persisted && uploaded) await Promise.allSettled([api.cancelPendingMedia(uploaded)]); setError(t('createReelError')) } finally { setBusy(false) } }
   return <div className="modal-backdrop" onClick={() => !busy && onClose()}><form className="modal compact-form-modal" onSubmit={submit} onClick={(event) => event.stopPropagation()}><header className="modal-head"><h2>{t('createReel')}</h2><button type="button" className="icon-circle subtle" onClick={onClose}><Icon name="close" /></button></header><div className="modal-body settings-form-grid"><label className="wide"><span>{t('caption')}</span><textarea rows={3} value={content} onChange={(event) => setContent(event.target.value)} /></label><label className="wide file-drop"><Icon name="video" size={28} /><span>{file?.name ?? t('chooseReelVideo')}</span><input type="file" accept="video/*,image/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>{error && <p className="form-error wide">{error}</p>}</div><footer className="modal-foot"><button className="btn-primary block" disabled={busy || !file}>{busy ? t('posting') : t('publish')}</button></footer></form></div>
 }

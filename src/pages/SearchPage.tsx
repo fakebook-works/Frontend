@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { searchApi, type SearchPageResult, type SearchTab } from '../api/search'
 import { Avatar } from '../components/Avatar'
-import { ContentActions } from '../components/ContentActions'
 import { Icon } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { GatewayPostCard } from './GatewayHomePage'
+
+const ContentActions = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentActions })))
 
 const TABS: Array<{ id: SearchTab; icon: 'search' | 'friends' | 'video' | 'groups'; label: string }> = [
   { id: 'posts', icon: 'search', label: 'searchPosts' },
@@ -110,7 +111,7 @@ function ReelResult({ reel, viewerId, onNavigate, onView }: { reel: SearchPageRe
   const media = reel.media[0]
   return <article className="card reel-result-card" onClickCapture={onView}>
     <div className="reel-result-media">{media ? media.type === 1 ? <video src={media.url} controls preload="metadata" /> : <img src={media.url} alt="" /> : <Icon name="video" size={50} />}</div>
-    <div><button type="button" className="post-author-name" onClick={() => reel.author && onNavigate(`/profile/${reel.author.id}`)}><strong>{reel.author?.displayName ?? t('reel')}</strong></button><p>{reel.content || t('reelNoCaption')}</p><ContentActions viewerId={viewerId} contentId={reel.id} onNavigate={onNavigate} /></div>
+    <div><button type="button" className="post-author-name" onClick={() => reel.author && onNavigate(`/profile/${reel.author.id}`)}><strong>{reel.author?.displayName ?? t('reel')}</strong></button><p>{reel.content || t('reelNoCaption')}</p><Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={reel.id} onNavigate={onNavigate} /></Suspense></div>
   </article>
 }
 

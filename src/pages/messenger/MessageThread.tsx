@@ -84,12 +84,6 @@ export function MessageThread({
           </span>
         </button>
         <div className="messenger-actions">
-          <button type="button" className="icon-circle subtle" aria-label={t('startAudioCall')}>
-            <Icon name="phone" size={19} />
-          </button>
-          <button type="button" className="icon-circle subtle" aria-label={t('startVideoCall')}>
-            <Icon name="video" size={19} />
-          </button>
           <button
             type="button"
             className={`icon-circle subtle${showDetail ? ' active' : ''}`}
@@ -189,9 +183,6 @@ export function MessageThread({
           disabled={uploading}
         >
           <Icon name="photo" size={19} />
-        </button>
-        <button type="button" className="icon-circle subtle" aria-label={t('recordVoice')}>
-          <Icon name="mic" size={19} />
         </button>
         <label className="messenger-input-wrap">
           <input

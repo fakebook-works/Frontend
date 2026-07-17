@@ -4,6 +4,7 @@ import {
   ApiError,
   api,
   clearAuth,
+  gatewayGraphQl,
   graphQlLongLiteral,
   isTerminalPaymentStatus,
   nextPageCursor,
@@ -102,5 +103,42 @@ describe('Gateway contract helpers', () => {
       'https://uploads.example.com/media/files/image.png',
     )
     expect(resolveUploadedMediaUrl('/media/files/image.png', '/media')).toBe('/media/files/image.png')
+  })
+
+  it('deduplicates simultaneous identical read-only Gateway queries', async () => {
+    let resolveFetch!: (response: Response) => void
+    const pendingFetch = new Promise<Response>((resolve) => { resolveFetch = resolve })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockReturnValue(pendingFetch)
+    const query = 'query CurrentViewer { me { userId email } }'
+
+    const first = gatewayGraphQl<{ me: { userId: string } }>(query)
+    const second = gatewayGraphQl<{ me: { userId: string } }>(query)
+
+    expect(first).toBe(second)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    resolveFetch(new Response('{"data":{"me":{"userId":9007199254740993123,"email":"test@example.com"}}}', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { me: { userId: '9007199254740993123', email: 'test@example.com' } },
+      { me: { userId: '9007199254740993123', email: 'test@example.com' } },
+    ])
+  })
+
+  it('never deduplicates Gateway mutations', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{"data":{"markAllNotificationsRead":1}}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"data":{"markAllNotificationsRead":2}}', { status: 200 }))
+    const mutation = 'mutation MarkAll { markAllNotificationsRead }'
+
+    await expect(Promise.all([
+      gatewayGraphQl<{ markAllNotificationsRead: number }>(mutation),
+      gatewayGraphQl<{ markAllNotificationsRead: number }>(mutation),
+    ])).resolves.toEqual([
+      { markAllNotificationsRead: 1 },
+      { markAllNotificationsRead: 2 },
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

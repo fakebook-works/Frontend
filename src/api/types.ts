@@ -32,6 +32,9 @@ export interface MediaUpload {
   contentType: string
   size: number
   name: string
+  assetId?: string
+  state?: 'pending' | 'committed'
+  expiresAt?: string | null
 }
 
 export interface MessengerMessageDto {
@@ -44,9 +47,15 @@ export interface MessengerMessageDto {
   attachments: MediaUpload[]
 }
 
+export interface MessengerParticipantDto extends UserSummary {
+  role?: 'ADMIN' | 'MEMBER'
+  leftAt?: string | null
+}
+
 export interface MessengerConversationDto {
   id: string
-  participants: UserSummary[]
+  type?: 'DIRECT' | 'GROUP'
+  participants: MessengerParticipantDto[]
   title: string | null
   avatarUrl: string | null
   updatedAt: string

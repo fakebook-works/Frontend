@@ -48,11 +48,9 @@ export function ConversationList({
           {totalUnread > 0 && <span className="messenger-badge">{totalUnread}</span>}
         </h1>
         <div className="messenger-actions">
-          <button type="button" className="icon-circle subtle" aria-label={t('messengerSettings')}>
-            <Icon name="settings" size={18} />
-          </button>
-          <button type="button" className="icon-circle subtle" aria-label={t('newMessage')} onClick={onNewMessage}>
+          <button type="button" className="btn-soft messenger-new-message" aria-label={t('newMessage')} onClick={onNewMessage}>
             <Icon name="edit" size={18} />
+            <span>{t('newMessage')}</span>
           </button>
         </div>
       </header>

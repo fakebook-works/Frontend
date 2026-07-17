@@ -6,7 +6,7 @@ import { SettingsPage } from './SettingsPage'
 
 const apiMocks = vi.hoisted(() => ({
   getProfile: vi.fn(),
-  getOwnedMedia: vi.fn(),
+  getMyFeedPhotoCandidates: vi.fn(),
   updateProfile: vi.fn(),
 }))
 
@@ -29,7 +29,7 @@ describe('Profile birth-date validation', () => {
       birthDate: null, avatarUrl: null, backgroundUrl: null, privacy: 0, isVerified: false,
     })
     apiMocks.updateProfile.mockReset()
-    apiMocks.getOwnedMedia.mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
+    apiMocks.getMyFeedPhotoCandidates.mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
   })
 
   afterEach(() => {

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api/client'
-import { notificationApi } from '../api/notifications'
+import { notificationApi, type AppNotification } from '../api/notifications'
+import { messengerApi } from '../api/messenger'
 import { searchApi, type QuickSearchItem, type SearchTab } from '../api/search'
 import { socialApi, type SocialProfile } from '../api/social'
 import type { GatewayPost } from '../api/gatewayTypes'
@@ -12,6 +13,8 @@ import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
 import { groupMemberRoute, pathSegment, useAppLocation } from '../lib/router'
+import { timeAgo } from '../lib/format'
+import { notificationTarget, notificationText } from '../lib/notifications'
 import { FriendsPage } from './FriendsPage'
 import { GatewayHomePage, GatewayPostCard } from './GatewayHomePage'
 import { GroupProfilePage, GroupsPage } from './GroupsPage'
@@ -23,7 +26,7 @@ import { SearchPage } from './SearchPage'
 import { SettingsPage } from './SettingsPage'
 import type { SettingsSection } from './SettingsPage'
 import { UserInGroupProfilePage } from './UserInGroupProfilePage'
-import { MessengerPage } from './messenger'
+import { MessengerDock, MessengerPage, type MessengerDockHandle } from './messenger'
 
 const SETTINGS = new Set<SettingsSection>(['overview', 'profile', 'security', 'privacy', 'sessions', 'language', 'appearance', 'premium'])
 
@@ -39,7 +42,11 @@ export function AuthenticatedApp() {
   const [profileLoading, setProfileLoading] = useState(true)
   const [profileError, setProfileError] = useState<string | null>(null)
   const [friends, setFriends] = useState<UserSummary[]>([])
+  const [messengerPanelOpen, setMessengerPanelOpen] = useState(false)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
+  const [notificationItems, setNotificationItems] = useState<AppNotification[]>([])
+  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false)
+  const [notificationsLoading, setNotificationsLoading] = useState(true)
   const [searchText, setSearchText] = useState(() => location.params.get('q') ?? '')
   const [quickResults, setQuickResults] = useState<QuickSearchItem[]>([])
   const [quickLoading, setQuickLoading] = useState(false)
@@ -48,6 +55,8 @@ export function AuthenticatedApp() {
   const appsMenuRef = useRef<HTMLDivElement>(null)
   const menuTriggerRef = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLFormElement>(null)
+  const messengerDockRef = useRef<MessengerDockHandle>(null)
+  const seenNotificationIds = useRef(new Set<string>())
 
   useEffect(() => {
     if (location.pathname === '/search') setSearchText(new URLSearchParams(location.search).get('q') ?? '')
@@ -132,13 +141,20 @@ export function AuthenticatedApp() {
   }, [currentProfile, profileId, t, user])
 
   useEffect(() => {
-    if (!user || location.pathname !== '/messenger') return
+    if (!user || (!messengerPanelOpen && location.pathname !== '/messenger')) return
     socialApi.getRelationProfiles(user.userId, 0).then((profiles) => setFriends(profiles.map(toSummary))).catch(() => setFriends([]))
-  }, [location.pathname, user])
+  }, [location.pathname, messengerPanelOpen, user])
 
   useEffect(() => {
-    notificationApi.notifications(1).then((page) => setUnreadNotifications(page.unreadCount)).catch(() => setUnreadNotifications(0))
+    notificationApi.notifications(12).then((page) => {
+      page.items.forEach((item) => seenNotificationIds.current.add(item.id))
+      setNotificationItems(page.items)
+      setUnreadNotifications(page.unreadCount)
+    }).catch(() => setUnreadNotifications(0)).finally(() => setNotificationsLoading(false))
     return notificationApi.subscribeNotifications((notification) => {
+      if (seenNotificationIds.current.has(notification.id)) return
+      seenNotificationIds.current.add(notification.id)
+      setNotificationItems((current) => [notification, ...current.filter((item) => item.id !== notification.id)].slice(0, 12))
       if (!notification.isRead) setUnreadNotifications((count) => count + 1)
     })
   }, [])
@@ -172,6 +188,8 @@ export function AuthenticatedApp() {
   function go(path: string) {
     setMenuOpen(false)
     setAppsMenuOpen(false)
+    setMessengerPanelOpen(false)
+    setNotificationPanelOpen(false)
     setMenuView('root')
     setQuickOpen(false)
     navigate(path)
@@ -181,6 +199,35 @@ export function AuthenticatedApp() {
     const query = searchText.trim()
     if (query.length < 2) return
     go(`/search?q=${encodeURIComponent(query)}&tab=posts`)
+  }
+
+  async function openDirectMessage(profileId: string) {
+    if (!user) throw new Error('Authentication required')
+    if (messengerDockRef.current) {
+      await messengerDockRef.current.openDirect(profileId)
+      return
+    }
+    const conversation = await messengerApi.createDirectConversation(profileId, user.userId)
+    go(`/messenger?conversation=${encodeURIComponent(conversation.id)}`)
+  }
+
+  async function openNotification(item: AppNotification) {
+    if (!item.isRead) {
+      try {
+        await notificationApi.markRead(item.id)
+        setNotificationItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, isRead: true } : entry))
+        setUnreadNotifications((count) => Math.max(0, count - 1))
+      } catch {
+        // A notification deep-link should remain usable if the read receipt is temporarily unavailable.
+      }
+    }
+    go(notificationTarget(item))
+  }
+
+  async function markAllNotificationsRead() {
+    await notificationApi.markAllRead()
+    setNotificationItems((current) => current.map((item) => ({ ...item, isRead: true })))
+    setUnreadNotifications(0)
   }
 
   function submitSearch(event: FormEvent) {
@@ -212,10 +259,10 @@ export function AuthenticatedApp() {
 
       <div className="app-shell-actions">
         <div className="apps-menu-wrap" ref={appsMenuRef}><button type="button" className="icon-circle shell-menu-button" aria-label={t('menu')} title={t('menu')} aria-expanded={appsMenuOpen} onClick={() => setAppsMenuOpen((open) => !open)}><Icon name="menu" size={20} /></button>{appsMenuOpen && <AppsMenu onNavigate={go} />}</div>
-        <button type="button" className={location.pathname === '/messenger' ? 'icon-circle active' : 'icon-circle'} aria-label={t('messages')} onClick={() => go('/messenger')}><Icon name="messenger" size={20} /></button>
-        <button type="button" className={location.pathname === '/notifications' ? 'icon-circle active badge-button' : 'icon-circle badge-button'} aria-label={t('notifications')} onClick={() => { setUnreadNotifications(0); go('/notifications') }}><Icon name="bell" size={20} />{unreadNotifications > 0 && <span>{Math.min(99, unreadNotifications)}</span>}</button>
+        <button type="button" className={location.pathname === '/messenger' || messengerPanelOpen ? 'icon-circle active' : 'icon-circle'} aria-label={t('messages')} aria-expanded={messengerPanelOpen} onClick={() => { setMessengerPanelOpen((open) => !open); setMenuOpen(false); setAppsMenuOpen(false) }}><Icon name="messenger" size={20} /></button>
+        <button type="button" className={location.pathname === '/notifications' || notificationPanelOpen ? 'icon-circle active badge-button' : 'icon-circle badge-button'} aria-label={t('notifications')} aria-expanded={notificationPanelOpen} onClick={() => { setNotificationPanelOpen((open) => !open); setMessengerPanelOpen(false); setMenuOpen(false); setAppsMenuOpen(false) }}><Icon name="bell" size={20} />{unreadNotifications > 0 && <span>{Math.min(99, unreadNotifications)}</span>}</button>
         <div className="account-menu-wrap" ref={menuRef}>
-          <button ref={menuTriggerRef} type="button" className="shell-avatar-button" aria-haspopup="dialog" aria-expanded={menuOpen} aria-label={displayName} onClick={() => { setMenuOpen((open) => !open); setMenuView('root') }}><Avatar name={displayName} src={avatarUrl} size={40} /></button>
+          <button ref={menuTriggerRef} type="button" className="shell-avatar-button" aria-haspopup="dialog" aria-expanded={menuOpen} aria-label={displayName} onClick={() => { setMenuOpen((open) => !open); setMenuView('root') }}><Avatar name={displayName} src={avatarUrl} size={36} /></button>
           {menuOpen && <div className={`account-dropdown account-dropdown-${menuView}`} role="dialog" aria-label={t('accountMenu')}>
             {menuView === 'root' ? <>
               <div className="account-profile-card"><button type="button" onClick={() => go(`/profile/${user.userId}`)}><Avatar name={displayName} src={avatarUrl} size={58} /><span><strong>{displayName}<VerifiedBadge verified={currentProfile?.isVerified} /></strong><small>{user.email}</small></span></button><button type="button" className="view-profile-link" onClick={() => go(`/profile/${user.userId}`)}>{t('seeYourProfile')}</button></div>
@@ -230,15 +277,17 @@ export function AuthenticatedApp() {
       </div>
     </header>
 
-    {(location.pathname === '/' || location.pathname === '/home') && <GatewayHomePage profile={currentProfile} onNavigate={go} />}
+    {notificationPanelOpen && <NotificationPopover items={notificationItems} unreadCount={unreadNotifications} loading={notificationsLoading} onOpen={(item) => void openNotification(item)} onMarkAll={() => void markAllNotificationsRead()} onOpenAll={() => go('/notifications')} onClose={() => setNotificationPanelOpen(false)} />}
+
+    {(location.pathname === '/' || location.pathname === '/home') && <GatewayHomePage profile={currentProfile} onNavigate={go} onMessage={openDirectMessage} />}
     {location.pathname === '/search' && <SearchPage query={location.params.get('q') ?? ''} tab={searchTab} userId={user.userId} onNavigate={go} />}
     {location.pathname.startsWith('/friends') && <FriendsPage userId={user.userId} section={normalizeFriendSection(pathSegment(location.pathname, 1))} onNavigate={go} />}
     {location.pathname.startsWith('/reels') && <ReelsPage userId={user.userId} mode={normalizeReelMode(pathSegment(location.pathname, 1))} onNavigate={go} />}
     {location.pathname === '/groups' && <GroupsPage userId={user.userId} onNavigate={go} />}
     {groupId && <GroupProfilePage groupId={groupId} userId={user.userId} onBack={() => go('/groups')} onNavigate={go} />}
     {groupRouteId && groupMemberProfileId && <UserInGroupProfilePage groupId={groupRouteId} profileId={groupMemberProfileId} viewerId={user.userId} onBack={() => go(`/groups/${groupRouteId}`)} onNavigate={go} />}
-    {profileId && <ProfilePage profile={viewedProfile} loading={profileLoading} error={profileError} canEdit={profileId === user.userId} viewerId={user.userId} onEdit={() => go('/settings/profile')} onNavigate={go} />}
-    {location.pathname === '/messenger' && <div className="shell-messenger"><MessengerPage me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} onOpenProfile={(id) => go(`/profile/${id}`)} /></div>}
+    {profileId && <ProfilePage profile={viewedProfile} loading={profileLoading} error={profileError} canEdit={profileId === user.userId} viewerId={user.userId} onEdit={() => go('/settings/profile')} onNavigate={go} onMessage={openDirectMessage} />}
+    {location.pathname === '/messenger' && <div className="shell-messenger"><MessengerPage me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} initialConversationId={location.params.get('conversation')} onOpenProfile={(id) => go(`/profile/${id}`)} /></div>}
     {location.pathname === '/notifications' && <NotificationsPage onNavigate={go} />}
     {location.pathname === '/saved' && <SavedPage userId={user.userId} onNavigate={go} />}
     {location.pathname.startsWith('/settings') && <SettingsPage initialSection={settingsSection} />}
@@ -246,7 +295,46 @@ export function AuthenticatedApp() {
     {location.pathname === '/premium/payment' && <SettingsPage initialSection="premium" />}
     {location.pathname.startsWith('/content/') && <ContentPage contentId={pathSegment(location.pathname, 1)!} viewerId={user.userId} onNavigate={go} onBack={() => go('/home')} />}
     {!isKnownPath(location.pathname) && <main className="unknown-page"><div className="card state-card"><h1>{t('pageNotFound')}</h1><p>{t('pageNotFoundDesc')}</p><button className="btn-primary" onClick={() => go('/home')}>{t('backToHome')}</button></div></main>}
+    <MessengerDock ref={messengerDockRef} me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} panelOpen={messengerPanelOpen} hidden={location.pathname === '/messenger'} onPanelClose={() => setMessengerPanelOpen(false)} onOpenAll={(conversationId) => go(conversationId ? `/messenger?conversation=${encodeURIComponent(conversationId)}` : '/messenger')} onOpenProfile={(id) => go(`/profile/${id}`)} />
   </div>
+}
+
+function NotificationPopover({ items, unreadCount, loading, onOpen, onMarkAll, onOpenAll, onClose }: { items: AppNotification[]; unreadCount: number; loading: boolean; onOpen: (item: AppNotification) => void; onMarkAll: () => void; onOpenAll: () => void; onClose: () => void }) {
+  const { t } = useI18n()
+  const [filter, setFilter] = useState<'all' | 'unread'>('all')
+  const [unreadItems, setUnreadItems] = useState<AppNotification[] | null>(null)
+  const [unreadLoading, setUnreadLoading] = useState(false)
+  useEffect(() => {
+    setUnreadItems((current) => {
+      if (current === null) return null
+      const loaded = current ?? []
+      const incoming = items.filter((item) => !item.isRead && !loaded.some((entry) => entry.id === item.id))
+      return [...incoming, ...loaded.filter((item) => !item.isRead)]
+    })
+  }, [items])
+  async function selectFilter(next: 'all' | 'unread') {
+    setFilter(next)
+    if (next !== 'unread' || unreadItems !== null || unreadLoading) return
+    setUnreadLoading(true)
+    try {
+      const page = await notificationApi.notifications(12, null, true)
+      setUnreadItems(page.items)
+    } catch {
+      setUnreadItems(items.filter((item) => !item.isRead))
+    } finally {
+      setUnreadLoading(false)
+    }
+  }
+  const visible = filter === 'unread' ? unreadItems ?? items.filter((item) => !item.isRead) : items
+  function openItem(item: AppNotification) {
+    setUnreadItems((current) => current?.filter((entry) => entry.id !== item.id) ?? null)
+    onOpen(item)
+  }
+  function markAll() {
+    setUnreadItems([])
+    onMarkAll()
+  }
+  return <aside className="notification-popover" role="dialog" aria-label={t('notifications')}><header><div><h2>{t('notifications')}</h2><p>{unreadCount > 0 ? t('unreadNotifications', { count: unreadCount }) : t('notificationsCaughtUp')}</p></div><button type="button" className="icon-circle subtle" aria-label={t('close')} onClick={onClose}><Icon name="close" size={18} /></button></header><div className="notification-popover-actions"><div><button type="button" className={filter === 'all' ? 'active' : ''} onClick={() => void selectFilter('all')}>{t('allNotifications')}</button><button type="button" className={filter === 'unread' ? 'active' : ''} onClick={() => void selectFilter('unread')}>{t('unreadOnly')}</button></div>{unreadCount > 0 && <button type="button" onClick={markAll}>{t('markAllRead')}</button>}</div><div className="notification-popover-list">{loading || (filter === 'unread' && unreadLoading) ? <div className="state-card"><span className="spinner" /></div> : visible.length === 0 ? <p className="muted">{t('noNotifications')}</p> : visible.map((item) => <button type="button" key={item.id} className={item.isRead ? '' : 'unread'} onClick={() => openItem(item)}><Avatar name={item.actor?.displayName ?? t('fakebookUser')} src={item.actor?.avatarUrl} size={48} /><span><strong>{item.actor?.displayName ?? t('fakebookUser')}<VerifiedBadge verified={item.actor?.isVerified} size={12} /></strong><span>{notificationText(item.actionType, t)}</span><small>{timeAgo(item.createdAt)}</small></span>{!item.isRead && <i />}</button>)}</div><footer><button type="button" onClick={onOpenAll}>{t('seeAllNotifications')}</button></footer></aside>
 }
 
 function AppsMenu({ onNavigate }: { onNavigate: (path: string) => void }) {

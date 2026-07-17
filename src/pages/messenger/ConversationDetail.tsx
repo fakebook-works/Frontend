@@ -9,9 +9,10 @@ interface ConversationDetailProps {
   me: UserSummary
   conversation: MessengerConversationDto
   onOpenProfile: (id: string) => void
+  onLeave?: () => void
 }
 
-export function ConversationDetail({ me, conversation, onOpenProfile }: ConversationDetailProps) {
+export function ConversationDetail({ me, conversation, onOpenProfile, onLeave }: ConversationDetailProps) {
   const { t } = useI18n()
   const name = conversationName(conversation, me)
   const avatar = conversationAvatar(conversation, me)
@@ -21,36 +22,19 @@ export function ConversationDetail({ me, conversation, onOpenProfile }: Conversa
     <aside className="messenger-detail" aria-label={t('conversationDetails')}>
       <Avatar name={name} src={avatar} size={84} online />
       <h2>{name}<VerifiedBadge verified={otherParticipant?.isVerified} /></h2>
-      <p className="muted small">{t('fakebookFriend')}</p>
+      <p className="muted small">{conversation.type === 'GROUP' ? t('groupConversation') : t('fakebookFriend')}</p>
 
       <div className="messenger-detail-actions">
         <button type="button" onClick={() => otherParticipant && onOpenProfile(otherParticipant.id)}>
           <Icon name="friends" size={16} />
           <span>{t('profile')}</span>
         </button>
-        <button type="button">
-          <Icon name="bell" size={16} />
-          <span>{t('mute')}</span>
-        </button>
-        <button type="button">
-          <Icon name="search" size={16} />
-          <span>{t('search')}</span>
-        </button>
       </div>
 
       <div className="messenger-detail-section">
-        <button type="button" className="messenger-detail-row">
-          <Icon name="photo" size={20} /> {t('mediaFilesLinks')}
-          <Icon name="caret" size={14} className="detail-caret" />
-        </button>
-        <button type="button" className="messenger-detail-row">
-          <Icon name="bookmark" size={20} /> {t('pinnedMessages')}
-          <Icon name="caret" size={14} className="detail-caret" />
-        </button>
-        <button type="button" className="messenger-detail-row">
-          <Icon name="settings" size={20} /> {t('chatSettings')}
-          <Icon name="caret" size={14} className="detail-caret" />
-        </button>
+        {conversation.type === 'GROUP' && onLeave && <button type="button" className="messenger-detail-row danger-text" onClick={onLeave}>
+          <Icon name="logout" size={20} /> {t('leaveConversation')}
+        </button>}
       </div>
     </aside>
   )

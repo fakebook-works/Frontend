@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api/client'
-import { socialApi, type SocialOwnedMedia, type SocialProfile } from '../api/social'
+import type { MediaUpload } from '../api/types'
+import { socialApi, type SocialPhoto, type SocialProfile } from '../api/social'
 import { Avatar } from '../components/Avatar'
 import { ImageCropModal } from '../components/ImageCropModal'
 import { Icon } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { languageOptions, useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
+import { readDefaultPostPrivacy, writeDefaultPostPrivacy } from '../lib/privacy'
 import { useTheme } from '../theme'
 import { AccountSecurityPage } from './AccountSecurityPage'
 import { PremiumPage } from './PremiumPage'
@@ -115,8 +117,9 @@ function ProfileSettings() {
   const [avatarUrl, setAvatarUrl] = useState('')
   const [cropTarget, setCropTarget] = useState<{ file: File; kind: 'avatar' | 'background'; fromExisting: boolean } | null>(null)
   const [removingImage, setRemovingImage] = useState<'avatar' | 'background' | null>(null)
-  const [ownedImages, setOwnedImages] = useState<SocialOwnedMedia[]>([])
+  const [existingImages, setExistingImages] = useState<SocialPhoto[]>([])
   const [existingPicker, setExistingPicker] = useState<'avatar' | 'background' | null>(null)
+  const [imagePostPrivacy, setImagePostPrivacy] = useState(() => user ? readDefaultPostPrivacy(user.userId) : 0)
   const dateBounds = useMemo(() => birthDateBounds(), [])
 
   useEffect(() => {
@@ -139,7 +142,7 @@ function ProfileSettings() {
   useEffect(() => {
     let active = true
     if (!user) return
-    socialApi.getOwnedMedia(user.userId, 0, 40).then((page) => active && setOwnedImages(page.items)).catch(() => active && setOwnedImages([]))
+    socialApi.getMyFeedPhotoCandidates(40).then((page) => active && setExistingImages(page.items)).catch(() => active && setExistingImages([]))
     return () => { active = false }
   }, [user])
 
@@ -175,20 +178,27 @@ function ProfileSettings() {
   async function saveCroppedImage(original: File, cropped: File) {
     if (!user || !cropTarget) return
     setMessage(null)
-    const [originalUpload, croppedUpload] = await Promise.all([
-      cropTarget.fromExisting ? Promise.resolve(null) : api.uploadMedia(original),
-      api.uploadMedia(cropped),
-    ])
-    const updated = cropTarget.kind === 'avatar'
-      ? await socialApi.changeUserAvatar(user.userId, croppedUpload.url, originalUpload?.url ?? null)
-      : await socialApi.changeUserBackground(user.userId, croppedUpload.url, originalUpload?.url ?? null)
-    if (!updated) throw new Error('Profile image update failed')
-    setProfile(updated)
-    setAvatarUrl(updated.avatarUrl ?? '')
-    window.dispatchEvent(new CustomEvent('fakebook:profile-updated', { detail: updated }))
-    setCropTarget(null)
-    setMessage(t('profileImageSaved'))
-    void socialApi.getOwnedMedia(user.userId, 0, 40).then((page) => setOwnedImages(page.items)).catch(() => undefined)
+    let uploads: MediaUpload[] = []
+    let persisted = false
+    try {
+      uploads = await api.uploadMediaFiles(cropTarget.fromExisting ? [cropped] : [original, cropped])
+      const originalUpload = cropTarget.fromExisting ? null : uploads[0]
+      const croppedUpload = uploads[uploads.length - 1]
+      const updated = cropTarget.kind === 'avatar'
+        ? await socialApi.changeUserAvatar(user.userId, croppedUpload.url, originalUpload?.url ?? null, imagePostPrivacy)
+        : await socialApi.changeUserBackground(user.userId, croppedUpload.url, originalUpload?.url ?? null, imagePostPrivacy)
+      if (!updated) throw new Error('Profile image update failed')
+      persisted = true
+      setProfile(updated)
+      setAvatarUrl(updated.avatarUrl ?? '')
+      window.dispatchEvent(new CustomEvent('fakebook:profile-updated', { detail: updated }))
+      setCropTarget(null)
+      setMessage(t('profileImageSaved'))
+      void socialApi.getMyFeedPhotoCandidates(40).then((page) => setExistingImages(page.items)).catch(() => undefined)
+    } catch (error) {
+      if (!persisted) await Promise.allSettled(uploads.map((item) => api.cancelPendingMedia(item)))
+      throw error
+    }
   }
 
   async function removeProfileImage(kind: 'avatar' | 'background') {
@@ -211,10 +221,10 @@ function ProfileSettings() {
     }
   }
 
-  async function chooseOwnedImage(media: SocialOwnedMedia, kind: 'avatar' | 'background') {
+  async function chooseExistingImage(photo: SocialPhoto, kind: 'avatar' | 'background') {
     setMessage(null)
     try {
-      const response = await fetch(media.url, { credentials: 'include' })
+      const response = await fetch(photo.media.url, { credentials: 'include' })
       if (!response.ok) throw new Error('Could not fetch media')
       const blob = await response.blob()
       const extension = blob.type.split('/')[1] || 'jpg'
@@ -230,10 +240,10 @@ function ProfileSettings() {
       <SettingsHeading title={t('settingsProfile')} description={t('settingsProfileDesc')} />
       {loading ? <div className="settings-loading"><span className="spinner" /></div> : (
         <form className="settings-card profile-settings-form" onSubmit={save} noValidate>
-          <div className="settings-profile-cover" style={profile?.backgroundUrl ? { backgroundImage: `url(${profile.backgroundUrl})` } : undefined}><div className="settings-image-actions">{profile?.backgroundUrl && <button type="button" className="btn-soft danger-text" disabled={removingImage != null} onClick={() => void removeProfileImage('background')}><Icon name="trash" size={17} />{t('removeBackground')}</button>}{ownedImages.length > 0 && <button type="button" className="btn-soft" onClick={() => setExistingPicker('background')}><Icon name="photo" size={17} />{t('chooseExistingPhoto')}</button>}<label className="btn-soft"><Icon name="camera" size={17} />{t('changeBackground')}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setCropTarget({ file, kind: 'background', fromExisting: false }); event.currentTarget.value = '' }} /></label></div></div>
+          <div className="settings-profile-cover" style={profile?.backgroundUrl ? { backgroundImage: `url(${profile.backgroundUrl})` } : undefined}><div className="settings-image-actions">{profile?.backgroundUrl && <button type="button" className="btn-soft danger-text" disabled={removingImage != null} onClick={() => void removeProfileImage('background')}><Icon name="trash" size={17} />{t('removeBackground')}</button>}{existingImages.length > 0 && <button type="button" className="btn-soft" onClick={() => setExistingPicker('background')}><Icon name="photo" size={17} />{t('chooseExistingPhoto')}</button>}<label className="btn-soft"><Icon name="camera" size={17} />{t('changeBackground')}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setCropTarget({ file, kind: 'background', fromExisting: false }); event.currentTarget.value = '' }} /></label></div></div>
           <div className="settings-profile-summary">
             <div className="settings-avatar-editor"><Avatar name={displayName || user?.email || 'Fakebook'} src={avatarUrl || null} size={76} /><label className="camera-badge" aria-label={t('changeAvatar')}><Icon name="camera" size={16} /><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) setCropTarget({ file, kind: 'avatar', fromExisting: false }); event.currentTarget.value = '' }} /></label></div>
-            <div><strong>{displayName || user?.email}<VerifiedBadge verified={profile?.isVerified} /></strong><span>{user?.email}</span><div className="profile-image-inline-actions">{ownedImages.length > 0 && <button type="button" onClick={() => setExistingPicker('avatar')}>{t('chooseExistingPhoto')}</button>}{avatarUrl && <button type="button" className="danger-text" disabled={removingImage != null} onClick={() => void removeProfileImage('avatar')}>{t('removeAvatar')}</button>}</div></div>
+            <div><strong>{displayName || user?.email}<VerifiedBadge verified={profile?.isVerified} /></strong><span>{user?.email}</span><div className="profile-image-inline-actions">{existingImages.length > 0 && <button type="button" onClick={() => setExistingPicker('avatar')}>{t('chooseExistingPhoto')}</button>}{avatarUrl && <button type="button" className="danger-text" disabled={removingImage != null} onClick={() => void removeProfileImage('avatar')}>{t('removeAvatar')}</button>}</div></div>
           </div>
           <div className="settings-form-grid">
             <label><span>{t('nameLabel')}</span><input value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label>
@@ -241,33 +251,32 @@ function ProfileSettings() {
             <label><span>{t('locationLabel')}</span><input value={location} onChange={(e) => setLocation(e.target.value)} /></label>
             <label><span>{t('birthDateLabel')}</span><input type="date" min={dateBounds.min} max={dateBounds.max} value={birthDate} onChange={(e) => setBirthDate(e.target.value)} /></label>
             <label><span>{t('genderLabel')}</span><select value={gender} onChange={(e) => setGender(e.target.value)}><option value="">{t('genderPreferNot')}</option><option value="female">{t('genderFemale')}</option><option value="male">{t('genderMale')}</option><option value="custom">{t('genderCustom')}</option></select></label>
+            <label><span>{t('profilePhotoPostPrivacy')}</span><select value={imagePostPrivacy} onChange={(event) => { const value = writeDefaultPostPrivacy(user?.userId ?? '', Number(event.target.value)); setImagePostPrivacy(value) }}><option value={0}>{t('privacyPublic')}</option><option value={1}>{t('privacyFriendsFollowers')}</option><option value={2}>{t('privacyFriends')}</option><option value={3}>{t('privacyOnlyMe')}</option></select></label>
           </div>
           {message && <p className={message === t('profileSaved') || message === t('profileImageSaved') || message === t('profileImageRemoved') ? 'form-success' : 'form-error'}>{message}</p>}
           <div className="settings-actions"><button type="submit" className="btn-primary" disabled={saving}>{saving ? t('saving') : t('saveChanges')}</button></div>
         </form>
       )}
       {cropTarget && <ImageCropModal file={cropTarget.file} kind={cropTarget.kind} onClose={() => setCropTarget(null)} onConfirm={saveCroppedImage} />}
-      {existingPicker && <ExistingPhotoPicker images={ownedImages} kind={existingPicker} onClose={() => setExistingPicker(null)} onSelect={(media) => void chooseOwnedImage(media, existingPicker)} />}
+      {existingPicker && <ExistingPhotoPicker images={existingImages} kind={existingPicker} onClose={() => setExistingPicker(null)} onSelect={(photo) => void chooseExistingImage(photo, existingPicker)} />}
     </div>
   )
 }
 
-function ExistingPhotoPicker({ images, kind, onClose, onSelect }: { images: SocialOwnedMedia[]; kind: 'avatar' | 'background'; onClose: () => void; onSelect: (media: SocialOwnedMedia) => void }) {
+function ExistingPhotoPicker({ images, kind, onClose, onSelect }: { images: SocialPhoto[]; kind: 'avatar' | 'background'; onClose: () => void; onSelect: (photo: SocialPhoto) => void }) {
   const { t } = useI18n()
-  return <div className="modal-backdrop existing-photo-backdrop" role="presentation" onClick={onClose}><section className="modal existing-photo-modal" role="dialog" aria-modal="true" aria-label={t('chooseExistingPhoto')} onClick={(event) => event.stopPropagation()}><header className="modal-head"><div><h2>{t('chooseExistingPhoto')}</h2><p>{kind === 'avatar' ? t('chooseAvatarPhotoDesc') : t('chooseBackgroundPhotoDesc')}</p></div><button type="button" className="icon-circle subtle" onClick={onClose}><Icon name="close" /></button></header><div className="existing-photo-grid">{images.map((media) => <button type="button" key={media.id} onClick={() => onSelect(media)}><img src={media.url} alt="" loading="lazy" /></button>)}</div></section></div>
+  return <div className="modal-backdrop existing-photo-backdrop" role="presentation" onClick={onClose}><section className="modal existing-photo-modal" role="dialog" aria-modal="true" aria-label={t('chooseExistingPhoto')} onClick={(event) => event.stopPropagation()}><header className="modal-head"><div><h2>{t('chooseExistingPhoto')}</h2><p>{kind === 'avatar' ? t('chooseAvatarPhotoDesc') : t('chooseBackgroundPhotoDesc')}</p></div><button type="button" className="icon-circle subtle" onClick={onClose}><Icon name="close" /></button></header><div className="existing-photo-grid">{images.map((photo) => <button type="button" key={`${photo.contentId}-${photo.media.id}`} onClick={() => onSelect(photo)}><img src={photo.media.url} alt="" loading="lazy" /></button>)}</div></section></div>
 }
 
 function PrivacySettings() {
+  const { user } = useAuth()
   const { t } = useI18n()
-  const [postPrivacy, setPostPrivacy] = useState(() => {
-    const saved = localStorage.getItem('fb.defaultPostPrivacy')
-    return saved === '1' || saved === '2' ? saved : '0'
-  })
+  const [postPrivacy, setPostPrivacy] = useState(() => String(user ? readDefaultPostPrivacy(user.userId) : 0))
   function update(value: string) {
     setPostPrivacy(value)
-    localStorage.setItem('fb.defaultPostPrivacy', value)
+    if (user) writeDefaultPostPrivacy(user.userId, Number(value))
   }
-  return <div className="settings-section"><SettingsHeading title={t('settingsPrivacyControl')} description={t('settingsPrivacyDesc')} /><div className="settings-card setting-choice"><div><strong>{t('defaultPostAudience')}</strong><span>{t('defaultPostAudienceDesc')}</span></div><select value={postPrivacy} onChange={(e) => update(e.target.value)}><option value="0">{t('privacyPublic')}</option><option value="1">{t('privacyFriends')}</option><option value="2">{t('privacyOnlyMe')}</option></select></div></div>
+  return <div className="settings-section"><SettingsHeading title={t('settingsPrivacyControl')} description={t('settingsPrivacyDesc')} /><div className="settings-card setting-choice"><div><strong>{t('defaultPostAudience')}</strong><span>{t('defaultPostAudienceDesc')}</span></div><select value={postPrivacy} onChange={(e) => update(e.target.value)}><option value="0">{t('privacyPublic')}</option><option value="1">{t('privacyFriendsFollowers')}</option><option value="2">{t('privacyFriends')}</option><option value="3">{t('privacyOnlyMe')}</option></select></div></div>
 }
 
 function LanguageSettings() {

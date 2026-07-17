@@ -28,6 +28,11 @@ const DEFAULT_JSON_HEADERS = {
 const GATEWAY_ERROR_STATUSES = new Set([502, 503, 504])
 const GATEWAY_ERROR_MESSAGE = 'Server is temporarily unreachable.'
 const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please log in again.'
+const configuredGraphQlTimeoutMs = Number(import.meta.env.VITE_GRAPHQL_TIMEOUT_MS ?? 20_000)
+const GRAPHQL_REQUEST_TIMEOUT_MS = Number.isFinite(configuredGraphQlTimeoutMs)
+  ? Math.max(5_000, configuredGraphQlTimeoutMs)
+  : 20_000
+const inFlightQueries = new Map<string, Promise<unknown>>()
 
 type ApiAuthMode = 'protected' | 'public'
 
@@ -221,6 +226,13 @@ function normalizeGatewayPost(post: GatewayPost): GatewayPost {
     id: String(post.id),
     author: { ...post.author, id: String(post.author.id) },
     media: post.media.map(normalizeMedia),
+    sharedSource: post.sharedSource ? {
+      ...post.sharedSource,
+      id: String(post.sharedSource.id),
+      type: post.sharedSource.type == null ? null : Number(post.sharedSource.type),
+      author: post.sharedSource.author ? { ...post.sharedSource.author, id: String(post.sharedSource.author.id) } : null,
+      media: post.sharedSource.media.map(normalizeMedia),
+    } : null,
   }
   return post.__typename === 'GroupPostDetail'
     ? { ...normalized, __typename: 'GroupPostDetail', group: { ...post.group, id: String(post.group.id) } }
@@ -236,7 +248,7 @@ function normalizeSession(session: AuthSession): AuthSession {
   return { ...session, sessionId: String(session.sessionId) }
 }
 
-export async function gatewayGraphQl<T>(
+async function executeGatewayGraphQl<T>(
   document: string,
   variables: Record<string, unknown> = {},
   authMode: ApiAuthMode = 'protected',
@@ -244,16 +256,21 @@ export async function gatewayGraphQl<T>(
 ): Promise<T> {
   const headers = jsonHeaders(undefined, true, authMode)
   let res: Response
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), GRAPHQL_REQUEST_TIMEOUT_MS)
   try {
     res = await fetch(GRAPHQL_GATEWAY_URL, {
       method: 'POST',
       headers,
       credentials: 'include',
       body: JSON.stringify({ query: document, variables }),
+      signal: controller.signal,
     })
   } catch {
     notifyGatewayError(503)
     throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
+  } finally {
+    window.clearTimeout(timeout)
   }
 
   if (GATEWAY_ERROR_STATUSES.has(res.status)) {
@@ -283,6 +300,38 @@ export async function gatewayGraphQl<T>(
   }
 
   return envelope.data
+}
+
+function isReadOnlyGraphQlDocument(document: string): boolean {
+  const normalized = document.replace(/#[^\n]*\n/g, '').trim()
+  return !/^mutation\b|^subscription\b/i.test(normalized)
+}
+
+/**
+ * Shares simultaneous identical queries (React StrictMode and independent
+ * widgets often request the same profile/notification data together) while
+ * leaving mutations and subscriptions uncached.
+ */
+export function gatewayGraphQl<T>(
+  document: string,
+  variables: Record<string, unknown> = {},
+  authMode: ApiAuthMode = 'protected',
+  allowRetry = true,
+): Promise<T> {
+  if (!isReadOnlyGraphQlDocument(document)) {
+    return executeGatewayGraphQl<T>(document, variables, authMode, allowRetry)
+  }
+
+  const key = `${authMode}:${allowRetry ? 'retry' : 'no-retry'}:${getAccessToken() ?? ''}:${document}:${JSON.stringify(variables)}`
+  const existing = inFlightQueries.get(key)
+  if (existing) return existing as Promise<T>
+
+  const request = executeGatewayGraphQl<T>(document, variables, authMode, allowRetry)
+  inFlightQueries.set(key, request)
+  void request.finally(() => {
+    if (inFlightQueries.get(key) === request) inFlightQueries.delete(key)
+  }).catch(() => undefined)
+  return request
 }
 
 // Existing feature modules in this file keep the local alias while newer
@@ -388,6 +437,13 @@ function directUploadUrl(): string {
     : `${UPLOAD_SERVER_URL}/media/upload`
 }
 
+function directUploadAssetUrl(path: string): string {
+  const suffix = path.replace(/^\/+/, '')
+  return UPLOAD_SERVER_URL.endsWith('/media')
+    ? `${UPLOAD_SERVER_URL}/assets/${suffix}`
+    : `${UPLOAD_SERVER_URL}/media/assets/${suffix}`
+}
+
 export function resolveUploadedMediaUrl(value: string, baseUrl = UPLOAD_SERVER_URL): string {
   if (/^https?:\/\//i.test(value) || !/^https?:\/\//i.test(baseUrl)) return value
   return new URL(value, `${baseUrl.replace(/\/+$/, '')}/`).toString()
@@ -419,12 +475,51 @@ async function uploadMedia(file: File, allowRetry = true): Promise<MediaUpload> 
   return { ...uploaded, url: resolveUploadedMediaUrl(uploaded.url) }
 }
 
+async function cancelPendingMedia(upload: MediaUpload): Promise<void> {
+  if (!upload.assetId || upload.state !== 'pending') return
+  const headers = jsonHeaders(undefined, false, 'protected')
+  const token = getAuth()?.accessToken
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const response = await fetch(directUploadAssetUrl(upload.assetId), { method: 'DELETE', headers })
+  if (!response.ok && response.status !== 404) throw new ApiError(response.status, 'Unable to cancel pending media.')
+}
+
+async function finalizePendingMedia(uploads: MediaUpload[]): Promise<void> {
+  const assetIds = uploads.flatMap((upload) => upload.assetId && upload.state === 'pending' ? [upload.assetId] : [])
+  if (assetIds.length === 0) return
+  const headers = jsonHeaders(undefined, true, 'protected')
+  const token = getAuth()?.accessToken
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const response = await fetch(directUploadAssetUrl('finalize'), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ assetIds }),
+  })
+  if (!response.ok) throw new ApiError(response.status, 'Unable to finalize pending media.')
+}
+
+async function uploadMediaFiles(files: File[]): Promise<MediaUpload[]> {
+  const settled = await Promise.allSettled(files.map((file) => uploadMedia(file)))
+  const uploaded = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
+  const failed = settled.find((result) => result.status === 'rejected')
+  if (failed) {
+    await Promise.allSettled(uploaded.map(cancelPendingMedia))
+    throw failed.reason
+  }
+  return uploaded
+}
+
 const HOME_POST_FIELDS = `
   __typename
   ... on FeedPostDetail {
     id type content privacy create
     author { id name avatar isVerified canFollow }
     media { id type url }
+    sharedSource {
+      id isAvailable type content
+      author { id name avatar isVerified }
+      media { id type url }
+    }
   }
   ... on GroupPostDetail {
     id type content privacy create
@@ -504,6 +599,9 @@ export function isTerminalPaymentStatus(status: PaymentOrderStatus): boolean {
 export const api = {
   // ----- media -----
   uploadMedia,
+  uploadMediaFiles,
+  cancelPendingMedia,
+  finalizePendingMedia,
 
   // ----- auth -----
   register: async (body: RegisterBody): Promise<RegistrationResult> => {
@@ -678,6 +776,8 @@ export const api = {
   },
   createFeedPost: async (input: CreateGatewayPostInput): Promise<CreatedContent> => {
     const authorId = graphQlLongLiteral(input.authorId)
+    const taggedUserIds = [...new Set(input.taggedUserIds ?? [])].map(graphQlLongLiteral).join(', ')
+    const mentionedUserIds = [...new Set(input.mentionedUserIds ?? [])].map(graphQlLongLiteral).join(', ')
     const data = await graphQlRequest<{ createFeedPost: CreatedContent }>(
       `mutation CreateFeedPost($content: String!, $privacy: Int!, $media: [MediaInput!]) {
         createFeedPost(input: {
@@ -685,6 +785,8 @@ export const api = {
           content: $content
           privacy: $privacy
           media: $media
+          taggedUserIds: [${taggedUserIds}]
+          mentionedUserIds: [${mentionedUserIds}]
         }) {
           id type content privacy create authorId media { id type url }
         }
@@ -706,6 +808,7 @@ export const api = {
           items {
             author { id name avatar isVerified }
             latestCreate
+            hasUnseen
             stories { ${HOME_STORY_FIELDS} }
           }
           endCursor
@@ -723,6 +826,7 @@ export const api = {
         myStories(userId: ${id}) {
           author { id name avatar isVerified }
           latestCreate
+          hasUnseen
           stories { ${HOME_STORY_FIELDS} }
         }
       }`,

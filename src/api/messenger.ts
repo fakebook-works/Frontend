@@ -10,6 +10,8 @@ interface SendMessageBody {
 
 interface ParticipantGraphQl {
   userId: string
+  role: 'ADMIN' | 'MEMBER'
+  leftAt: string | null
   lastDeliveredSequence: string
   lastReadSequence: string
   user: FederatedUserGraphQl | null
@@ -62,7 +64,7 @@ const MESSAGE_FIELDS = `
 
 const CONVERSATION_FIELDS = `
   id type title avatarUrl updatedAt currentSequence
-  participants { userId lastDeliveredSequence lastReadSequence user { id name avatar isVerified } }
+  participants { userId role leftAt lastDeliveredSequence lastReadSequence user { id name avatar isVerified } }
   lastMessage { ${MESSAGE_FIELDS} }
 `
 
@@ -133,9 +135,10 @@ function conversationFromGraphQl(conversation: ConversationGraphQl, people: Map<
   const lastRead = Number(me?.lastReadSequence ?? 0)
   return {
     id: String(conversation.id),
+    type: conversation.type,
     participants: conversation.participants.flatMap((participant) => {
       const user = people.get(String(participant.userId))
-      return user ? [user] : []
+      return user ? [{ ...user, role: participant.role, leftAt: participant.leftAt }] : []
     }),
     title: conversation.title,
     avatarUrl: conversation.avatarUrl,
@@ -216,6 +219,85 @@ export async function createDirectConversation(targetUserId: string, viewerId: s
   return conversationFromGraphQl(data.createDirectConversation, people, viewerId)
 }
 
+export async function createGroupConversation(
+  title: string,
+  memberUserIds: string[],
+  viewerId: string,
+  avatarUrl: string | null = null,
+): Promise<MessengerConversationDto> {
+  if (memberUserIds.length < 2) throw new Error('A group conversation requires at least two friends.')
+  const titleValue = title.trim()
+  if (!titleValue) throw new Error('A group conversation requires a title.')
+  const members = [...new Set(memberUserIds)].map(graphQlLongLiteral).join(', ')
+  const data = await gatewayGraphQl<{ createGroupConversation: ConversationGraphQl }>(
+    `mutation CreateGroupConversation($title: String!, $avatarUrl: String) {
+      createGroupConversation(input: { title: $title, memberUserIds: [${members}], avatarUrl: $avatarUrl }) { ${CONVERSATION_FIELDS} }
+    }`,
+    { title: titleValue, avatarUrl },
+  )
+  const people = await participantMap([data.createGroupConversation], viewerId)
+  return conversationFromGraphQl(data.createGroupConversation, people, viewerId)
+}
+
+export async function updateGroupConversation(
+  conversationId: string,
+  viewerId: string,
+  input: { title?: string | null; avatarUrl?: string | null },
+): Promise<MessengerConversationDto> {
+  const data = await gatewayGraphQl<{ updateGroupConversation: ConversationGraphQl }>(
+    `mutation UpdateGroupConversation($conversationId: UUID!, $title: String, $avatarUrl: String) {
+      updateGroupConversation(input: { conversationId: $conversationId, title: $title, avatarUrl: $avatarUrl }) { ${CONVERSATION_FIELDS} }
+    }`,
+    { conversationId, title: input.title, avatarUrl: input.avatarUrl },
+  )
+  const people = await participantMap([data.updateGroupConversation], viewerId)
+  return conversationFromGraphQl(data.updateGroupConversation, people, viewerId)
+}
+
+export async function addConversationMembers(
+  conversationId: string,
+  memberUserIds: string[],
+  viewerId: string,
+): Promise<MessengerConversationDto> {
+  const ids = [...new Set(memberUserIds)].map(graphQlLongLiteral).join(', ')
+  if (!ids) throw new Error('At least one member is required.')
+  const data = await gatewayGraphQl<{ addConversationMembers: ConversationGraphQl }>(
+    `mutation AddConversationMembers($conversationId: UUID!) {
+      addConversationMembers(input: { conversationId: $conversationId, userIds: [${ids}] }) { ${CONVERSATION_FIELDS} }
+    }`,
+    { conversationId },
+  )
+  const people = await participantMap([data.addConversationMembers], viewerId)
+  return conversationFromGraphQl(data.addConversationMembers, people, viewerId)
+}
+
+export async function removeConversationMember(
+  conversationId: string,
+  targetUserId: string,
+  viewerId: string,
+): Promise<MessengerConversationDto> {
+  const target = graphQlLongLiteral(targetUserId)
+  const data = await gatewayGraphQl<{ removeConversationMember: ConversationGraphQl }>(
+    `mutation RemoveConversationMember($conversationId: UUID!) {
+      removeConversationMember(input: { conversationId: $conversationId, userId: ${target} }) { ${CONVERSATION_FIELDS} }
+    }`,
+    { conversationId },
+  )
+  const people = await participantMap([data.removeConversationMember], viewerId)
+  return conversationFromGraphQl(data.removeConversationMember, people, viewerId)
+}
+
+export async function leaveConversation(conversationId: string, viewerId: string): Promise<MessengerConversationDto> {
+  const data = await gatewayGraphQl<{ leaveConversation: ConversationGraphQl }>(
+    `mutation LeaveConversation($conversationId: UUID!) {
+      leaveConversation(conversationId: $conversationId) { ${CONVERSATION_FIELDS} }
+    }`,
+    { conversationId },
+  )
+  const people = await participantMap([data.leaveConversation], viewerId)
+  return conversationFromGraphQl(data.leaveConversation, people, viewerId)
+}
+
 export async function markRead(conversationId: string, sequence: string): Promise<void> {
   const sequenceLiteral = sequence === '0' ? '0' : graphQlLongLiteral(sequence)
   await gatewayGraphQl<{ markConversationRead: { conversationId: string } }>(
@@ -248,6 +330,11 @@ export const messengerApi = {
   messages,
   sendMessage,
   createDirectConversation,
+  createGroupConversation,
+  updateGroupConversation,
+  addConversationMembers,
+  removeConversationMember,
+  leaveConversation,
   markRead,
   subscribeInbox,
   subscribeConversation,

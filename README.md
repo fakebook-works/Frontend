@@ -21,6 +21,7 @@ Create or update environment files as needed:
 VITE_API_GATEWAY_URL=/api
 VITE_GRAPHQL_GATEWAY_URL=/graphql
 VITE_UPLOAD_SERVER_URL=/media
+VITE_GRAPHQL_TIMEOUT_MS=20000
 ```
 
 For local development, keep browser URLs relative and configure Vite's private proxy targets:
@@ -30,7 +31,7 @@ VITE_DEV_GATEWAY_TARGET=http://localhost:2001
 VITE_DEV_UPLOAD_TARGET=http://localhost:4001
 ```
 
-Realtime notifications and Messenger events use authenticated GraphQL-over-SSE subscriptions through the same `VITE_GRAPHQL_GATEWAY_URL` endpoint.
+Realtime notifications and Messenger events use authenticated GraphQL-over-SSE subscriptions through the same `VITE_GRAPHQL_GATEWAY_URL` endpoint. Messenger loads only server conversations (there is no synthetic fallback), creates direct conversations idempotently for friends, and also supports selecting multiple friends to create a group conversation. The top-bar dock keeps at most three floating chat windows; a profile's Message action opens the canonical direct conversation.
 
 All active authentication, social, search, recommendation, messaging, notification, and payment flows use typed Gateway GraphQL documents. The retired REST feed/friend/post/messenger screens and clients have been removed; direct HTTP is reserved for authenticated media upload to Upload Server.
 

@@ -12,6 +12,15 @@ export interface GatewayAuthor {
   canFollow?: boolean
 }
 
+export interface SharedPostSource {
+  id: string
+  isAvailable: boolean
+  type: number | null
+  content: string | null
+  author: Omit<GatewayAuthor, 'canFollow'> | null
+  media: GatewayMedia[]
+}
+
 export interface FeedPost {
   __typename: 'FeedPostDetail'
   id: string
@@ -21,6 +30,7 @@ export interface FeedPost {
   create: string
   author: GatewayAuthor
   media: GatewayMedia[]
+  sharedSource?: SharedPostSource | null
 }
 
 export interface GroupPost extends Omit<FeedPost, '__typename'> {
@@ -82,6 +92,7 @@ export type GatewayStory = NormalStory | FeedPostShareStory | ReelShareStory
 export interface StoryBucket {
   author: Omit<GatewayAuthor, 'canFollow'>
   latestCreate: string
+  hasUnseen: boolean
   stories: GatewayStory[]
 }
 
@@ -148,6 +159,8 @@ export interface CreateGatewayPostInput {
   content: string
   privacy: number
   media?: GatewayMediaInput[]
+  taggedUserIds?: string[]
+  mentionedUserIds?: string[]
 }
 
 export interface CreateGatewayStoryInput {
