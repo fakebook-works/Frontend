@@ -3,6 +3,7 @@
 export type IconName =
   | 'home'
   | 'friends'
+  | 'user'
   | 'watch'
   | 'groups'
   | 'menu'
@@ -42,12 +43,21 @@ export type IconName =
   | 'phone'
   | 'info'
   | 'mic'
+  | 'sticker'
   | 'back'
+  | 'play'
+  | 'pause'
+  | 'volume'
+  | 'volumeOff'
+  | 'eye'
+  | 'expand'
 
 const PATHS: Record<IconName, string> = {
   home: 'M11.3 3.3 3 10.5c-.3.3-.5.7-.5 1.1V20a1 1 0 0 0 1 1h5v-6h7v6h5a1 1 0 0 0 1-1v-8.4c0-.4-.2-.8-.5-1.1L12.7 3.3a1 1 0 0 0-1.4 0z',
   friends:
     'M16.5 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-7.5 1a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 1.5c-3 0-7 1.6-7 4.7V21h14v-2.8c0-3.1-4-4.7-7-4.7zm7.5.2c.5.8.8 1.7.8 2.5V21H23v-2.5c0-2.4-3.1-3.9-6-4.3-.4.1-.8.2-1 .7z',
+  user:
+    'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5z',
   watch:
     'M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5l-3 3-3-3H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm6 3v8l6.5-4L10 7z',
   groups:
@@ -72,7 +82,7 @@ const PATHS: Record<IconName, string> = {
     'M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z',
   feeling:
     'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-3.5 7a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm7 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM12 17.5c-2.3 0-4.3-1.4-5-3.5h10c-.7 2.1-2.7 3.5-5 3.5z',
-  close: 'M18.3 5.7 13.4 12l4.9 6.3-1.4 1.4L12 13.4l-4.9 6.3-1.4-1.4L10.6 12 5.7 5.7l1.4-1.4L12 10.6l4.9-6.3z',
+  close: 'M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z',
   edit: 'M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
   trash: 'M6 7h12l-1 13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7zm3-3h6l1 2h4v2H4V6h4l1-2z',
   globe:
@@ -104,7 +114,15 @@ const PATHS: Record<IconName, string> = {
   info: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',
   mic:
     'M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1a7 7 0 0 0 6-6.9h-2z',
+  sticker:
+    'M5 3.5h14a1.5 1.5 0 0 1 1.5 1.5v9.2L14.2 20.5H5A1.5 1.5 0 0 1 3.5 19V5A1.5 1.5 0 0 1 5 3.5zm9 17v-4.8a1.5 1.5 0 0 1 1.5-1.5h5M8.5 9h.01M15.5 9h.01M8.5 12.5c.9 1.1 2.1 1.7 3.5 1.7s2.6-.6 3.5-1.7',
   back: 'M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20v-2z',
+  play: 'M8 5v14l11-7L8 5z',
+  pause: 'M6 5h4v14H6V5zm8 0h4v14h-4V5z',
+  volume: 'M3 9v6h4l5 4V5L7 9H3zm12.5 3a3.5 3.5 0 0 0-2-3.15v6.3A3.5 3.5 0 0 0 15.5 12zm0-7.1v2.05a6 6 0 0 1 0 10.1v2.05a8 8 0 0 0 0-14.2z',
+  volumeOff: 'M3 9v6h4l5 4V5L7 9H3zm12.1.1-1.4 1.4L15.2 12l-1.5 1.5 1.4 1.4 1.5-1.5 1.5 1.5 1.4-1.4L18 12l1.5-1.5-1.4-1.4-1.5 1.5-1.5-1.5z',
+  eye: 'M12 5c-5.5 0-9.5 7-9.5 7s4 7 9.5 7 9.5-7 9.5-7S17.5 5 12 5zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm0-2a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
+  expand: 'M4 4h6v2H7.4l3.3 3.3-1.4 1.4L6 7.4V10H4V4zm10 0h6v6h-2V7.4l-3.3 3.3-1.4-1.4L16.6 6H14V4zM9.3 13.3l1.4 1.4L7.4 18H10v2H4v-6h2v2.6l3.3-3.3zm5.4 0 3.3 3.3V14h2v6h-6v-2h2.6l-3.3-3.3 1.4-1.4z',
 }
 
 export function Icon({
@@ -116,7 +134,7 @@ export function Icon({
   size?: number
   className?: string
 }) {
-  const outline = name === 'likeOutline' || name === 'commentOutline' || name === 'shareOutline'
+  const outline = name === 'likeOutline' || name === 'commentOutline' || name === 'shareOutline' || name === 'sticker'
   return (
     <svg
       className={className}

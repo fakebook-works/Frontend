@@ -1,14 +1,16 @@
 import { useMemo } from 'react'
+import type { MessengerPresenceDto } from '../../api/messenger'
 import type { MessengerConversationDto, UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { timeAgo } from '../../lib/format'
-import { conversationAvatar, conversationName } from './helpers'
+import { conversationAvatar, conversationName, messengerMessagePreview } from './helpers'
 import { useI18n } from '../../i18n'
 
 interface ConversationListProps {
   me: UserSummary
   conversations: MessengerConversationDto[]
+  presenceByUserId: Record<string, MessengerPresenceDto>
   selectedId: string | null
   query: string
   loading: boolean
@@ -23,6 +25,7 @@ interface ConversationListProps {
 export function ConversationList({
   me,
   conversations,
+  presenceByUserId,
   selectedId,
   query,
   loading,
@@ -87,6 +90,9 @@ export function ConversationList({
         ) : (
           filtered.map((conversation) => {
             const name = conversationName(conversation, me)
+            const other = conversation.type === 'DIRECT'
+              ? conversation.participants.find((participant) => participant.id !== me.id)
+              : undefined
             const isActive = conversation.id === selectedId
             const hasUnread = conversation.unreadCount > 0
             return (
@@ -96,12 +102,12 @@ export function ConversationList({
                 className={`messenger-row${isActive ? ' active' : ''}${hasUnread ? ' unread' : ''}`}
                 onClick={() => onSelect(conversation.id)}
               >
-                <Avatar name={name} src={conversationAvatar(conversation, me)} size={56} online />
+                <Avatar name={name} src={conversationAvatar(conversation, me)} size={56} online={Boolean(other && presenceByUserId[other.id]?.isOnline)} />
                 <span className="messenger-row-copy">
                   <strong>{name}</strong>
                   <span>
                     {conversation.lastMessage?.sender.id === me.id ? `${t('you')}: ` : ''}
-                    {conversation.lastMessage?.body ?? t('startConversation')}
+                    {messengerMessagePreview(conversation.lastMessage?.body) || t('startConversation')}
                   </span>
                 </span>
                 <span className="messenger-row-meta">

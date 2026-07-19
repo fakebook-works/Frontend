@@ -46,20 +46,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(async () => {
-    try {
-      await api.logout()
-    } catch {
-      /* best-effort server-side revoke; always clear local access */
-    }
+    const revokeRequest = api.logout().catch(() => undefined)
     clearAuth()
+    await revokeRequest
   }, [])
 
   const logoutAll = useCallback(async () => {
-    try {
-      await api.logoutAll()
-    } finally {
-      clearAuth()
-    }
+    const revokeRequest = api.logoutAll().catch(() => undefined)
+    clearAuth()
+    await revokeRequest
   }, [])
 
   const refreshUser = useCallback(async () => {

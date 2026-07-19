@@ -70,6 +70,35 @@ describe('ContentActions refreshed overlays', () => {
     expect(screen.getByPlaceholderText('commentAs')).toBeInTheDocument()
     expect(container.querySelector('.group-post-avatar-stack .group-post-user-avatar')).toHaveStyle({ width: '24px', height: '24px' })
     expect(screen.queryByText('mostRelevant')).not.toBeInTheDocument()
+    expect(await screen.findByText('noCommentsYet')).toBeInTheDocument()
+    expect(screen.getByText('beFirstToComment')).toBeInTheDocument()
+    expect(container.querySelector('.no-comments-document')).toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(container.querySelector('.content-engagement-summary .content-share-summary')).not.toBeInTheDocument()
+    expect(container.querySelector('.thread-post-engagement .content-share-summary')).not.toBeInTheDocument()
+  })
+
+  it('omits the engagement summary completely when every count is zero', async () => {
+    socialMocks.getContentEngagement.mockResolvedValue({
+      targetId: '90', likeCount: 0, commentCount: 0, shareCount: 0,
+      viewerHasLiked: false, viewerHasSaved: false, viewerHasWatched: false,
+    })
+    const { container } = render(<ContentActions viewerId="1" contentId="90" post={post} />)
+
+    await waitFor(() => expect(container.querySelector('.content-actions-wrap')).toHaveClass('no-summary'))
+    expect(container.querySelector('.content-engagement-summary')).not.toBeInTheDocument()
+    expect(container).not.toHaveTextContent('0 comments')
+    expect(container).not.toHaveTextContent('0 shares')
+
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+    const dialog = await screen.findByRole('dialog', { name: 'comments' })
+    await screen.findByText('noCommentsYet')
+    expect(dialog.querySelector('.thread-post-engagement')).toHaveClass('no-summary')
+    expect(dialog.querySelector('.thread-post-engagement > div')).not.toBeInTheDocument()
+    expect(dialog.querySelector('.content-thread-scroll')).toBeInTheDocument()
+
+    fireEvent.click(dialog.querySelector('.content-thread-head button')!)
+    await waitFor(() => expect(document.body.style.overflow).toBe(''))
   })
 
   it('uses a three-button post footer and a filled blue state after liking', async () => {
@@ -88,6 +117,27 @@ describe('ContentActions refreshed overlays', () => {
     expect(screen.getByText('youAndOthersReacted')).toBeInTheDocument()
   })
 
+  it('submits comment mentions atomically as ID tokens', async () => {
+    socialMocks.getRelationProfiles.mockResolvedValue([{
+      id: '3', username: 'friend', displayName: 'Friend Name', avatarUrl: null, isVerified: false,
+    }])
+    socialMocks.createComment.mockResolvedValue({ id: 'comment-mention' })
+    render(<ContentActions viewerId="1" contentId="90" post={post} />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+
+    const textarea = await screen.findByPlaceholderText('commentAs') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'Hi @Fr' } })
+    textarea.setSelectionRange(6, 6)
+    fireEvent.select(textarea)
+    fireEvent.click(await screen.findByRole('option', { name: /Friend Name/ }))
+    expect(textarea).toHaveValue('Hi Friend Name ')
+    expect(screen.getByText('Friend Name', { selector: 'strong.mention-draft-name' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'sendComment' }))
+
+    await waitFor(() => expect(socialMocks.createComment).toHaveBeenCalledWith('1', '90', 'Hi [[mention:3]]'))
+    expect(socialMocks.mentionUser).not.toHaveBeenCalled()
+  })
+
   it('sends the canonical content link through a direct Messenger conversation', async () => {
     const friend = { id: '3', username: 'friend', email: '', displayName: 'Friend Name', avatarUrl: null, isVerified: false, bio: null, birthDate: null, gender: null, location: null, createdAt: '', friendCount: 1, postCount: 0 }
     socialMocks.getRelationProfiles.mockResolvedValue([friend])
@@ -100,7 +150,7 @@ describe('ContentActions refreshed overlays', () => {
     fireEvent.click(contactName.closest('button')!)
 
     await waitFor(() => expect(messengerMocks.createDirectConversation).toHaveBeenCalledWith('3', '1'))
-    expect(messengerMocks.sendMessage).toHaveBeenCalledWith('conversation-1', '1', { body: `${window.location.origin}/content/90` })
+    expect(messengerMocks.sendMessage).toHaveBeenCalledWith('conversation-1', expect.objectContaining({ id: '1' }), { body: `${window.location.origin}/content/90` })
     expect(await screen.findByText('sentInMessenger')).toBeInTheDocument()
   })
 

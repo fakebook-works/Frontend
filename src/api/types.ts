@@ -25,26 +25,47 @@ export interface UserProfile {
   postCount: number
 }
 
+export type MediaType = 'image' | 'video' | 'audio' | 'file'
+
 // Returned by the upload service after storing a file (Fakebook.UploadServer).
+// Messenger messages use the same projection and may include the optional
+// metadata snapshot returned by the messaging service.
 export interface MediaUpload {
   url: string
-  type: 'image' | 'video'
+  type: MediaType
+  mediaType?: MediaType
   contentType: string
   size: number
+  sizeBytes?: number
   name: string
+  originalName?: string
   assetId?: string
   state?: 'pending' | 'committed'
   expiresAt?: string | null
+  width?: number | null
+  height?: number | null
+  durationMs?: number | null
+  thumbnailUrl?: string | null
 }
 
 export interface MessengerMessageDto {
   id: string
   conversationId: string
+  sequence?: string
   sender: UserSummary
   body: string
+  replyToMessageId?: string | null
+  reactions?: MessengerMessageReactionDto[]
+  deleted?: boolean
   createdAt: string
   status: 'sending' | 'sent' | 'delivered' | 'read'
   attachments: MediaUpload[]
+}
+
+export interface MessengerMessageReactionDto {
+  userId: string
+  emoji: string
+  updatedAt: string
 }
 
 export interface MessengerParticipantDto extends UserSummary {

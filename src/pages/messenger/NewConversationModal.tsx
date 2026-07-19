@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import type { UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { useI18n } from '../../i18n'
+import { useFriendSearch } from '../../lib/useFriendSearch'
 
 interface NewConversationModalProps {
   friends: UserSummary[]
@@ -16,27 +17,20 @@ export function NewConversationModal({ friends, onStart, onCreateGroup, onClose 
   const [search, setSearch] = useState('')
   const [groupMode, setGroupMode] = useState(false)
   const [groupTitle, setGroupTitle] = useState('')
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selectedPeople, setSelectedPeople] = useState<Map<string, UserSummary>>(new Map())
+  const { people: visibleFriends, loading } = useFriendSearch(friends, search)
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return friends
-    return friends.filter(
-      (f) => f.displayName.toLowerCase().includes(q) || f.username.toLowerCase().includes(q),
-    )
-  }, [friends, search])
-
-  function togglePerson(id: string) {
-    setSelectedIds((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+  function togglePerson(person: UserSummary) {
+    setSelectedPeople((current) => {
+      const next = new Map(current)
+      if (next.has(person.id)) next.delete(person.id)
+      else next.set(person.id, person)
       return next
     })
   }
 
   function submitGroup() {
-    const people = friends.filter((friend) => selectedIds.has(friend.id))
+    const people = [...selectedPeople.values()]
     if (!onCreateGroup || groupTitle.trim().length < 1 || people.length < 2) return
     onCreateGroup(groupTitle.trim(), people)
   }
@@ -47,7 +41,8 @@ export function NewConversationModal({ friends, onStart, onCreateGroup, onClose 
         className="modal msg-new-modal"
         role="dialog"
         aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
+        aria-label={groupMode ? t('newGroupChat') : t('newMessage')}
+        onClick={(event) => event.stopPropagation()}
       >
         <header className="modal-head">
           <div>
@@ -66,7 +61,7 @@ export function NewConversationModal({ friends, onStart, onCreateGroup, onClose 
           <span>{t('groupChatName')}</span>
           <input
             value={groupTitle}
-            onChange={(e) => setGroupTitle(e.target.value)}
+            onChange={(event) => setGroupTitle(event.target.value)}
             placeholder={t('groupChatNamePlaceholder')}
           />
         </label>}
@@ -76,28 +71,37 @@ export function NewConversationModal({ friends, onStart, onCreateGroup, onClose 
           <input
             autoFocus={!groupMode}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(event) => setSearch(event.target.value)}
             placeholder={t('searchFriends')}
           />
         </label>
 
         <div className="msg-new-list">
-          {filtered.length === 0 ? (
+          {loading && visibleFriends.length === 0 ? (
+            <div className="messenger-loading"><span className="spinner" /></div>
+          ) : visibleFriends.length === 0 ? (
             <p className="muted small pad">{t('noFriendsFound')}</p>
-          ) : (
-            filtered.map((f) => (
-              <button type="button" key={f.id} className={`msg-new-row${selectedIds.has(f.id) ? ' selected' : ''}`} onClick={() => groupMode ? togglePerson(f.id) : onStart(f)}>
-                <Avatar name={f.displayName} src={f.avatarUrl} size={40} online />
-                <span className="msg-new-row-info">
-                  <strong>{f.displayName}</strong>
-                  <small>@{f.username}</small>
-                </span>
-                {groupMode && <span className="msg-new-check" aria-hidden="true">{selectedIds.has(f.id) ? '✓' : ''}</span>}
-              </button>
-            ))
-          )}
+          ) : visibleFriends.map((friend) => (
+            <button
+              type="button"
+              key={friend.id}
+              className={`msg-new-row${selectedPeople.has(friend.id) ? ' selected' : ''}`}
+              onClick={() => groupMode ? togglePerson(friend) : onStart(friend)}
+            >
+              <Avatar name={friend.displayName} src={friend.avatarUrl} size={42} online />
+              <span className="msg-new-row-info">
+                <strong>{friend.displayName}</strong>
+                <small>@{friend.username}</small>
+              </span>
+              {groupMode && <span className="msg-new-check" aria-hidden="true">{selectedPeople.has(friend.id) ? '✓' : ''}</span>}
+            </button>
+          ))}
         </div>
-        {groupMode && <footer className="modal-foot"><span className="muted small">{t('selectedPeople', { count: selectedIds.size })}</span><button type="button" className="btn-primary" disabled={groupTitle.trim().length < 1 || selectedIds.size < 2} onClick={submitGroup}>{t('startGroupChat')}</button></footer>}
+
+        {groupMode && <footer className="modal-foot">
+          <span className="muted small">{t('selectedPeople', { count: selectedPeople.size })}</span>
+          <button type="button" className="btn-primary" disabled={groupTitle.trim().length < 1 || selectedPeople.size < 2} onClick={submitGroup}>{t('startGroupChat')}</button>
+        </footer>}
       </div>
     </div>
   )

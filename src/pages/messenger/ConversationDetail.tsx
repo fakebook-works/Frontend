@@ -1,3 +1,4 @@
+import type { MessengerPresenceDto } from '../../api/messenger'
 import type { MessengerConversationDto, UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
@@ -8,11 +9,12 @@ import { useI18n } from '../../i18n'
 interface ConversationDetailProps {
   me: UserSummary
   conversation: MessengerConversationDto
+  presence?: MessengerPresenceDto
   onOpenProfile: (id: string) => void
   onLeave?: () => void
 }
 
-export function ConversationDetail({ me, conversation, onOpenProfile, onLeave }: ConversationDetailProps) {
+export function ConversationDetail({ me, conversation, presence, onOpenProfile, onLeave }: ConversationDetailProps) {
   const { t } = useI18n()
   const name = conversationName(conversation, me)
   const avatar = conversationAvatar(conversation, me)
@@ -20,7 +22,7 @@ export function ConversationDetail({ me, conversation, onOpenProfile, onLeave }:
 
   return (
     <aside className="messenger-detail" aria-label={t('conversationDetails')}>
-      <Avatar name={name} src={avatar} size={84} online />
+      <Avatar name={name} src={avatar} size={84} online={conversation.type === 'DIRECT' && Boolean(presence?.isOnline)} />
       <h2>{name}<VerifiedBadge verified={otherParticipant?.isVerified} /></h2>
       <p className="muted small">{conversation.type === 'GROUP' ? t('groupConversation') : t('fakebookFriend')}</p>
 

@@ -135,7 +135,7 @@ function normalizePost(post: GatewayPost): GatewayPost {
 
 export async function fastSearch(keyword: string): Promise<QuickSearchItem[]> {
   const normalized = keyword.trim()
-  if (normalized.length < 2) return []
+  if (normalized.length < 1) return []
   const data = await gatewayGraphQl<{ fastSearch: Array<
     | { __typename: 'UserSearchResult'; user: SearchUserGraphQl }
     | { __typename: 'GroupSearchResult'; group: SearchGroupGraphQl }
@@ -164,7 +164,7 @@ export async function fastSearch(keyword: string): Promise<QuickSearchItem[]> {
 export async function search(keyword: string, tab: SearchTab, page = 1, pageSize = 20): Promise<SearchPageResult> {
   const normalized = keyword.trim()
   const empty: SearchPageResult = { tab, page, hasNextPage: false, users: [], groups: [], posts: [], reels: [] }
-  if (normalized.length < 2) return empty
+  if (normalized.length < 1) return empty
 
   if (tab === 'people') {
     const data = await gatewayGraphQl<{ searchUsers: { items: Array<{ user: SearchUserGraphQl } | null>; pageInfo: PageInfo } }>(
@@ -244,6 +244,38 @@ export async function search(keyword: string, tab: SearchTab, page = 1, pageSize
   }
 }
 
+export async function searchDirectContacts(keyword: string, page = 1, pageSize = 20): Promise<SocialProfile[]> {
+  const normalized = keyword.trim()
+  if (normalized.length < 1) return []
+  const data = await gatewayGraphQl<{
+    searchDirectContacts: { items: Array<{ user: SearchUserGraphQl } | null> }
+  }>(
+    `query SearchDirectContacts($keyword: String!, $page: Int!, $size: Int!) {
+      searchDirectContacts(keyword: $keyword, pageNumber: $page, pageSize: $size) {
+        items { user { ${SEARCH_USER_FIELDS} } }
+      }
+    }`,
+    { keyword: normalized, page, size: pageSize },
+  )
+  return data.searchDirectContacts.items.flatMap((item) => item ? [userFromSearch(item.user)] : [])
+}
+
+export async function searchFriends(keyword: string, page = 1, pageSize = 20): Promise<SocialProfile[]> {
+  const normalized = keyword.trim()
+  if (normalized.length < 1) return []
+  const data = await gatewayGraphQl<{
+    searchFriends: { items: Array<{ user: SearchUserGraphQl } | null> }
+  }>(
+    `query SearchFriends($keyword: String!, $page: Int!, $size: Int!) {
+      searchFriends(keyword: $keyword, pageNumber: $page, pageSize: $size) {
+        items { user { ${SEARCH_USER_FIELDS} } }
+      }
+    }`,
+    { keyword: normalized, page, size: pageSize },
+  )
+  return data.searchFriends.items.flatMap((item) => item ? [userFromSearch(item.user)] : [])
+}
+
 export async function recordSearchResultView(referenceId: string): Promise<boolean> {
   const data = await gatewayGraphQl<{ recordSearchResultView: boolean }>(
     `mutation RecordSearchResultView($referenceId: ID!) { recordSearchResultView(referenceId: $referenceId) }`,
@@ -252,4 +284,4 @@ export async function recordSearchResultView(referenceId: string): Promise<boole
   return data.recordSearchResultView
 }
 
-export const searchApi = { fastSearch, search, recordSearchResultView }
+export const searchApi = { fastSearch, search, searchDirectContacts, searchFriends, recordSearchResultView }

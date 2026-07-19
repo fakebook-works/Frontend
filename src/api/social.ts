@@ -1,5 +1,5 @@
 import { gatewayGraphQl, graphQlLongLiteral } from './client'
-import type { GatewayMedia, GatewayPost } from './gatewayTypes'
+import type { GatewayMedia, GatewayMention, GatewayPost } from './gatewayTypes'
 import type { UserProfile, UserSummary } from './types'
 
 interface ProfileGraphQl {
@@ -27,6 +27,12 @@ export interface SocialProfile extends UserProfile {
   followingCount: number
 }
 
+export interface FriendSuggestion {
+  profile: SocialProfile
+  mutualFriendCount: number
+  mutualFriends: UserSummary[]
+}
+
 export interface SocialGroup {
   id: string
   avatarUrl: string | null
@@ -48,6 +54,7 @@ export interface SocialContent {
   authorId: string
   media: GatewayMedia[]
   author?: UserSummary | null
+  mentions?: GatewayMention[]
 }
 
 export interface SocialPhoto {
@@ -106,6 +113,7 @@ export interface SocialComment {
   likeCount: number
   replyCount: number
   viewerHasLiked: boolean
+  mentions?: GatewayMention[]
 }
 
 export type SavedContentItem =
@@ -134,16 +142,20 @@ const POST_FIELDS = `
   __typename
   ... on FeedPostDetail {
     id type content privacy create
+    mentions { userId name available }
+    taggedUsers { id name avatar isVerified }
     author { id name avatar isVerified canFollow }
     media { id type url }
     sharedSource {
       id isAvailable type content
+      mentions { userId name available }
       author { id name avatar isVerified }
       media { id type url }
     }
   }
   ... on GroupPostDetail {
     id type content privacy create
+    mentions { userId name available }
     author { id name avatar isVerified canFollow }
     group { id name avatar canJoin }
     media { id type url }
@@ -152,6 +164,7 @@ const POST_FIELDS = `
 const GROUP_POST_FIELDS = `
   __typename
   id type content privacy create
+  mentions { userId name available }
   author { id name avatar isVerified canFollow }
   group { id name avatar canJoin }
   media { id type url }
@@ -226,7 +239,16 @@ function contentFromGraphQl(value: Record<string, unknown>): SocialContent {
       id: String(item.id),
       type: Number(item.type),
     })),
+    mentions: normalizeMentionUsers(value.mentions),
   }
+}
+
+function normalizeMentionUsers(value: unknown): GatewayMention[] {
+  return ((value as Array<Record<string, unknown>> | undefined) ?? []).map((mention) => ({
+    userId: String(mention.userId),
+    name: String(mention.name ?? ''),
+    available: Boolean(mention.available),
+  }))
 }
 
 async function hydrateContentAuthors(items: SocialContent[]): Promise<SocialContent[]> {
@@ -241,12 +263,15 @@ function postFromGraphQl(post: GatewayPost): GatewayPost {
     id: String(post.id),
     author: { ...post.author, id: String(post.author.id) },
     media: post.media.map((media) => ({ ...media, id: String(media.id), type: Number(media.type) })),
+    mentions: normalizeMentionUsers(post.mentions),
+    taggedUsers: (post.taggedUsers ?? []).map((user) => ({ ...user, id: String(user.id) })),
     sharedSource: post.sharedSource ? {
       ...post.sharedSource,
       id: String(post.sharedSource.id),
       type: post.sharedSource.type == null ? null : Number(post.sharedSource.type),
       author: post.sharedSource.author ? { ...post.sharedSource.author, id: String(post.sharedSource.author.id) } : null,
       media: post.sharedSource.media.map((media) => ({ ...media, id: String(media.id), type: Number(media.type) })),
+      mentions: normalizeMentionUsers(post.sharedSource.mentions),
     } : null,
   }
   return post.__typename === 'GroupPostDetail'
@@ -399,36 +424,47 @@ export async function getGroupPhotoCandidates(groupId: string, limit = 60, curso
   return photoPageFromGraphQl(data.groupPhotoCandidates)
 }
 
-const RELATION_FIELDS = {
-  0: 'friends',
-  1: 'outgoingFriendRequests',
-  2: 'incomingFriendRequests',
-  3: 'following',
-  4: 'followers',
-  5: 'blockedUsers',
-} as const
-
-type RelationField = typeof RELATION_FIELDS[keyof typeof RELATION_FIELDS]
-
-async function getRelationIdPage(userId: string, field: RelationField, limit = 100, cursor: string | null = null): Promise<AssociationPage> {
+export async function getRelationProfiles(userId: string, associationType: number, limit = 60): Promise<SocialProfile[]> {
+  if (![0, 1, 2, 5].includes(associationType)) return []
   const id = graphQlLongLiteral(userId)
-  const data = await gatewayGraphQl<Record<string, AssociationPage>>(
-    `query RelationPage($limit: Int!, $cursor: String) {
-      ${field}(userId: ${id}, limit: $limit, cursor: $cursor) { items { id2 } nextCursor }
+  const data = await gatewayGraphQl<{ friendRelationProfiles: ProfileGraphQl[] }>(
+    `query FriendRelationProfiles($associationType: Short!, $limit: Int!) {
+      friendRelationProfiles(userId: ${id}, associationType: $associationType, limit: $limit) {
+        ${PROFILE_FIELDS}
+      }
     }`,
-    { limit, cursor },
+    { associationType, limit },
   )
-  return {
-    items: data[field].items.map((item) => ({ id2: String(item.id2) })),
-    nextCursor: data[field].nextCursor,
-  }
+  return data.friendRelationProfiles.map((profile) => profileFromGraphQl(profile))
 }
 
-export async function getRelationProfiles(userId: string, associationType: number, limit = 60): Promise<SocialProfile[]> {
-  const field = RELATION_FIELDS[associationType as keyof typeof RELATION_FIELDS]
-  if (!field) return []
-  const page = await getRelationIdPage(userId, field, limit)
-  return getProfiles(page.items.map((item) => item.id2))
+export async function getFriendSuggestions(userId: string, limit = 30): Promise<FriendSuggestion[]> {
+  const id = graphQlLongLiteral(userId)
+  const data = await gatewayGraphQl<{ friendSuggestions: Array<{
+    profile: ProfileGraphQl
+    mutualFriendCount: number
+    mutualFriends: Array<{ id: string; name: string; avatar: string; isVerified: boolean }>
+  }> }>(
+    `query FriendSuggestions($limit: Int!) {
+      friendSuggestions(userId: ${id}, limit: $limit) {
+        profile { ${PROFILE_FIELDS} }
+        mutualFriendCount
+        mutualFriends { id name avatar isVerified }
+      }
+    }`,
+    { limit },
+  )
+  return data.friendSuggestions.map((item) => ({
+    profile: profileFromGraphQl(item.profile),
+    mutualFriendCount: Number(item.mutualFriendCount),
+    mutualFriends: item.mutualFriends.map((friend) => ({
+      id: String(friend.id),
+      username: friend.name,
+      displayName: friend.name,
+      avatarUrl: friend.avatar || null,
+      isVerified: friend.isVerified,
+    })),
+  }))
 }
 
 export async function getProfileRelationshipState(viewerId: string, targetId: string): Promise<ProfileRelationshipState> {
@@ -582,10 +618,11 @@ export async function getComments(targetId: string, limit = 30, cursor: string |
     likeCount: number
     replyCount: number
     viewerHasLiked: boolean
+    mentions: Array<{ userId: string; name: string; available: boolean }>
   }>; endCursor: string | null; hasNextPage: boolean } }>(
     `query Comments($limit: Int!, $cursor: String) {
       comments(targetId: ${target}, limit: $limit, cursor: $cursor) {
-        items { id content create author { id name avatar isVerified } likeCount replyCount viewerHasLiked }
+        items { id content create author { id name avatar isVerified } likeCount replyCount viewerHasLiked mentions { userId name available } }
         endCursor hasNextPage
       }
     }`,
@@ -601,6 +638,7 @@ export async function getComments(targetId: string, limit = 30, cursor: string |
       likeCount: comment.likeCount,
       replyCount: comment.replyCount,
       viewerHasLiked: comment.viewerHasLiked,
+      mentions: normalizeMentionUsers(comment.mentions),
     })),
   }
 }
@@ -973,13 +1011,12 @@ export async function createReel(viewerId: string, input: { content: string; med
   return contentFromGraphQl(data.createReel)
 }
 
-export async function createGroupPost(viewerId: string, groupId: string, input: { content: string; media?: Array<{ type: number; url: string }>; mentionedUserIds?: string[] }): Promise<SocialContent> {
+export async function createGroupPost(viewerId: string, groupId: string, input: { content: string; media?: Array<{ type: number; url: string }> }): Promise<SocialContent> {
   const viewer = graphQlLongLiteral(viewerId)
   const group = graphQlLongLiteral(groupId)
-  const mentionedUserIds = [...new Set(input.mentionedUserIds ?? [])].map(graphQlLongLiteral).join(', ')
   const data = await gatewayGraphQl<{ createGroupPost: Record<string, unknown> }>(
     `mutation CreateGroupPost($content: String!, $media: [MediaInput!]) {
-      createGroupPost(input: { authorId: ${viewer}, groupId: ${group}, content: $content, media: $media, mentionedUserIds: [${mentionedUserIds}] }) { ${CONTENT_FIELDS} }
+      createGroupPost(input: { authorId: ${viewer}, groupId: ${group}, content: $content, media: $media }) { ${CONTENT_FIELDS} }
     }`,
     { content: input.content, media: input.media ?? null },
   )
@@ -1116,6 +1153,7 @@ export const socialApi = {
   getMyFeedPhotoCandidates,
   getGroupPhotoCandidates,
   getRelationProfiles,
+  getFriendSuggestions,
   getProfileRelationshipState,
   getMemberGroups,
   getAdminGroups,

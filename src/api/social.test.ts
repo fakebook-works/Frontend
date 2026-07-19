@@ -39,14 +39,36 @@ describe('SocialGraph Gateway adapter', () => {
     expect(gatewayGraphQl.mock.calls[0][0]).toContain('profiles(userIds: [9007199254740993123, 9007199254740993124])')
   })
 
-  it('uses viewer-scoped relationship roots instead of generic association access', async () => {
-    gatewayGraphQl.mockResolvedValueOnce({ incomingFriendRequests: { items: [{ id2: '2' }] } })
-    gatewayGraphQl.mockResolvedValueOnce({ profiles: [] })
+  it('loads viewer-owned friend relations and their profiles in one request', async () => {
+    gatewayGraphQl.mockResolvedValue({ friendRelationProfiles: [] })
 
     await socialApi.getRelationProfiles('1', 2)
 
-    expect(gatewayGraphQl.mock.calls[0][0]).toContain('incomingFriendRequests(userId: 1')
-    expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('relationIds')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('friendRelationProfiles(userId: 1')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ associationType: 2, limit: 60 })
+    expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
+  })
+
+  it('loads friend suggestions with mutual-friend summaries', async () => {
+    gatewayGraphQl.mockResolvedValue({ friendSuggestions: [{
+      profile: {
+        id: '3', avatar: '/candidate.png', background: '', name: 'Candidate', bio: '', gender: 0,
+        birthdate: '', location: '', privacy: 0, create: '2026-01-01', verify: '', isVerified: false,
+        friendCount: 2, followerCount: 4, followingCount: 1,
+      },
+      mutualFriendCount: 1,
+      mutualFriends: [{ id: '2', name: 'Mutual Friend', avatar: '/mutual.png', isVerified: true }],
+    }] })
+
+    const suggestions = await socialApi.getFriendSuggestions('1', 24)
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('friendSuggestions(userId: 1')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ limit: 24 })
+    expect(suggestions[0]).toMatchObject({
+      profile: { id: '3', displayName: 'Candidate' },
+      mutualFriendCount: 1,
+      mutualFriends: [{ id: '2', displayName: 'Mutual Friend' }],
+    })
   })
 
   it('hydrates Recommendation reel IDs through the composed reel field', async () => {

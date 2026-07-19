@@ -28,9 +28,50 @@ describe('Search Gateway adapter', () => {
     expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
   })
 
-  it('does not query the service for one-character input', async () => {
+  it('queries fast search from the first non-space character', async () => {
+    gatewayGraphQl.mockResolvedValue({ fastSearch: [] })
+
     expect(await searchApi.fastSearch('a')).toEqual([])
-    expect(gatewayGraphQl).not.toHaveBeenCalled()
+    expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 'a' })
+  })
+
+  it('runs full search from a one-character keyword', async () => {
+    gatewayGraphQl.mockResolvedValue({ searchUsers: { items: [], pageInfo: { hasNextPage: false } } })
+
+    const result = await searchApi.search(' a ', 'people')
+
+    expect(result).toMatchObject({ tab: 'people', users: [], page: 1 })
+    expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 'a', page: 1, size: 20 })
+  })
+
+  it('searches only direct Messenger contacts from the first character', async () => {
+    gatewayGraphQl.mockResolvedValue({ searchDirectContacts: { items: [{ user: {
+      id: '10', name: 'Contact User', avatar: '', bio: '', isVerified: false,
+      friendCount: 0, followerCount: 0, followingCount: 0, privacy: 0,
+    } }] } })
+
+    const result = await searchApi.searchDirectContacts(' c ')
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ id: '10', displayName: 'Contact User' })
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('searchDirectContacts')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 'c', page: 1, size: 20 })
+  })
+
+  it('searches only accepted friends from the first character', async () => {
+    gatewayGraphQl.mockResolvedValue({ searchFriends: { items: [{ user: {
+      id: '11', name: 'Friend User', avatar: '', bio: '', isVerified: true,
+      friendCount: 1, followerCount: 0, followingCount: 0, privacy: 0,
+    } }] } })
+
+    const result = await searchApi.searchFriends(' f ')
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ id: '11', displayName: 'Friend User', isVerified: true })
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('searchFriends')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 'f', page: 1, size: 20 })
   })
 
   it('records a trusted viewer opening a search result through the Gateway mutation', async () => {

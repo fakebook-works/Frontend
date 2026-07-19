@@ -23,7 +23,7 @@ export function EmojiButton({ onPick }: EmojiButtonProps) {
   return (
     <div className="msg-emoji-wrap" ref={ref}>
       <button type="button" className="icon-circle subtle" aria-label="Emoji" onClick={() => setOpen((o) => !o)}>
-        <Icon name="feeling" size={19} />
+        <Icon name="feeling" size={21} />
       </button>
       {open && (
         <div className="msg-emoji-picker">

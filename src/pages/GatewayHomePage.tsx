@@ -1,27 +1,46 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, visibleRecommendationPosts } from '../api/client'
-import type { GatewayPost, GatewayStory, StoryBucket, VisitedGroup } from '../api/gatewayTypes'
+import type { GatewayPost, GatewayStory, GatewayTaggedUser, StoryBucket, VisitedGroup } from '../api/gatewayTypes'
+import { messengerApi, type MessengerPresenceDto } from '../api/messenger'
+import { searchApi } from '../api/search'
 import { socialApi, type ContentEngagement, type SocialProfile } from '../api/social'
 import type { MediaUpload, UserProfile, UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { GroupPostAvatar } from '../components/GroupPostAvatar'
+import { HoverTooltip } from '../components/HoverTooltip'
 import { MentionSuggestions } from '../components/MentionSuggestions'
+import { MentionContent } from '../components/MentionContent'
+import { MentionDraftOverlay } from '../components/MentionDraftOverlay'
 import { Icon } from '../components/Icon'
 import { PostMediaGallery } from '../components/PostMediaGallery'
 import { PostOptionsMenu } from '../components/PostOptionsMenu'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
+import {
+  POST_BACKGROUND_PRESETS,
+  decodePostContent,
+  encodePostContent,
+  getPostBackgroundPreset,
+  type PostBackgroundId,
+} from '../lib/postContent'
 import { readDefaultPostPrivacy } from '../lib/privacy'
+import { formatPostTimestamp } from '../lib/postTime'
+import { decodeStoryContent } from '../lib/storyContent'
+import { useFriendSearch } from '../lib/useFriendSearch'
+import { applyMentionSelection, extractMentionUserIds, reconcileMentionEntities, serializeMentionContent, type MentionEntity } from '../lib/mentions'
+import { formatPresence } from './messenger/helpers'
 
 const FEED_PAGE_SIZE = 12
 const TagPeoplePicker = lazy(() => import('../components/TagPeoplePicker'))
 const ComposerMediaPreview = lazy(() => import('../components/ComposerMediaPreview'))
 const StoryCreatorModal = lazy(() => import('../components/StoryCreatorModal'))
+const StoryViewerPage = lazy(() => import('../components/StoryViewerPage').then((module) => ({ default: module.StoryViewerPage })))
 const ContentActions = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentActions })))
 
-function mediaType(type: 'image' | 'video') {
+function mediaType(type: MediaUpload['type']) {
+  if (type === 'audio') throw new Error('Audio is not supported in feed posts.')
   return type === 'video' ? 1 : 0
 }
 
@@ -41,10 +60,18 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
   const [groups, setGroups] = useState<VisitedGroup[]>([])
   const [groupsLoading, setGroupsLoading] = useState(true)
   const [groupsError, setGroupsError] = useState<string | null>(null)
-  const [contacts, setContacts] = useState<SocialProfile[]>([])
+  const [friends, setFriends] = useState<SocialProfile[]>([])
+  const [friendsLoading, setFriendsLoading] = useState(true)
+  const [contacts, setContacts] = useState<UserSummary[]>([])
+  const [contactResults, setContactResults] = useState<UserSummary[]>([])
   const [contactsLoading, setContactsLoading] = useState(true)
-  const [contactSearchOpen, setContactSearchOpen] = useState(false)
+  const [contactsSearching, setContactsSearching] = useState(false)
+  const [contactMode, setContactMode] = useState<'contacts' | 'contactSearch' | 'friendPicker'>('contacts')
   const [contactQuery, setContactQuery] = useState('')
+  const [contactActionError, setContactActionError] = useState<string | null>(null)
+  const [presenceByUserId, setPresenceByUserId] = useState<Record<string, MessengerPresenceDto>>({})
+  const [presenceNow, setPresenceNow] = useState(() => Date.now())
+  const contactSearchSequence = useRef(0)
   const locallyCreatedPostIds = useRef(new Set<string>())
 
   const loadFeed = useCallback(async (reset = false) => {
@@ -105,22 +132,121 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
   const loadContacts = useCallback(async () => {
     if (!user) return
     setContactsLoading(true)
-    try { setContacts(await socialApi.getRelationProfiles(user.userId, 0, 40)) } catch { setContacts([]) } finally { setContactsLoading(false) }
+    try {
+      const conversations = await messengerApi.directConversations(user.userId, 40)
+      const unique = new Map<string, UserSummary>()
+      for (const conversation of conversations) {
+        if (conversation.type !== 'DIRECT') continue
+        const contact = conversation.participants.find((participant) => participant.id !== user.userId && !participant.leftAt)
+        if (contact && !unique.has(contact.id)) unique.set(contact.id, contact)
+      }
+      setContacts([...unique.values()])
+    } catch {
+      setContacts([])
+    } finally {
+      setContactsLoading(false)
+    }
   }, [user])
+
+  const loadFriends = useCallback(async () => {
+    if (!user) return
+    setFriendsLoading(true)
+    try { setFriends(await socialApi.getRelationProfiles(user.userId, 0, 100)) } catch { setFriends([]) } finally { setFriendsLoading(false) }
+  }, [user])
+
+  const { people: friendPickerPeople, loading: friendsSearching } = useFriendSearch(
+    friends,
+    contactQuery,
+    contactMode === 'friendPicker',
+  )
 
   useEffect(() => {
     void loadFeed(true)
     void loadStories()
     void loadGroups()
     void loadContacts()
+    void loadFriends()
     // Initial load is tied to the authenticated identity; pagination invokes loadFeed directly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.userId])
 
-  const visibleContacts = useMemo(() => {
-    const query = contactQuery.trim().toLocaleLowerCase()
-    return query ? contacts.filter((contact) => contact.displayName.toLocaleLowerCase().includes(query)) : contacts
-  }, [contactQuery, contacts])
+  useEffect(() => {
+    const query = contactQuery.trim()
+    const requestId = ++contactSearchSequence.current
+    if (contactMode !== 'contactSearch' || !query) {
+      setContactResults([])
+      setContactsSearching(false)
+      return
+    }
+
+    const localQuery = query.toLocaleLowerCase()
+    setContactResults(contacts.filter((contact) => contact.displayName.toLocaleLowerCase().includes(localQuery)))
+    setContactsSearching(true)
+    const timeoutId = window.setTimeout(() => {
+      void searchApi.searchDirectContacts(query, 1, 20)
+        .then((results) => {
+          if (contactSearchSequence.current === requestId) setContactResults(results)
+        })
+        .catch(() => {
+          if (contactSearchSequence.current === requestId) setContactResults([])
+        })
+        .finally(() => {
+          if (contactSearchSequence.current === requestId) setContactsSearching(false)
+        })
+    }, 200)
+    return () => window.clearTimeout(timeoutId)
+  }, [contactMode, contactQuery, contacts])
+
+  const visibleContacts = contactQuery.trim() ? contactResults : contacts
+  const visibleContactPeople = contactMode === 'friendPicker' ? friendPickerPeople : visibleContacts
+  const presenceIds = useMemo(
+    () => [...new Set(visibleContactPeople.map((person) => person.id))].slice(0, 100),
+    [visibleContactPeople],
+  )
+  const presenceKey = presenceIds.join(',')
+
+  useEffect(() => {
+    if (presenceIds.length === 0) {
+      setPresenceByUserId({})
+      return
+    }
+    let active = true
+    const refresh = () => {
+      void messengerApi.presence(presenceIds)
+        .then((statuses) => {
+          if (active) setPresenceByUserId(Object.fromEntries(statuses.map((item) => [item.userId, item])))
+        })
+        .catch(() => undefined)
+    }
+    refresh()
+    const intervalId = window.setInterval(refresh, 30_000)
+    const unsubscribe = messengerApi.subscribePresence(presenceIds, (event) => {
+      if (!active || event.kind !== 'PRESENCE_CHANGED' || !event.userId) return
+      const isOnline = Boolean(event.expiresAt && new Date(event.expiresAt).getTime() > Date.now())
+      const occurredAt = event.occurredAt || new Date().toISOString()
+      setPresenceByUserId((current) => ({
+        ...current,
+        [event.userId!]: {
+          userId: event.userId!,
+          isOnline,
+          expiresAt: isOnline ? event.expiresAt : null,
+          updatedAt: isOnline ? occurredAt : current[event.userId!]?.updatedAt ?? occurredAt,
+        },
+      }))
+    })
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+      unsubscribe()
+    }
+    // A stable string prevents a new polling loop when only the array identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presenceKey])
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setPresenceNow(Date.now()), 30_000)
+    return () => window.clearInterval(intervalId)
+  }, [])
 
   if (!user) return null
 
@@ -131,6 +257,24 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
       onNavigate?.(`/groups/${group.id}`)
     } catch {
       setGroupsError(t('genericError'))
+    }
+  }
+
+  async function startContactConversation(person: UserSummary) {
+    if (!user) return
+    setContactActionError(null)
+    try {
+      if (onMessage) {
+        await onMessage(person.id)
+      } else {
+        const conversation = await messengerApi.createDirectConversation(person.id, user.userId)
+        onNavigate?.(`/messenger?conversation=${encodeURIComponent(conversation.id)}`)
+      }
+      setContactMode('contacts')
+      setContactQuery('')
+      await loadContacts()
+    } catch {
+      setContactActionError(t('messageActionError'))
     }
   }
 
@@ -171,7 +315,7 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
           displayName={profile?.displayName || user.email.split('@')[0]}
           avatarUrl={profile?.avatarUrl || null}
           isVerified={profile?.isVerified}
-          friends={contacts}
+          friends={friends}
           onCreated={(post) => {
             locallyCreatedPostIds.current.add(post.id)
             setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])
@@ -229,10 +373,24 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
       </div>
 
       <aside className="gateway-right-rail" aria-label={t('contacts')}>
-        <section className="right-rail-module contacts-module">
-          <header><h2>{t('contacts')}</h2><div><button type="button" aria-label={t('search')} onClick={() => setContactSearchOpen((open) => !open)}><Icon name="search" size={17} /></button><button type="button" aria-label={t('more')} onClick={() => onNavigate?.('/friends')}><Icon name="more" size={17} /></button></div></header>
-          {contactSearchOpen && <input className="contact-search" autoFocus value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} placeholder={t('searchFriends')} />}
-          {contactsLoading ? <span className="spinner" /> : visibleContacts.length === 0 ? <p>{contactQuery ? t('noFriendsFound') : t('noContactsYet')}</p> : <div className="contact-list">{visibleContacts.map((contact) => <button type="button" key={contact.id} onClick={() => onMessage ? void onMessage(contact.id) : onNavigate?.(`/profile/${contact.id}`)}><span className="contact-avatar"><Avatar name={contact.displayName} src={contact.avatarUrl} size={34} /></span><strong>{contact.displayName}<VerifiedBadge verified={contact.isVerified} size={12} /></strong></button>)}</div>}
+        <section className={`right-rail-module contacts-module${contactMode === 'friendPicker' ? ' friend-picker-mode' : ''}`}>
+          <header><h2>{t('contacts')}</h2><div><button type="button" className={contactMode === 'friendPicker' ? 'active' : ''} aria-label={t('newMessage')} aria-pressed={contactMode === 'friendPicker'} onClick={() => { setContactMode((mode) => mode === 'friendPicker' ? 'contacts' : 'friendPicker'); setContactQuery(''); setContactActionError(null) }}><Icon name="plus" size={18} /></button><button type="button" className={contactMode === 'contactSearch' ? 'active' : ''} aria-label={t('search')} aria-pressed={contactMode === 'contactSearch'} onClick={() => { setContactMode((mode) => mode === 'contactSearch' ? 'contacts' : 'contactSearch'); setContactQuery(''); setContactActionError(null) }}><Icon name="search" size={17} /></button><button type="button" aria-label={t('more')} onClick={() => onNavigate?.('/messenger')}><Icon name="more" size={17} /></button></div></header>
+          {contactMode !== 'contacts' && <label className="contact-search-wrap"><Icon name="search" size={16} /><input key={contactMode} className="contact-search" autoFocus value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} placeholder={contactMode === 'friendPicker' ? t('searchFriends') : t('searchContacts')} /></label>}
+          {contactActionError && <p className="form-error contact-action-error">{contactActionError}</p>}
+          {(contactMode === 'friendPicker'
+            ? friendsLoading || (contactQuery.trim().length > 0 && friendsSearching && visibleContactPeople.length === 0)
+            : contactsLoading || (contactMode === 'contactSearch' && contactQuery.trim().length > 0 && contactsSearching && visibleContactPeople.length === 0))
+            ? <span className="spinner" />
+            : visibleContactPeople.length === 0
+              ? <p>{contactMode === 'friendPicker' ? t('noFriendsFound') : contactQuery ? t('noContactsFound') : t('noContactsYet')}</p>
+              : <div className="contact-list">{visibleContactPeople.map((person) => {
+                const presence = presenceByUserId[person.id]
+                const online = Boolean(presence?.isOnline)
+                const statusLabel = contactMode === 'friendPicker'
+                  ? online ? t('activeNow') : t('friends')
+                  : presence ? formatPresence(presence, t, presenceNow) : null
+                return <button type="button" key={person.id} onClick={() => contactMode === 'friendPicker' ? void startContactConversation(person) : onMessage ? void onMessage(person.id) : onNavigate?.(`/profile/${person.id}`)}><span className="contact-avatar"><Avatar name={person.displayName} src={person.avatarUrl} size={36} online={online} /></span><span className="contact-copy"><strong>{person.displayName}<VerifiedBadge verified={person.isVerified} size={12} /></strong>{statusLabel && <small>{statusLabel}</small>}</span></button>
+              })}</div>}
         </section>
       </aside>
     </main>
@@ -263,19 +421,49 @@ function revokeFilePreviews(items: ComposerMediaFile[]) {
   })
 }
 
+type PostPrivacy = 0 | 1 | 2 | 3
+
+const POST_COMPOSER_EMOJIS = [
+  '😀', '😍', '😂', '🥰', '😎', '🤔', '😢', '😡',
+  '👍', '🎉', '❤️', '🔥', '🙏', '💯', '✨', '👏',
+]
+const POST_BACKGROUND_EDITOR_HEIGHT = 260
+
+function PostPrivacyIcon({ privacy, size = 14 }: { privacy: PostPrivacy; size?: number }) {
+  if (privacy === 0) {
+    return <svg className="home-post-public-icon" width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 17.93A8.02 8.02 0 0 1 4 12c0-.62.08-1.21.21-1.79L9 15v1a2 2 0 0 0 2 2v1.93zm6.9-2.54A2 2 0 0 0 16 16h-1v-3a1 1 0 0 0-1-1H8v-2h2a1 1 0 0 0 1-1V7h2a2 2 0 0 0 2-2v-.41A8 8 0 0 1 17.9 17.39z" />
+    </svg>
+  }
+  return <Icon className={`home-post-privacy-icon privacy-${privacy}`} name={privacy === 3 ? 'lock' : privacy === 1 ? 'friends' : 'user'} size={size} />
+}
+
+function PrivacyCaretIcon() {
+  return <svg className="home-post-privacy-caret" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M7.2 9.2h9.6c.75 0 1.15.88.64 1.44l-4.72 5.18c-.38.42-1.06.42-1.44 0l-4.72-5.18C6.05 10.08 6.45 9.2 7.2 9.2Z" />
+  </svg>
+}
+
 function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onCreated }: { userId: string; displayName: string; avatarUrl: string | null; isVerified?: boolean; friends: UserSummary[]; onCreated: (post: GatewayPost) => void }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [content, setContent] = useState('')
-  const [privacy, setPrivacy] = useState(() => readDefaultPostPrivacy(userId))
+  const [privacy, setPrivacy] = useState<PostPrivacy>(() => readDefaultPostPrivacy(userId))
+  const [backgroundId, setBackgroundId] = useState<PostBackgroundId | null>(null)
+  const [activePicker, setActivePicker] = useState<'privacy' | 'background' | 'emoji' | null>(null)
   const [selectedFiles, setSelectedFiles] = useState<ComposerMediaFile[]>([])
   const [fileKey, setFileKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [taggedPeople, setTaggedPeople] = useState<UserSummary[]>([])
-  const [mentionedPeople, setMentionedPeople] = useState<UserSummary[]>([])
+  const [mentionEntities, setMentionEntities] = useState<MentionEntity[]>([])
+  const [mentionCaret, setMentionCaret] = useState(0)
   const [tagPickerOpen, setTagPickerOpen] = useState(false)
   const selectedFilesRef = useRef<ComposerMediaFile[]>([])
+  const privacyPickerRef = useRef<HTMLDivElement>(null)
+  const backgroundPickerRef = useRef<HTMLDivElement>(null)
+  const emojiPickerRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const files = selectedFiles.map((item) => item.file)
 
   useEffect(() => {
@@ -283,6 +471,28 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
   }, [selectedFiles])
 
   useEffect(() => () => revokeFilePreviews(selectedFilesRef.current), [])
+
+  useEffect(() => {
+    if (!activePicker) return
+    function closePickerFromOutside(event: PointerEvent) {
+      const target = event.target as Node
+      const activeRef = activePicker === 'privacy'
+        ? privacyPickerRef
+        : activePicker === 'background'
+          ? backgroundPickerRef
+          : emojiPickerRef
+      if (!activeRef.current?.contains(target)) setActivePicker(null)
+    }
+    function closePickerFromEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setActivePicker(null)
+    }
+    document.addEventListener('pointerdown', closePickerFromOutside)
+    document.addEventListener('keydown', closePickerFromEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closePickerFromOutside)
+      document.removeEventListener('keydown', closePickerFromEscape)
+    }
+  }, [activePicker])
 
   const taggedSummary = taggedPeople.length === 0
     ? null
@@ -292,6 +502,59 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
           people: taggedPeople.slice(0, 3).map((person) => person.displayName).join(', '),
           count: taggedPeople.length - 3,
         })
+  const privacyOptions: Array<{ value: PostPrivacy; label: string }> = [
+    { value: 0, label: t('privacyPublic') },
+    { value: 1, label: t('privacyFriendsFollowers') },
+    { value: 2, label: t('privacyFriends') },
+    { value: 3, label: t('privacyOnlyMe') },
+  ]
+  const privacyLabel = privacyOptions.find((option) => option.value === privacy)?.label ?? t('privacyPublic')
+  const selectedBackground = selectedFiles.length === 0 ? getPostBackgroundPreset(backgroundId) : null
+  const composerPlaceholder = t('postComposerPersonalPlaceholder', { name: displayName })
+  const postEditorClass = selectedBackground
+    ? 'mention-compose-field home-post-editor has-background'
+    : selectedFiles.length > 0
+      ? 'mention-compose-field home-post-editor has-media'
+      : 'mention-compose-field home-post-editor'
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    const textareaElement: HTMLTextAreaElement = textarea
+    if (!selectedBackground) {
+      textareaElement.style.removeProperty('--home-post-background-padding')
+      return
+    }
+
+    function centerBackgroundText() {
+      const editorHeight = textareaElement.clientHeight || POST_BACKGROUND_EDITOR_HEIGHT
+      const computedStyle = window.getComputedStyle(textareaElement)
+      const fontSize = Number.parseFloat(computedStyle.fontSize) || 27.2
+      const rawLineHeight = Number.parseFloat(computedStyle.lineHeight)
+      const lineHeight = Number.isFinite(rawLineHeight)
+        ? rawLineHeight <= 4 ? rawLineHeight * fontSize : rawLineHeight
+        : fontSize * 1.28
+      const previousHeight = textareaElement.style.height
+      const previousMinHeight = textareaElement.style.minHeight
+      const previousPaddingTop = textareaElement.style.paddingTop
+      const previousPaddingBottom = textareaElement.style.paddingBottom
+      textareaElement.style.height = '0px'
+      textareaElement.style.minHeight = '0px'
+      textareaElement.style.paddingTop = '0px'
+      textareaElement.style.paddingBottom = '0px'
+      const contentHeight = Math.max(lineHeight, textareaElement.scrollHeight)
+      textareaElement.style.height = previousHeight
+      textareaElement.style.minHeight = previousMinHeight
+      textareaElement.style.paddingTop = previousPaddingTop
+      textareaElement.style.paddingBottom = previousPaddingBottom
+      const verticalPadding = Math.max(16, Math.floor((editorHeight - Math.min(contentHeight, editorHeight - 32)) / 2))
+      textareaElement.style.setProperty('--home-post-background-padding', `${verticalPadding}px`)
+    }
+
+    centerBackgroundText()
+    window.addEventListener('resize', centerBackgroundText)
+    return () => window.removeEventListener('resize', centerBackgroundText)
+  }, [content, selectedBackground])
 
   function showComposer() {
     setMessage(null)
@@ -308,16 +571,21 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
     if (busy) return
     setOpen(false)
     setTagPickerOpen(false)
+    setActivePicker(null)
     setContent('')
+    setBackgroundId(null)
     clearFiles()
     setTaggedPeople([])
-    setMentionedPeople([])
+    setMentionEntities([])
+    setMentionCaret(0)
     setMessage(null)
   }
 
   function selectFiles(fileList: FileList | null, mode: 'append' | 'replace' = 'replace') {
     const incoming = Array.from(fileList ?? [])
     if (incoming.length === 0) return
+    setBackgroundId(null)
+    setActivePicker(null)
     if (mode === 'replace') {
       const seen = new Set<string>()
       const nextFiles = incoming
@@ -355,6 +623,50 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
       : [...current, person])
   }
 
+  function choosePrivacy(value: PostPrivacy) {
+    setPrivacy(value)
+    setActivePicker(null)
+  }
+
+  function insertEmoji(emoji: string) {
+    const textarea = textareaRef.current
+    const start = textarea?.selectionStart ?? content.length
+    const end = textarea?.selectionEnd ?? start
+    const nextContent = `${content.slice(0, start)}${emoji}${content.slice(end)}`
+    const nextCursor = start + emoji.length
+    setMentionEntities((current) => reconcileMentionEntities(content, nextContent, current))
+    setContent(nextContent)
+    setMentionCaret(nextCursor)
+    window.setTimeout(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor)
+    }, 0)
+  }
+
+  function changeMentionContent(nextContent: string, caret: number) {
+    setMentionEntities((current) => reconcileMentionEntities(content, nextContent, current))
+    setContent(nextContent)
+    setMentionCaret(caret)
+  }
+
+  function selectMention(person: UserSummary, mention: Parameters<typeof applyMentionSelection>[1]) {
+    const selected = applyMentionSelection(content, mention, person)
+    setMentionEntities((current) => [
+      ...reconcileMentionEntities(content, selected.text, current).filter((entity) => entity.userId !== person.id || entity.start !== selected.entity.start),
+      selected.entity,
+    ])
+    setContent(selected.text)
+    setMentionCaret(selected.caret)
+    window.setTimeout(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(selected.caret, selected.caret)
+    }, 0)
+  }
+
+  function renderEmojiPicker(inline = false) {
+    return <div className={inline ? 'home-post-emoji-picker inline' : 'home-post-emoji-picker'} ref={emojiPickerRef}><button type="button" disabled={busy} aria-label={t('insertEmoji')} title={t('insertEmoji')} aria-expanded={activePicker === 'emoji'} onClick={() => setActivePicker((current) => current === 'emoji' ? null : 'emoji')}><Icon name="feeling" size={25} /></button>{activePicker === 'emoji' && <div className="home-post-emoji-menu" role="menu" aria-label={t('insertEmoji')}>{POST_COMPOSER_EMOJIS.map((emoji) => <button key={emoji} type="button" role="menuitem" aria-label={emoji} onClick={() => insertEmoji(emoji)}>{emoji}</button>)}</div>}</div>
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault()
     if (!content.trim() && files.length === 0) return setMessage(t('composeNeedContent'))
@@ -364,22 +676,32 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
     let persisted = false
     try {
       uploaded = files.length > 0 ? await api.uploadMediaFiles(files) : []
-      const taggedIds = new Set(taggedPeople.map((person) => person.id))
-      const activeMentions = mentionedPeople.filter((person) => content.includes(`@${person.displayName}`) && !taggedIds.has(person.id))
+      const serializedContent = serializeMentionContent(content, mentionEntities)
+      const persistedContent = encodePostContent(serializedContent, files.length === 0 ? backgroundId : null)
+      const mentionById = new Map(mentionEntities.map((mention) => [mention.userId, mention]))
+      const optimisticMentions = extractMentionUserIds(serializedContent).flatMap((userId) => {
+        const mention = mentionById.get(userId)
+        return mention ? [{ userId, name: mention.displayName, available: true }] : []
+      })
+      const optimisticTaggedUsers: GatewayTaggedUser[] = taggedPeople.map((person) => ({
+        id: person.id,
+        name: person.displayName,
+        avatar: person.avatarUrl ?? '',
+        isVerified: Boolean(person.isVerified),
+      }))
       const created = await api.createFeedPost({
         authorId: userId,
-        content: content.trim(),
+        content: persistedContent,
         privacy,
         media: uploaded.map((item) => ({ type: mediaType(item.type), url: item.url })),
         ...(taggedPeople.length > 0 ? { taggedUserIds: taggedPeople.map((person) => person.id) } : {}),
-        ...(activeMentions.length > 0 ? { mentionedUserIds: activeMentions.map((person) => person.id) } : {}),
       })
       persisted = true
       const optimisticPost: GatewayPost = {
         __typename: 'FeedPostDetail',
         id: created.id,
         type: created.type ?? 1,
-        content: created.content ?? content.trim(),
+        content: created.content ?? persistedContent,
         privacy: created.privacy ?? privacy,
         create: created.create ?? new Date().toISOString(),
         author: {
@@ -394,6 +716,8 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
           type: mediaType(item.type),
           url: item.url,
         })),
+        mentions: optimisticMentions,
+        taggedUsers: optimisticTaggedUsers,
         sharedSource: null,
       }
       let hydrated: GatewayPost | null = null
@@ -403,12 +727,31 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
         // The write already succeeded. A slow read replica or detail projection must not
         // turn a published post into a false failure (and invite duplicate retries).
       }
-      onCreated(hydrated ?? optimisticPost)
+      if (hydrated) {
+        const hydratedMentionIds = new Set((hydrated.mentions ?? []).map((mention) => mention.userId))
+        const hydratedTaggedIds = new Set((hydrated.taggedUsers ?? []).map((person) => person.id))
+        onCreated({
+          ...hydrated,
+          mentions: [
+            ...(hydrated.mentions ?? []),
+            ...optimisticMentions.filter((mention) => !hydratedMentionIds.has(mention.userId)),
+          ],
+          taggedUsers: [
+            ...(hydrated.taggedUsers ?? []),
+            ...optimisticTaggedUsers.filter((person) => !hydratedTaggedIds.has(person.id)),
+          ],
+        })
+      } else {
+        onCreated(optimisticPost)
+      }
       setContent('')
+      setBackgroundId(null)
       clearFiles()
       setTaggedPeople([])
-      setMentionedPeople([])
+      setMentionEntities([])
+      setMentionCaret(0)
       setTagPickerOpen(false)
+      setActivePicker(null)
       setOpen(false)
       setMessage(null)
     } catch {
@@ -434,16 +777,20 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
     </section>
 
     {open && <div className="modal-backdrop home-composer-backdrop" role="presentation" onClick={closeComposer}>
-      <form className="modal home-post-modal" role="dialog" aria-modal="true" aria-label={t('createPost')} onSubmit={submit} onClick={(event) => event.stopPropagation()}>
+      <form className={selectedFiles.length > 0 ? 'modal home-post-modal has-media' : 'modal home-post-modal'} role="dialog" aria-modal="true" aria-label={t('createPost')} onSubmit={submit} onClick={(event) => event.stopPropagation()}>
         <header className="modal-head home-post-modal-head"><h2>{t('createPost')}</h2><button type="button" className="icon-circle" aria-label={t('close')} onClick={closeComposer}><Icon name="close" /></button></header>
         <div className={selectedFiles.length > 0 ? 'home-post-modal-body has-media' : 'home-post-modal-body'}>
           <div className="home-post-author">
-            <Avatar name={displayName} src={avatarUrl} size={42} />
-            <div><strong className="home-post-author-name"><span>{displayName}<VerifiedBadge verified={isVerified} size={14} /></span>{taggedSummary && <span className="home-tagged-summary"> {taggedSummary}</span>}</strong><select value={privacy} onChange={(event) => setPrivacy(Number(event.target.value) as 0 | 1 | 2 | 3)} aria-label={t('privacy')}><option value={0}>{t('privacyPublic')}</option><option value={1}>{t('privacyFriendsFollowers')}</option><option value={2}>{t('privacyFriends')}</option><option value={3}>{t('privacyOnlyMe')}</option></select></div>
+            <Avatar name={displayName} src={avatarUrl} size={36} />
+            <div><div className="home-post-author-name"><strong>{displayName}<VerifiedBadge verified={isVerified} size={13} /></strong>{taggedSummary && <span className="home-tagged-summary"> {taggedSummary}</span>}</div><div className="home-post-privacy-picker" ref={privacyPickerRef}><button type="button" className="home-post-privacy-control" aria-label={t('privacy')} aria-haspopup="listbox" aria-expanded={activePicker === 'privacy'} onClick={() => setActivePicker((current) => current === 'privacy' ? null : 'privacy')}><PostPrivacyIcon privacy={privacy} size={14} /><span>{privacyLabel}</span><PrivacyCaretIcon /></button>{activePicker === 'privacy' && <div className="home-post-privacy-menu" role="listbox" aria-label={t('privacy')}>{privacyOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => choosePrivacy(option.value)}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span>{privacy === option.value && <b aria-hidden="true">✓</b>}</button>)}</div>}</div></div>
           </div>
-          <div className="mention-compose-field home-post-editor"><textarea autoFocus value={content} onChange={(event) => setContent(event.target.value)} placeholder={t('postComposerPlaceholder')} rows={selectedFiles.length > 0 ? 2 : 7} /><MentionSuggestions text={content} people={friends} onTextChange={setContent} onSelected={(person) => setMentionedPeople((current) => current.some((item) => item.id === person.id) ? current : [...current, person])} /></div>
-          {selectedFiles.length > 0 && <Suspense fallback={<div className="home-media-preview home-media-preview-loading"><span className="spinner" /></div>}><ComposerMediaPreview items={selectedFiles} fileKey={fileKey} busy={busy} onReplace={(fileList) => selectFiles(fileList, 'replace')} onClear={clearFiles} /></Suspense>}
-          <div className="home-add-to-post"><strong>{t('addToPost')}</strong><div className="home-add-to-post-actions"><label aria-label={t('photoVideo')} title={t('photoVideo')}><Icon name="photo" size={25} /><input key={`modal-${fileKey}`} disabled={busy} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files, 'append')} /></label><button type="button" disabled={busy} aria-label={t('tagPeople')} title={t('tagPeople')} onClick={() => setTagPickerOpen(true)}><Icon name="friends" size={25} /></button></div></div>
+          <div className={postEditorClass} data-replicated-value={selectedFiles.length > 0 ? content || composerPlaceholder : undefined} style={selectedBackground ? { background: selectedBackground.background } : undefined}><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} autoFocus value={content} onChange={(event) => changeMentionContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onSelect={(event) => setMentionCaret(event.currentTarget.selectionStart ?? content.length)} placeholder={composerPlaceholder} rows={selectedFiles.length > 0 ? 1 : 6} /><MentionSuggestions text={content} people={friends} textareaRef={textareaRef} caretIndex={mentionCaret} onSelected={selectMention} />{selectedFiles.length > 0 && renderEmojiPicker(true)}</div>
+          {selectedFiles.length > 0 && <div className="home-media-preview-viewport" key={`media-scroll-${fileKey}`}><div className="home-media-preview-scroll"><Suspense fallback={<div className="home-media-preview home-media-preview-loading"><span className="spinner" /></div>}><ComposerMediaPreview items={selectedFiles} fileKey={fileKey} busy={busy} onReplace={(fileList) => selectFiles(fileList, 'replace')} onClear={clearFiles} showClear={false} /></Suspense></div><button type="button" className="home-media-preview-fixed-clear" disabled={busy} aria-label={t('removeMedia')} title={t('removeMedia')} onClick={clearFiles}><Icon name="close" size={18} /></button></div>}
+          {selectedFiles.length === 0 && <div className="home-post-style-row">
+            <div className="home-post-background-picker" ref={backgroundPickerRef}><button type="button" className={selectedBackground ? 'home-post-background-toggle selected' : 'home-post-background-toggle'} style={selectedBackground ? { background: selectedBackground.background } : undefined} disabled={busy || selectedFiles.length > 0} aria-label={t('postBackground')} aria-expanded={activePicker === 'background'} onClick={() => setActivePicker((current) => current === 'background' ? null : 'background')}>{activePicker === 'background' ? <svg className="home-post-background-back-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg> : <span>Aa</span>}</button>{activePicker === 'background' && <div className="home-post-background-options"><button type="button" className={backgroundId === null ? 'none selected' : 'none'} aria-label={t('removePostBackground')} onClick={() => setBackgroundId(null)}><span aria-hidden="true">×</span></button>{POST_BACKGROUND_PRESETS.map((preset, index) => <button key={preset.id} type="button" className={backgroundId === preset.id ? 'selected' : ''} style={{ background: preset.background }} aria-label={`${t('postBackground')} ${index + 1}`} onClick={() => setBackgroundId(preset.id)} />)}</div>}</div>
+            {renderEmojiPicker()}
+          </div>}
+          <div className="home-add-to-post"><strong>{t('addToPost')}</strong><div className="home-add-to-post-actions"><label aria-label={t('photoVideo')} title={t('photoVideo')}><Icon name="photo" size={25} /><input key={`modal-${fileKey}`} disabled={busy} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files, 'append')} /></label><button type="button" disabled={busy} aria-label={t('tagPeople')} title={t('tagPeople')} onClick={() => { setActivePicker(null); setTagPickerOpen(true) }}><Icon name="friends" size={25} /></button></div></div>
           {message && <p className="form-error">{message}</p>}
           <button type="submit" className="btn-primary home-post-submit" disabled={busy || (!content.trim() && files.length === 0)}>{busy ? t('posting') : t('post')}</button>
         </div>
@@ -472,17 +819,15 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
     setSelectedBucket(bucket)
   }
 
-  async function deleteLatest(bucket: StoryBucket) {
-    const story = bucket.stories[0]
-    if (!story) return
-    setMessage(null)
-    try {
-      await api.deleteStory(userId, story.id)
-      setMessage(t('storyDeleted'))
-      await onReload()
-    } catch {
-      setMessage(t('genericError'))
-    }
+  async function handleViewerStoryDeleted() {
+    setSelectedBucket(null)
+    setMessage(t('storyDeleted'))
+    await onReload()
+  }
+
+  async function handleViewerRelationshipRemoved() {
+    setSelectedBucket(null)
+    await onReload()
   }
 
   return <section className="card gateway-stories home-story-section" aria-label={t('stories')}>
@@ -499,28 +844,42 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
       {!loading && orderedBuckets.map((bucket) => {
         const latest = bucket.stories[0]
         const preview = latest?.__typename === 'NormalStory' ? latest.media[0]?.url : latest?.sharedSource.media?.url
+        const decodedContent = decodeStoryContent(latest?.content)
         const own = bucket.author.id === userId
         const unseen = Boolean(latest) && bucket.hasUnseen && !locallyWatchedStoryIds.has(latest.id)
         return <article className={`story-tile ${unseen ? 'story-unseen' : 'story-seen'}${own ? ' own-story-tile' : ''}`} key={bucket.author.id}>
           <button type="button" className="story-open" onClick={() => openBucket(bucket)}>
-            {preview ? <img className="story-cover" src={preview} alt="" loading="lazy" /> : <span className="story-text-preview">{latest?.content || t('stories')}</span>}
-            <span className={`story-avatar-ring${unseen ? ' unseen' : ''}`}><Avatar name={bucket.author.name} src={bucket.author.avatar || null} size={36} /></span>
+            {preview
+              ? <>
+                <span className="story-cover-backdrop" style={{ backgroundImage: `url(${JSON.stringify(preview)})` }} aria-hidden="true" />
+                <img className="story-cover" src={preview} alt="" loading="lazy" />
+              </>
+              : <span className="story-text-preview" style={{ backgroundColor: decodedContent.backgroundColor }}>{decodedContent.text || t('stories')}</span>}
+            <span className={`story-avatar-ring${unseen ? ' unseen' : ''}`}><Avatar name={bucket.author.name} src={bucket.author.avatar || null} size={32} /></span>
             <strong>{own ? t('yourStory') : bucket.author.name}<VerifiedBadge verified={bucket.author.isVerified} size={12} /></strong>
           </button>
-          {own && latest && <button type="button" className="story-delete-mini" aria-label={t('deleteStory')} title={t('deleteStory')} onClick={() => void deleteLatest(bucket)}><Icon name="trash" size={14} /></button>}
         </article>
       })}
       {!loading && orderedBuckets.length === 0 && <article className="story-tile story-empty-tile"><Icon name="clock" size={28} /><span>{t('noStories')}</span></article>}
     </div>
     {(message || error) && !creatorOpen && <p className={message === t('storyDeleted') ? 'form-success story-section-message' : 'form-error story-section-message'}>{message || error}</p>}
 
-    {creatorOpen && <Suspense fallback={<div className="story-creator-backdrop"><span className="spinner" /></div>}><StoryCreatorModal
+    {creatorOpen && <Suspense fallback={<div className="modal-backdrop story-creator-loading-backdrop" role="presentation"><span className="spinner" /></div>}><StoryCreatorModal
       open
       authorId={userId}
       onClose={() => setCreatorOpen(false)}
       onCreated={(story) => onStoryCreated(story)}
     /></Suspense>}
-    {selectedBucket && <StoryViewerModal bucket={selectedBucket} viewerId={userId} onClose={() => setSelectedBucket(null)} onNavigate={onNavigate} onViewed={markStoryWatched} />}
+    {selectedBucket && <Suspense fallback={<div className="story-viewer-backdrop"><span className="spinner" /></div>}><StoryViewerPage
+      buckets={orderedBuckets}
+      initialBucketId={selectedBucket.author.id}
+      viewerId={userId}
+      onClose={() => setSelectedBucket(null)}
+      onNavigate={onNavigate}
+      onViewed={markStoryWatched}
+      onStoryDeleted={handleViewerStoryDeleted}
+      onRelationshipRemoved={handleViewerRelationshipRemoved}
+    /></Suspense>}
   </section>
 }
 
@@ -528,7 +887,7 @@ function storyMedia(story: GatewayStory) {
   return story.__typename === 'NormalStory' ? story.media[0] ?? null : story.sharedSource.media
 }
 
-function StoryViewerModal({ bucket, viewerId, onClose, onNavigate, onViewed }: { bucket: StoryBucket; viewerId: string; onClose: () => void; onNavigate?: (path: string) => void; onViewed?: (storyId: string) => void }) {
+export function LegacyStoryViewerModal({ bucket, viewerId, onClose, onNavigate, onViewed }: { bucket: StoryBucket; viewerId: string; onClose: () => void; onNavigate?: (path: string) => void; onViewed?: (storyId: string) => void }) {
   const { t, locale } = useI18n()
   const [index, setIndex] = useState(0)
   const [engagement, setEngagement] = useState<ContentEngagement | null>(null)
@@ -575,6 +934,22 @@ function StoryViewerModal({ bucket, viewerId, onClose, onNavigate, onViewed }: {
   return <div className="story-viewer-backdrop" role="presentation" onClick={onClose}><section className="story-viewer" role="dialog" aria-modal="true" aria-label={t('stories')} onClick={(event) => event.stopPropagation()}><header><button type="button" className="story-owner" onClick={() => onNavigate?.(`/profile/${bucket.author.id}`)}><Avatar name={bucket.author.name} src={bucket.author.avatar || null} size={42} /><span><strong>{bucket.author.name}<VerifiedBadge verified={bucket.author.isVerified} /></strong><small>{time}</small></span></button><button type="button" className="icon-circle" onClick={onClose}><Icon name="close" /></button></header><div className="story-progress">{bucket.stories.map((item, itemIndex) => <button type="button" key={item.id} className={itemIndex === index ? 'active' : itemIndex < index ? 'seen' : ''} onClick={() => setIndex(itemIndex)} aria-label={`${t('stories')} ${itemIndex + 1}`} />)}</div><div className="story-stage">{media ? media.type === 1 ? <video src={media.url} controls autoPlay preload="metadata" /> : <img src={media.url} alt="" /> : <div className="story-text-only"><p>{story.content}</p></div>}{story.content && media && <p className="story-caption">{story.content}</p>}{index > 0 && <button type="button" className="story-nav previous" onClick={() => setIndex((value) => value - 1)}>‹</button>}{index < bucket.stories.length - 1 && <button type="button" className="story-nav next" onClick={() => setIndex((value) => value + 1)}>›</button>}</div><footer>{isOwner ? <button type="button" className="btn-soft" onClick={() => setPanelOpen((open) => !open)}><Icon name="friends" size={17} />{t('storyViewersCount', { count: viewers.length })}</button> : <button type="button" className={engagement?.viewerHasLiked ? 'story-like active' : 'story-like'} disabled={busy} onClick={() => void toggleLike()}><Icon name="like" />{engagement?.viewerHasLiked ? t('liked') : t('like')} {engagement?.likeCount ? engagement.likeCount : ''}</button>}</footer>{isOwner && panelOpen && <aside className="story-viewer-panel"><h3>{t('storyViewers')}</h3>{viewers.length === 0 ? <p>{t('storyNoViewers')}</p> : viewers.map((person) => <button type="button" key={person.id} onClick={() => onNavigate?.(`/profile/${person.id}`)}><Avatar name={person.displayName} src={person.avatarUrl} size={36} /><span><strong>{person.displayName}<VerifiedBadge verified={person.isVerified} /></strong><small>{likedUsers.some((liked) => liked.id === person.id) ? t('likedStory') : t('viewedStory')}</small></span></button>)}</aside>}</section></div>
 }
 
+function TaggedUsersInline({ users, onNavigate }: { users: GatewayTaggedUser[]; onNavigate?: (path: string) => void }) {
+  const { t } = useI18n()
+  if (users.length === 0) return null
+
+  const shown = users.slice(0, 2)
+  const remaining = users.length - shown.length
+  return <span className="post-tagged-users">
+    <span>{t('taggedWithPrefix')} </span>
+    {shown.map((user, index) => <span key={user.id}>
+      {index > 0 && (users.length === 2 ? ` ${t('taggedAnd')} ` : ', ')}
+      <button type="button" onClick={() => onNavigate?.(`/profile/${user.id}`)}>{user.name}<VerifiedBadge verified={user.isVerified} size={12} /></button>
+    </span>)}
+    {remaining > 0 && <span> {t('taggedAnd')} {t('taggedOthers', { count: remaining })}</span>}
+  </span>
+}
+
 export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage, authorPath }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; authorPath?: (authorId: string) => string }) {
   const { t } = useI18n()
   const [current, setCurrent] = useState(post)
@@ -584,14 +959,18 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
   const [relationshipError, setRelationshipError] = useState<string | null>(null)
   useEffect(() => setCurrent(post), [post])
   if (removed) return null
-  const created = new Date(current.create)
-  const time = Number.isNaN(created.getTime()) ? current.create : new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(created)
+  const timestamp = formatPostTimestamp(current.create, locale)
   const owned = viewerId != null && viewerId === current.author.id
   const openAuthor = () => onNavigate?.(authorPath?.(current.author.id) ?? `/profile/${current.author.id}`)
   const canFollow = current.__typename === 'FeedPostDetail' && !owned && Boolean(current.author.canFollow)
   const canJoin = current.__typename === 'GroupPostDetail' && Boolean(current.group.canJoin)
-  const privacyLabel = current.privacy === 0 ? t('privacyPublic') : current.privacy === 1 ? t('privacyFriendsFollowers') : current.privacy === 2 ? t('privacyFriends') : t('privacyOnlyMe')
-  const privacyIcon = current.privacy === 0 ? 'globe' : current.privacy === 3 ? 'lock' : 'friends'
+  const postPrivacy: PostPrivacy = current.privacy === 1 || current.privacy === 2 || current.privacy === 3 ? current.privacy : 0
+  const privacyLabel = postPrivacy === 0 ? t('privacyPublic') : postPrivacy === 1 ? t('privacyFriendsFollowers') : postPrivacy === 2 ? t('privacyFriends') : t('privacyOnlyMe')
+  const taggedUsers = current.__typename === 'FeedPostDetail'
+    ? (current.taggedUsers ?? []).filter((person) => person.id !== current.author.id)
+    : []
+  const decodedContent = decodePostContent(current.content)
+  const postBackground = current.media.length === 0 ? getPostBackgroundPreset(decodedContent.backgroundId) : null
 
   async function followAuthor() {
     if (!viewerId || current.__typename !== 'FeedPostDetail') return
@@ -628,21 +1007,24 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
         <div className="post-head-copy">
           <div className="post-head-primary">
             {current.__typename === 'GroupPostDetail' ? <button type="button" className="post-group-link" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><strong>{current.group.name}</strong></button> : <button type="button" className="post-author-name" onClick={openAuthor}><strong>{current.author.name}<VerifiedBadge verified={current.author.isVerified} /></strong></button>}
+            <TaggedUsersInline users={taggedUsers} onNavigate={onNavigate} />
             {canFollow && <button type="button" className="post-inline-action" disabled={relationshipBusy} onClick={() => void followAuthor()}>{t('follow')}</button>}
             {canJoin && <button type="button" className="post-inline-action" disabled={relationshipBusy} onClick={() => void joinGroup()}>{t('joinGroup')}</button>}
           </div>
           <span className="post-head-meta">
             {current.__typename === 'GroupPostDetail' && <><button type="button" className="post-meta-author" onClick={openAuthor}>{current.author.name}<VerifiedBadge verified={current.author.isVerified} size={12} /></button><i>·</i></>}
-            <time dateTime={current.create}>{time}</time><i>·</i><span title={privacyLabel}><Icon name={privacyIcon} size={12} /></span>
+            <HoverTooltip label={timestamp.detail} className="post-meta-hover post-time-hover"><time dateTime={current.create}>{timestamp.display}</time></HoverTooltip>
+            <i>·</i>
+            <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={postPrivacy} size={13} /></span></HoverTooltip>
           </span>
         </div>
         <div className="post-header-actions">
           {(viewerId || owned) && <PostOptionsMenu post={current} viewerId={viewerId} owned={owned} onDelete={() => setDeleting(true)} onPostHidden={() => setRemoved(true)} />}
-          <button type="button" className="post-header-icon" aria-label={t('hidePost')} title={t('hidePost')} onClick={() => setRemoved(true)}><Icon name="close" size={22} /></button>
+          <button type="button" className="post-header-icon" aria-label={t('hidePost')} title={t('hidePost')} onClick={() => setRemoved(true)}><Icon name="close" size={20} /></button>
         </div>
       </header>
       {relationshipError && <p className="form-error post-relationship-error">{relationshipError}</p>}
-      {current.content && <p className="gateway-post-content">{current.content}</p>}
+      {decodedContent.text && <p className={postBackground ? 'gateway-post-content has-background' : 'gateway-post-content'} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={current.mentions} onNavigate={onNavigate} /></p>}
       <PostMediaGallery media={current.media} />
       {current.__typename === 'FeedPostDetail' && current.sharedSource && <SharedPostSourceCard source={current.sharedSource} onNavigate={onNavigate} />}
       {viewerId && <Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={current.id} post={current} canShare={current.__typename === 'GroupPostDetail' || current.privacy === 0} canReshare={current.__typename === 'FeedPostDetail' && current.privacy === 0} onNavigate={onNavigate} onMessage={onMessage} /></Suspense>}
@@ -656,11 +1038,13 @@ function SharedPostSourceCard({ source, onNavigate }: { source: NonNullable<Extr
   if (!source.isAvailable) {
     return <section className="shared-post-source unavailable"><Icon name="lock" size={24} /><div><strong>{t('contentUnavailable')}</strong><p>{t('contentUnavailableDesc')}</p></div></section>
   }
+  const decodedContent = decodePostContent(source.content)
+  const postBackground = source.media.length === 0 ? getPostBackgroundPreset(decodedContent.backgroundId) : null
   return <section className="shared-post-source">
     <PostMediaGallery media={source.media} compact controls={false} onOpen={() => onNavigate?.(`/content/${source.id}`)} />
     <div className="shared-source-body">
       <button type="button" className="shared-source-author" disabled={!source.author} onClick={() => source.author && onNavigate?.(`/profile/${source.author.id}`)}><Avatar name={source.author?.name || t('fakebookUser')} src={source.author?.avatar || null} size={38} /><strong>{source.author?.name || t('fakebookUser')}<VerifiedBadge verified={source.author?.isVerified} size={12} /></strong></button>
-      {source.content && <button type="button" className="shared-source-content" onClick={() => onNavigate?.(`/content/${source.id}`)}>{source.content}</button>}
+      {decodedContent.text && <div className={postBackground ? 'shared-source-content has-background' : 'shared-source-content'} style={postBackground ? { background: postBackground.background } : undefined} role="button" tabIndex={0} onClick={() => onNavigate?.(`/content/${source.id}`)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onNavigate?.(`/content/${source.id}`) }}><MentionContent content={decodedContent.text} mentions={source.mentions} onNavigate={onNavigate} /></div>}
     </div>
   </section>
 }

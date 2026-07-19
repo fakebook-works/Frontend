@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api/client'
 import type { GatewayPost } from '../api/gatewayTypes'
@@ -8,8 +8,10 @@ import { Avatar } from '../components/Avatar'
 import { ImageCropModal } from '../components/ImageCropModal'
 import { Icon } from '../components/Icon'
 import { MentionSuggestions } from '../components/MentionSuggestions'
+import { MentionDraftOverlay } from '../components/MentionDraftOverlay'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
+import { applyMentionSelection, reconcileMentionEntities, serializeMentionContent, type MentionEntity } from '../lib/mentions'
 import { GatewayPostCard } from './GatewayHomePage'
 
 type GroupSection = 'joined' | 'managed' | 'pending' | 'recent'
@@ -501,7 +503,26 @@ function GroupPostComposer({ userId, groupId, people, onCreated }: { userId: str
   const [fileKey, setFileKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [mentionedPeople, setMentionedPeople] = useState<UserSummary[]>([])
+  const [mentionEntities, setMentionEntities] = useState<MentionEntity[]>([])
+  const [mentionCaret, setMentionCaret] = useState(0)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  function changeContent(nextContent: string, caret: number) {
+    setMentionEntities((current) => reconcileMentionEntities(content, nextContent, current))
+    setContent(nextContent)
+    setMentionCaret(caret)
+  }
+
+  function selectMention(person: UserSummary, mention: Parameters<typeof applyMentionSelection>[1]) {
+    const selected = applyMentionSelection(content, mention, person)
+    setMentionEntities((current) => [...reconcileMentionEntities(content, selected.text, current), selected.entity])
+    setContent(selected.text)
+    setMentionCaret(selected.caret)
+    window.setTimeout(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(selected.caret, selected.caret)
+    }, 0)
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -512,17 +533,16 @@ function GroupPostComposer({ userId, groupId, people, onCreated }: { userId: str
     let persisted = false
     try {
       uploaded = await api.uploadMediaFiles(files)
-      const activeMentions = mentionedPeople.filter((person) => content.includes(`@${person.displayName}`))
       await socialApi.createGroupPost(userId, groupId, {
-        content: content.trim(),
+        content: serializeMentionContent(content, mentionEntities).trim(),
         media: uploaded.map((item) => ({ type: item.type === 'video' ? 1 : 0, url: item.url })),
-        mentionedUserIds: activeMentions.map((person) => person.id),
       })
       persisted = true
       setContent('')
       setFiles([])
       setFileKey((value) => value + 1)
-      setMentionedPeople([])
+      setMentionEntities([])
+      setMentionCaret(0)
       onCreated()
     } catch {
       if (!persisted) await Promise.allSettled(uploaded.map((item) => api.cancelPendingMedia(item)))
@@ -532,7 +552,7 @@ function GroupPostComposer({ userId, groupId, people, onCreated }: { userId: str
     }
   }
 
-  return <form className="card gateway-composer group-post-composer" onSubmit={submit}><div className="mention-compose-field"><textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder={t('groupPostPrompt')} rows={3} /><MentionSuggestions text={content} people={people} onTextChange={setContent} onSelected={(person) => setMentionedPeople((current) => current.some((item) => item.id === person.id) ? current : [...current, person])} /></div>{mentionedPeople.length > 0 && <div className="tagged-people-row group-tags">{mentionedPeople.map((person) => <span key={person.id}><Icon name="tag" size={13} />{person.displayName}</span>)}</div>}<div className="composer-controls"><label className="file-control"><span>{files.length > 0 ? t('selectedFilesCount', { count: files.length }) : t('photoVideo')}</span><input key={fileKey} type="file" multiple accept="image/*,video/*" onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 10))} /></label><button type="submit" className="btn-primary" disabled={busy || (!content.trim() && files.length === 0)}>{busy ? t('posting') : t('post')}</button></div>{files.length > 0 && <div className="composer-selected-files">{files.map((file) => <span key={`${file.name}-${file.lastModified}`}>{file.name}</span>)}</div>}{error && <p className="form-error">{error}</p>}</form>
+  return <form className="card gateway-composer group-post-composer" onSubmit={submit}><div className="mention-compose-field"><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} value={content} onChange={(event) => changeContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onSelect={(event) => setMentionCaret(event.currentTarget.selectionStart ?? content.length)} placeholder={t('groupPostPrompt')} rows={3} /><MentionSuggestions text={content} people={people} textareaRef={textareaRef} caretIndex={mentionCaret} onSelected={selectMention} /></div><div className="composer-controls"><label className="file-control"><span>{files.length > 0 ? t('selectedFilesCount', { count: files.length }) : t('photoVideo')}</span><input key={fileKey} type="file" multiple accept="image/*,video/*" onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 10))} /></label><button type="submit" className="btn-primary" disabled={busy || (!content.trim() && files.length === 0)}>{busy ? t('posting') : t('post')}</button></div>{files.length > 0 && <div className="composer-selected-files">{files.map((file) => <span key={`${file.name}-${file.lastModified}`}>{file.name}</span>)}</div>}{error && <p className="form-error">{error}</p>}</form>
 }
 
 function GroupPeopleList({ groupId, title, people, currentUserId, adminView, busyUserId, onNavigate, onAction, actionLabel, secondaryActionLabel }: { groupId: string; title: string; people: UserSummary[]; currentUserId: string; adminView: boolean; busyUserId: string | null; onNavigate: (path: string) => void; onAction: (person: UserSummary, secondary?: boolean) => void; actionLabel: string; secondaryActionLabel?: string }) {

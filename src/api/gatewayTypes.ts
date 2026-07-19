@@ -12,6 +12,19 @@ export interface GatewayAuthor {
   canFollow?: boolean
 }
 
+export interface GatewayMention {
+  userId: string
+  name: string
+  available: boolean
+}
+
+export interface GatewayTaggedUser {
+  id: string
+  name: string
+  avatar: string
+  isVerified: boolean
+}
+
 export interface SharedPostSource {
   id: string
   isAvailable: boolean
@@ -19,6 +32,7 @@ export interface SharedPostSource {
   content: string | null
   author: Omit<GatewayAuthor, 'canFollow'> | null
   media: GatewayMedia[]
+  mentions?: GatewayMention[]
 }
 
 export interface FeedPost {
@@ -30,6 +44,8 @@ export interface FeedPost {
   create: string
   author: GatewayAuthor
   media: GatewayMedia[]
+  mentions?: GatewayMention[]
+  taggedUsers?: GatewayTaggedUser[]
   sharedSource?: SharedPostSource | null
 }
 
@@ -160,7 +176,6 @@ export interface CreateGatewayPostInput {
   privacy: number
   media?: GatewayMediaInput[]
   taggedUserIds?: string[]
-  mentionedUserIds?: string[]
 }
 
 export interface CreateGatewayStoryInput {

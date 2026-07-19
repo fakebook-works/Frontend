@@ -6,6 +6,7 @@ import { AuthenticatedApp } from './AuthenticatedApp'
 
 const fastSearch = vi.hoisted(() => vi.fn())
 const recordSearchResultView = vi.hoisted(() => vi.fn())
+const heartbeatPresence = vi.hoisted(() => vi.fn())
 
 vi.mock('../lib/auth', () => ({
   useAuth: () => ({
@@ -23,6 +24,19 @@ vi.mock('../api/notifications', () => ({ notificationApi: {
   subscribeNotifications: vi.fn(() => vi.fn()),
 } }))
 vi.mock('../api/search', () => ({ searchApi: { fastSearch, recordSearchResultView } }))
+vi.mock('../api/messenger', () => ({ messengerApi: {
+  heartbeatPresence,
+  conversations: vi.fn().mockResolvedValue([]),
+  messages: vi.fn().mockResolvedValue([]),
+  createDirectConversation: vi.fn(),
+  createGroupConversation: vi.fn(),
+  sendMessage: vi.fn(),
+  presence: vi.fn().mockResolvedValue([]),
+  setTyping: vi.fn().mockResolvedValue(undefined),
+  subscribeInbox: vi.fn(() => vi.fn()),
+  subscribeConversation: vi.fn(() => vi.fn()),
+  subscribePresence: vi.fn(() => vi.fn()),
+} }))
 
 vi.mock('../i18n', () => ({
   languageOptions: [{ locale: 'en', label: 'English', shortLabel: 'EN' }],
@@ -38,6 +52,7 @@ describe('AuthenticatedApp routing and navigation', () => {
     window.history.replaceState({}, '', '/')
     fastSearch.mockReset().mockResolvedValue([])
     recordSearchResultView.mockReset().mockResolvedValue(true)
+    heartbeatPresence.mockReset().mockResolvedValue({ userId: '1', isOnline: true, expiresAt: null, updatedAt: '' })
   })
   afterEach(() => {
     cleanup()
@@ -53,6 +68,21 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(screen.getByRole('button', { name: 'friends' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'groups' })).toBeEnabled()
     expect(screen.getAllByRole('button', { name: 'home' }).every((button) => !button.hasAttribute('disabled'))).toBe(true)
+  })
+
+  it('uses a filled icon for the active destination and outlines for the others', () => {
+    render(<AuthenticatedApp />)
+    const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
+    const home = navigation.querySelector<HTMLButtonElement>('button[aria-label="home"]')!
+    const friends = navigation.querySelector<HTMLButtonElement>('button[aria-label="friends"]')!
+    const reels = navigation.querySelector<HTMLButtonElement>('button[aria-label="reels"]')!
+    const groups = navigation.querySelector<HTMLButtonElement>('button[aria-label="groups"]')!
+
+    expect(home).toHaveClass('active')
+    expect(home.querySelector('svg')).toHaveAttribute('fill', 'currentColor')
+    expect(friends.querySelector('svg')).toHaveAttribute('fill', 'none')
+    expect(reels.querySelector('svg')).toHaveAttribute('fill', 'none')
+    expect(groups.querySelector('svg')).toHaveAttribute('fill', 'none')
   })
 
   it('opens account destinations from the avatar menu', () => {
@@ -77,6 +107,20 @@ describe('AuthenticatedApp routing and navigation', () => {
 
     expect(screen.getByRole('dialog', { name: 'notifications' })).toBeInTheDocument()
     expect(screen.getByText('home-page')).toBeInTheDocument()
+  })
+
+  it('closes the Messenger and notification menus when clicking outside', () => {
+    render(<AuthenticatedApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'messages' }))
+    expect(screen.getByRole('dialog', { name: 'messages' })).toBeInTheDocument()
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('dialog', { name: 'messages' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'notifications' }))
+    expect(screen.getByRole('dialog', { name: 'notifications' })).toBeInTheDocument()
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('dialog', { name: 'notifications' })).not.toBeInTheDocument()
   })
 
   it('opens the settings and privacy submenu before navigating to settings', () => {
@@ -121,5 +165,16 @@ describe('AuthenticatedApp routing and navigation', () => {
 
     expect(recordSearchResultView).toHaveBeenCalledWith('10')
     expect(window.location.pathname).toBe('/profile/10')
+  })
+
+  it('starts quick search from the first character', async () => {
+    render(<AuthenticatedApp />)
+
+    const input = screen.getByRole('textbox', { name: 'searchPlaceholder' })
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'L' } })
+
+    await waitFor(() => expect(fastSearch).toHaveBeenCalledWith('L'))
+    expect(await screen.findByText('noSearchResults')).toBeInTheDocument()
   })
 })

@@ -220,18 +220,30 @@ function normalizeMedia<T extends { id: string | number }>(media: T): T & { id: 
   return { ...media, id: String(media.id) }
 }
 
+function normalizeMentions(mentions: GatewayPost['mentions'] | undefined) {
+  return (mentions ?? []).map((mention) => ({
+    ...mention,
+    userId: String(mention.userId),
+    name: String(mention.name ?? ''),
+    available: Boolean(mention.available),
+  }))
+}
+
 function normalizeGatewayPost(post: GatewayPost): GatewayPost {
   const normalized = {
     ...post,
     id: String(post.id),
     author: { ...post.author, id: String(post.author.id) },
     media: post.media.map(normalizeMedia),
+    mentions: normalizeMentions(post.mentions),
+    taggedUsers: (post.taggedUsers ?? []).map((user) => ({ ...user, id: String(user.id) })),
     sharedSource: post.sharedSource ? {
       ...post.sharedSource,
       id: String(post.sharedSource.id),
       type: post.sharedSource.type == null ? null : Number(post.sharedSource.type),
       author: post.sharedSource.author ? { ...post.sharedSource.author, id: String(post.sharedSource.author.id) } : null,
       media: post.sharedSource.media.map(normalizeMedia),
+      mentions: normalizeMentions(post.sharedSource.mentions),
     } : null,
   }
   return post.__typename === 'GroupPostDetail'
@@ -513,16 +525,20 @@ const HOME_POST_FIELDS = `
   __typename
   ... on FeedPostDetail {
     id type content privacy create
+    mentions { userId name available }
+    taggedUsers { id name avatar isVerified }
     author { id name avatar isVerified canFollow }
     media { id type url }
     sharedSource {
       id isAvailable type content
+      mentions { userId name available }
       author { id name avatar isVerified }
       media { id type url }
     }
   }
   ... on GroupPostDetail {
     id type content privacy create
+    mentions { userId name available }
     author { id name avatar isVerified canFollow }
     group { id name avatar canJoin }
     media { id type url }
@@ -710,12 +726,18 @@ export const api = {
   logout: async (): Promise<AuthActionResult> => {
     const data = await graphQlRequest<{ logout: AuthActionResult }>(
       `mutation Logout { logout { success message } }`,
+      {},
+      'protected',
+      false,
     )
     return data.logout
   },
   logoutAll: async (): Promise<AuthActionResult> => {
     const data = await graphQlRequest<{ logoutAll: AuthActionResult }>(
       `mutation LogoutAll { logoutAll { success message } }`,
+      {},
+      'protected',
+      false,
     )
     return data.logoutAll
   },
@@ -777,7 +799,6 @@ export const api = {
   createFeedPost: async (input: CreateGatewayPostInput): Promise<CreatedContent> => {
     const authorId = graphQlLongLiteral(input.authorId)
     const taggedUserIds = [...new Set(input.taggedUserIds ?? [])].map(graphQlLongLiteral).join(', ')
-    const mentionedUserIds = [...new Set(input.mentionedUserIds ?? [])].map(graphQlLongLiteral).join(', ')
     const data = await graphQlRequest<{ createFeedPost: CreatedContent }>(
       `mutation CreateFeedPost($content: String!, $privacy: Int!, $media: [MediaInput!]) {
         createFeedPost(input: {
@@ -786,7 +807,6 @@ export const api = {
           privacy: $privacy
           media: $media
           taggedUserIds: [${taggedUserIds}]
-          mentionedUserIds: [${mentionedUserIds}]
         }) {
           id type content privacy create authorId media { id type url }
         }
