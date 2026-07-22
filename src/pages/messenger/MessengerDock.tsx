@@ -9,9 +9,10 @@ import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { VerifiedBadge } from '../../components/VerifiedBadge'
 import { useI18n } from '../../i18n'
+import { relativeTime } from '../../lib/format'
 import { playIncomingMessageSound } from '../../lib/sounds'
 import { MESSENGER_ATTACHMENT_ACCEPT } from './attachmentPolicy'
-import { conversationAvatar, conversationName, encodeMessengerLike, formatPresence, formatTime, messageGroupPosition, messengerLikeLevel, messengerMessagePreview, shouldShowAvatar, shouldShowTimestamp } from './helpers'
+import { conversationAvatar, conversationName, encodeMessengerLike, formatPresence, formatTime, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, shouldShowAvatar, shouldShowTimestamp } from './helpers'
 import { EmojiButton } from './EmojiButton'
 import { HoldLikeButton } from './HoldLikeButton'
 import { ForwardMessageDialog } from './ForwardMessageDialog'
@@ -111,7 +112,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   onOpenAll,
   onOpenProfile,
 }, ref) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const [conversations, setConversations] = useState<MessengerConversationDto[]>([])
   const [messages, setMessages] = useState<Record<string, MessengerMessageDto[]>>({})
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -144,6 +145,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const incomingTypingTimers = useRef(new Map<string, number>())
   const activeVoiceRecording = useRef<ActiveVoiceRecording | null>(null)
   const lastMarkedReadSequence = useRef(new Map<string, string>())
+  const latestIncomingSequence = useRef(new Map<string, string>())
   const messengerPopoverRef = useRef<HTMLElement>(null)
   const miniMessageContainers = useRef(new Map<string, HTMLDivElement>())
   const keepBottomAfterReply = useRef(new Set<string>())
@@ -206,6 +208,35 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       return next
     })
   }, [])
+
+  const markConversationRead = useCallback((conversationId: string, preferredSequence?: string) => {
+    const conversation = conversationsRef.current.find((item) => item.id === conversationId)
+    const needsReadReceipt = Boolean(
+      conversation && (conversation.unreadCount > 0 || attentionConversationIds.has(conversationId)),
+    )
+    if (!conversation || !needsReadReceipt) return
+
+    const sequence = preferredSequence
+      ?? latestIncomingSequence.current.get(conversationId)
+      ?? [...(messagesRef.current[conversationId] ?? [])].reverse().find((message) => message.sequence)?.sequence
+      ?? conversation.lastMessage?.sequence
+    if (!sequence || !isNewerDockSequence(sequence, lastMarkedReadSequence.current.get(conversationId))) return
+
+    const previousUnreadCount = conversation.unreadCount
+    lastMarkedReadSequence.current.set(conversationId, sequence)
+    clearConversationAttention(conversationId)
+    setConversations((current) => current.map((item) => item.id === conversationId
+      ? { ...item, unreadCount: 0 }
+      : item))
+    void messengerApi.markRead(conversationId, sequence).catch(() => {
+      if (lastMarkedReadSequence.current.get(conversationId) === sequence) lastMarkedReadSequence.current.delete(conversationId)
+      setConversations((current) => current.map((item) => item.id === conversationId
+        ? { ...item, unreadCount: Math.max(item.unreadCount, previousUnreadCount) }
+        : item))
+      markConversationAttention(conversationId)
+      setError(t('messengerUnavailableDesc'))
+    })
+  }, [attentionConversationIds, clearConversationAttention, markConversationAttention, t])
 
   useLayoutEffect(() => {
     keepBottomAfterReply.current.forEach((conversationId) => {
@@ -455,6 +486,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       if (seenEventIds.current.has(event.eventId)) return
       seenEventIds.current.add(event.eventId)
       if (event.kind === 'MESSAGE_ADDED' && event.userId && event.userId !== me.id) {
+        if (event.conversationId && event.sequence) latestIncomingSequence.current.set(event.conversationId, event.sequence)
         playIncomingMessageSound()
       }
       void (async () => {
@@ -519,6 +551,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         return
       }
       if (event.kind === 'MESSAGE_ADDED' && event.userId && event.userId !== me.id) {
+        if (event.sequence) latestIncomingSequence.current.set(conversationId, event.sequence)
         markConversationAttention(conversationId)
       }
       if (event.kind === 'MESSAGE_ADDED' && event.userId) clearIncomingTyping(conversationId, event.userId)
@@ -537,24 +570,12 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
   }, [applyTypingEvent, clearIncomingTyping, fullOpenIds, markConversationAttention, me.id, t])
 
-  useEffect(() => {
-    fullOpenIds.forEach((conversationId) => {
-      const sequence = [...(messages[conversationId] ?? [])].reverse().find((message) => message.sequence)?.sequence
-      if (!sequence || !isNewerDockSequence(sequence, lastMarkedReadSequence.current.get(conversationId))) return
-      lastMarkedReadSequence.current.set(conversationId, sequence)
-      void messengerApi.markRead(conversationId, sequence).catch(() => {
-        if (lastMarkedReadSequence.current.get(conversationId) === sequence) lastMarkedReadSequence.current.delete(conversationId)
-        setError(t('messengerUnavailableDesc'))
-      })
-    })
-  }, [fullOpenIds, messages, t])
-
   const openConversation = useCallback((conversation: MessengerConversationDto) => {
-    clearConversationAttention(conversation.id)
     setConversations((current) => [
-      { ...conversation, unreadCount: 0 },
+      conversation,
       ...current.filter((item) => item.id !== conversation.id),
     ])
+    markConversationRead(conversation.id, conversation.lastMessage?.sequence)
     // Keep every opened conversation in least-recently-used order. Only the
     // newest three are rendered as full windows; older ones stay reachable as
     // avatar bubbles in the dock rail.
@@ -571,7 +592,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         setError(null)
       }).catch(() => setError(t('messengerUnavailableDesc')))
     }
-  }, [clearConversationAttention, me.id, messages, onPanelClose, t])
+  }, [markConversationRead, me.id, messages, onPanelClose, t])
 
   const openDirect = useCallback(async (profileId: string) => {
     const conversation = await messengerApi.createDirectConversation(profileId, me.id)
@@ -829,7 +850,6 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   function closeChat(conversationId: string) {
     if (activeVoiceRecording.current?.conversationId === conversationId) stopVoiceRecording(true)
     stopTyping(conversationId)
-    clearConversationAttention(conversationId)
     setOpenIds((current) => current.filter((id) => id !== conversationId))
     setMinimizedIds((current) => {
       const next = new Set(current)
@@ -881,19 +901,18 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
           <button type="button" aria-label={t('newMessage')} onClick={() => setShowNewModal(true)}><Icon name="edit" size={19} /></button>
         </div>
       </header>
-      <label className="messenger-popover-search"><Icon name="search" size={18} /><input value={panelQuery} onChange={(event) => setPanelQuery(event.target.value)} placeholder={t('searchMessenger')} /></label>
+      <label className="messenger-popover-search"><Icon name="search" size={20} /><input value={panelQuery} onChange={(event) => setPanelQuery(event.target.value)} placeholder={t('searchMessenger')} /></label>
       <div className="messenger-popover-tabs" role="tablist" aria-label={t('inboxFilters')}>
         <button type="button" className={panelFilter === 'all' ? 'active' : ''} onClick={() => setPanelFilter('all')}>{t('allNotifications')}</button>
         <button type="button" className={panelFilter === 'unread' ? 'active' : ''} onClick={() => setPanelFilter('unread')}>{t('unreadOnly')}</button>
         <button type="button" className={panelFilter === 'groups' ? 'active' : ''} onClick={() => setPanelFilter('groups')}>{t('groups')}</button>
-        <button type="button" className="messenger-popover-tab-more" aria-label={t('messengerSettings')} onClick={() => setPanelMenuOpen((open) => !open)}><Icon name="more" size={17} /></button>
       </div>
       <div className="messenger-popover-list">{loading ? <div className="messenger-loading"><span className="spinner" /></div> : panelConversations.length === 0 ? <p className="muted">{error ?? t('noChatsFound')}</p> : panelConversations.map((conversation) => {
         const name = conversationName(conversation, me)
         const other = conversation.type === 'DIRECT'
           ? conversation.participants.find((person) => person.id !== me.id)
           : undefined
-        return <button type="button" className={conversation.unreadCount > 0 ? 'unread' : ''} key={conversation.id} onClick={() => openConversation(conversation)}><Avatar name={name} src={conversationAvatar(conversation, me)} size={56} online={Boolean(other && presenceByUserId[other.id]?.isOnline)} /><span><strong>{name}</strong><small>{conversation.lastMessage?.sender.id === me.id ? `${t('you')}: ` : ''}{messengerMessagePreview(conversation.lastMessage?.body) || t('startConversation')} · {formatTime(conversation.updatedAt)}</small></span>{conversation.unreadCount > 0 && <b>{Math.min(99, conversation.unreadCount)}</b>}</button>
+        return <button type="button" className={conversation.unreadCount > 0 ? 'unread' : ''} key={conversation.id} onClick={() => openConversation(conversation)}><Avatar name={name} src={conversationAvatar(conversation, me)} size={48} online={Boolean(other && presenceByUserId[other.id]?.isOnline)} /><span><strong>{name}</strong><small>{conversation.lastMessage?.sender.id === me.id ? `${t('you')}: ` : ''}{messengerConversationPreview(conversation.lastMessage, t) || t('startConversation')} · {relativeTime(conversation.updatedAt, locale)}</small></span></button>
       })}</div>
     </aside>}
 
@@ -917,13 +936,17 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       const isTyping = Boolean(typingPerson)
       const isOnline = Boolean(presence?.isOnline)
       const needsAttention = attentionConversationIds.has(conversation.id)
-      return <section className={`mini-chat-window${needsAttention ? ' has-attention' : ''}`} key={conversation.id} aria-label={name} onClickCapture={() => clearConversationAttention(conversation.id)}>
+      const readFromChatInteraction = (target: EventTarget) => {
+        if (target instanceof Element && target.closest('[data-chat-read-ignore="true"]')) return
+        markConversationRead(conversation.id)
+      }
+      return <section className={`mini-chat-window${needsAttention ? ' has-attention' : ''}`} key={conversation.id} aria-label={name} onPointerDownCapture={(event) => readFromChatInteraction(event.target)} onClickCapture={(event) => readFromChatInteraction(event.target)}>
         <header className="mini-chat-head">
           <button type="button" className="mini-chat-id" onClick={() => conversation.type === 'DIRECT' && other && onOpenProfile(other.id)}><Avatar name={name} src={conversationAvatar(conversation, me)} size={29} online={isOnline} /></button>
-          <button type="button" className="mini-chat-name" onClick={() => conversation.type === 'DIRECT' && other && onOpenProfile(other.id)}><strong>{name}<VerifiedBadge verified={other?.isVerified} size={12} /></strong>{conversation.type === 'DIRECT' && <small className={isTyping ? 'typing' : isOnline ? 'online' : 'offline'}>{isTyping ? t('typingNow') : formatPresence(presence, t, presenceNow)}</small>}</button>
+          <div className="mini-chat-name"><strong>{name}<VerifiedBadge verified={other?.isVerified} size={12} /></strong>{conversation.type === 'DIRECT' && <small className={isTyping ? 'typing' : isOnline ? 'online' : 'offline'}>{isTyping ? t('typingNow') : formatPresence(presence, t, presenceNow)}</small>}</div>
           <div className="mini-chat-controls">
-            <button type="button" className="mini-ctrl mini-minimize" aria-label={t('minimize')} onClick={() => minimizeConversation(conversation.id)}>−</button>
-            <button type="button" className="mini-ctrl" aria-label={t('close')} onClick={() => closeChat(conversation.id)}><Icon name="close" size={20} className="mini-chat-close-icon" /></button>
+            <button type="button" className="mini-ctrl mini-minimize" data-chat-read-ignore="true" aria-label={t('minimize')} onClick={() => minimizeConversation(conversation.id)}>−</button>
+            <button type="button" className="mini-ctrl" data-chat-read-ignore="true" aria-label={t('close')} onClick={() => closeChat(conversation.id)}><Icon name="close" size={20} className="mini-chat-close-icon" /></button>
           </div>
         </header>
         <>

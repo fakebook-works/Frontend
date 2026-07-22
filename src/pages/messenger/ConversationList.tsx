@@ -3,8 +3,8 @@ import type { MessengerPresenceDto } from '../../api/messenger'
 import type { MessengerConversationDto, UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
-import { timeAgo } from '../../lib/format'
-import { conversationAvatar, conversationName, messengerMessagePreview } from './helpers'
+import { relativeTime } from '../../lib/format'
+import { conversationAvatar, conversationName, messengerConversationPreview } from './helpers'
 import { useI18n } from '../../i18n'
 
 interface ConversationListProps {
@@ -36,7 +36,7 @@ export function ConversationList({
   onTabChange,
   onNewMessage,
 }: ConversationListProps) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
     if (!needle) return conversations
@@ -107,11 +107,11 @@ export function ConversationList({
                   <strong>{name}</strong>
                   <span>
                     {conversation.lastMessage?.sender.id === me.id ? `${t('you')}: ` : ''}
-                    {messengerMessagePreview(conversation.lastMessage?.body) || t('startConversation')}
+                    {messengerConversationPreview(conversation.lastMessage, t) || t('startConversation')}
                   </span>
                 </span>
                 <span className="messenger-row-meta">
-                  {timeAgo(conversation.updatedAt)}
+                  {relativeTime(conversation.updatedAt, locale)}
                   {hasUnread && <i className="messenger-unread-dot" />}
                 </span>
               </button>

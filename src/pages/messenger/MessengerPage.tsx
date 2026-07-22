@@ -63,6 +63,7 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   const outgoingTypingSentAt = useRef(new Map<string, number>())
   const incomingTypingTimers = useRef(new Map<string, number>())
   const lastMarkedReadSequence = useRef(new Map<string, string>())
+  const latestIncomingSequence = useRef(new Map<string, string>())
 
   const stopTyping = useCallback((conversationId: string) => {
     const timer = outgoingTypingTimers.current.get(conversationId)
@@ -143,6 +144,9 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   useEffect(() => messengerApi.subscribeInbox((event) => {
     if (seenEventIds.current.has(event.eventId)) return
     seenEventIds.current.add(event.eventId)
+    if (event.kind === 'MESSAGE_ADDED' && event.conversationId && event.sequence && event.userId !== me.id) {
+      latestIncomingSequence.current.set(event.conversationId, event.sequence)
+    }
     void loadConversations()
     if (['MESSAGE_ADDED', 'MESSAGE_DELETED', 'REACTION_CHANGED'].includes(event.kind) && event.conversationId && event.messageId) {
       void messengerApi.message(event.messageId, me.id).then((incoming) => {
@@ -228,6 +232,7 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
         return
       }
       if (event.kind === 'MESSAGE_ADDED' && event.userId) {
+        if (event.userId !== me.id && event.sequence) latestIncomingSequence.current.set(selected.id, event.sequence)
         setTypingByConversationId((current) => {
           if (current[selected.id] !== event.userId) return current
           const next = { ...current }
@@ -263,16 +268,26 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
     : null
   const totalUnread = conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0)
 
-  useEffect(() => {
-    if (!selected || (window.innerWidth <= 760 && !mobileShowThread)) return
-    const sequence = [...activeMessages].reverse().find((message) => message.sequence)?.sequence
-    if (!sequence || !isNewerSequence(sequence, lastMarkedReadSequence.current.get(selected.id))) return
-    lastMarkedReadSequence.current.set(selected.id, sequence)
-    void messengerApi.markRead(selected.id, sequence).catch(() => {
-      if (lastMarkedReadSequence.current.get(selected.id) === sequence) lastMarkedReadSequence.current.delete(selected.id)
+  const markConversationRead = useCallback((conversationId: string, preferredSequence?: string) => {
+    const conversation = conversations.find((item) => item.id === conversationId)
+    if (!conversation || (conversation.unreadCount < 1 && !latestIncomingSequence.current.has(conversationId))) return
+    const sequence = preferredSequence
+      ?? latestIncomingSequence.current.get(conversationId)
+      ?? [...(messages[conversationId] ?? [])].reverse().find((message) => message.sequence)?.sequence
+      ?? conversation.lastMessage?.sequence
+    if (!sequence || !isNewerSequence(sequence, lastMarkedReadSequence.current.get(conversationId))) return
+
+    const previousUnreadCount = conversation.unreadCount
+    lastMarkedReadSequence.current.set(conversationId, sequence)
+    setConversations((current) => current.map((item) => item.id === conversationId ? { ...item, unreadCount: 0 } : item))
+    void messengerApi.markRead(conversationId, sequence).catch(() => {
+      if (lastMarkedReadSequence.current.get(conversationId) === sequence) lastMarkedReadSequence.current.delete(conversationId)
+      setConversations((current) => current.map((item) => item.id === conversationId
+        ? { ...item, unreadCount: Math.max(item.unreadCount, previousUnreadCount) }
+        : item))
       setApiState('unavailable')
     })
-  }, [activeMessages, mobileShowThread, selected])
+  }, [conversations, messages])
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -485,7 +500,8 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
     if (selected && selected.id !== id) stopTyping(selected.id)
     setSelectedId(id)
     setMobileShowThread(true)
-    setConversations((current) => current.map((conversation) => conversation.id === id ? { ...conversation, unreadCount: 0 } : conversation))
+    const conversation = conversations.find((item) => item.id === id)
+    markConversationRead(id, conversation?.lastMessage?.sequence)
   }
 
   function removePendingAttachment(url: string) {
@@ -502,7 +518,7 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   return <>
     <main className={`messenger-shell${mobileShowThread ? ' thread-open' : ''}${showDetail ? ' detail-open' : ''}`} aria-label="Messenger">
       <ConversationList me={me} conversations={conversations} presenceByUserId={presenceByUserId} selectedId={selectedId} query={query} loading={loading} activeTab={activeTab} totalUnread={totalUnread} onSelect={selectConversation} onQueryChange={setQuery} onTabChange={setActiveTab} onNewMessage={() => setShowNewModal(true)} />
-      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={drafts[selected.id] ?? ''} pendingAttachments={pendingAttachmentsByConversation[selected.id] ?? []} uploading={uploadingConversationId === selected.id} apiState={apiState} showDetail={showDetail} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} typingUserId={typingByConversationId[selected.id] ?? null} replyTarget={replyTarget} onDraftChange={(value) => updateDraft(selected.id, value)} onAttachFiles={(files) => void attachFiles(selected.id, files)} onRemoveAttachment={removePendingAttachment} onSubmit={handleSubmit} onSendLike={(level) => void sendLike(level)} onReplyMessage={(message) => setReplyToByConversationId((current) => ({ ...current, [selected.id]: message.id }))} onCancelReply={() => setReplyToByConversationId((current) => ({ ...current, [selected.id]: null }))} onReactMessage={reactToMessage} onRecallMessage={recallMessage} onForwardMessage={setForwardingMessage} onOpenProfile={onOpenProfile} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
+      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={drafts[selected.id] ?? ''} pendingAttachments={pendingAttachmentsByConversation[selected.id] ?? []} uploading={uploadingConversationId === selected.id} apiState={apiState} showDetail={showDetail} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} typingUserId={typingByConversationId[selected.id] ?? null} replyTarget={replyTarget} onInteract={() => markConversationRead(selected.id)} onDraftChange={(value) => updateDraft(selected.id, value)} onAttachFiles={(files) => void attachFiles(selected.id, files)} onRemoveAttachment={removePendingAttachment} onSubmit={handleSubmit} onSendLike={(level) => void sendLike(level)} onReplyMessage={(message) => setReplyToByConversationId((current) => ({ ...current, [selected.id]: message.id }))} onCancelReply={() => setReplyToByConversationId((current) => ({ ...current, [selected.id]: null }))} onReactMessage={reactToMessage} onRecallMessage={recallMessage} onForwardMessage={setForwardingMessage} onOpenProfile={onOpenProfile} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
       {showDetail && selected && <ConversationDetail me={me} conversation={selected} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} onOpenProfile={onOpenProfile} onLeave={() => void leaveSelectedConversation()} />}
     </main>
     {showNewModal && <NewConversationModal friends={friends} onStart={startConversation} onCreateGroup={startGroupConversation} onClose={() => setShowNewModal(false)} />}

@@ -100,6 +100,7 @@ export interface ContentEngagement {
   likeCount: number
   commentCount: number
   shareCount: number
+  viewCount: number
   viewerHasLiked: boolean
   viewerHasSaved: boolean
   viewerHasWatched: boolean
@@ -113,7 +114,10 @@ export interface SocialComment {
   likeCount: number
   replyCount: number
   viewerHasLiked: boolean
+  canFollowAuthor: boolean
+  isFollowingAuthor: boolean
   mentions?: GatewayMention[]
+  media: GatewayMedia | null
 }
 
 export type SavedContentItem =
@@ -152,6 +156,12 @@ const POST_FIELDS = `
       author { id name avatar isVerified }
       media { id type url }
     }
+  }
+  ... on ReelDetail {
+    id type content privacy create
+    mentions { userId name available }
+    author { id name avatar isVerified canFollow }
+    media { id type url }
   }
   ... on GroupPostDetail {
     id type content privacy create
@@ -274,8 +284,11 @@ function postFromGraphQl(post: GatewayPost): GatewayPost {
       mentions: normalizeMentionUsers(post.sharedSource.mentions),
     } : null,
   }
-  return post.__typename === 'GroupPostDetail'
-    ? { ...normalized, __typename: 'GroupPostDetail', group: { ...post.group, id: String(post.group.id) } }
+  if (post.__typename === 'GroupPostDetail') {
+    return { ...normalized, __typename: 'GroupPostDetail', group: { ...post.group, id: String(post.group.id) } }
+  }
+  return post.__typename === 'ReelDetail'
+    ? { ...normalized, __typename: 'ReelDetail' }
     : { ...normalized, __typename: 'FeedPostDetail' }
 }
 
@@ -601,11 +614,15 @@ export async function getContentEngagement(targetId: string): Promise<ContentEng
   const data = await gatewayGraphQl<{ contentEngagement: ContentEngagement | null }>(
     `query ContentEngagement {
       contentEngagement(targetId: ${target}) {
-        targetId likeCount commentCount shareCount viewerHasLiked viewerHasSaved viewerHasWatched
+        targetId likeCount commentCount shareCount viewCount viewerHasLiked viewerHasSaved viewerHasWatched
       }
     }`,
   )
-  return data.contentEngagement ? { ...data.contentEngagement, targetId: String(data.contentEngagement.targetId) } : null
+  return data.contentEngagement ? {
+    ...data.contentEngagement,
+    targetId: String(data.contentEngagement.targetId),
+    viewCount: Number(data.contentEngagement.viewCount ?? 0),
+  } : null
 }
 
 export async function getComments(targetId: string, limit = 30, cursor: string | null = null): Promise<{ items: SocialComment[]; endCursor: string | null; hasNextPage: boolean }> {
@@ -618,11 +635,14 @@ export async function getComments(targetId: string, limit = 30, cursor: string |
     likeCount: number
     replyCount: number
     viewerHasLiked: boolean
+    canFollowAuthor: boolean
+    isFollowingAuthor: boolean
     mentions: Array<{ userId: string; name: string; available: boolean }>
+    media: { id: string; type: number; url: string } | null
   }>; endCursor: string | null; hasNextPage: boolean } }>(
     `query Comments($limit: Int!, $cursor: String) {
       comments(targetId: ${target}, limit: $limit, cursor: $cursor) {
-        items { id content create author { id name avatar isVerified } likeCount replyCount viewerHasLiked mentions { userId name available } }
+        items { id content create author { id name avatar isVerified } likeCount replyCount viewerHasLiked canFollowAuthor isFollowingAuthor mentions { userId name available } media { id type url } }
         endCursor hasNextPage
       }
     }`,
@@ -638,7 +658,10 @@ export async function getComments(targetId: string, limit = 30, cursor: string |
       likeCount: comment.likeCount,
       replyCount: comment.replyCount,
       viewerHasLiked: comment.viewerHasLiked,
+      canFollowAuthor: Boolean(comment.canFollowAuthor),
+      isFollowingAuthor: Boolean(comment.isFollowingAuthor),
       mentions: normalizeMentionUsers(comment.mentions),
+      media: comment.media ? { ...comment.media, id: String(comment.media.id), type: Number(comment.media.type) } : null,
     })),
   }
 }
@@ -1116,14 +1139,14 @@ export async function unsaveContent(viewerId: string, targetId: string): Promise
   return data.unsave
 }
 
-export async function createComment(viewerId: string, targetId: string, content: string): Promise<SocialContent> {
+export async function createComment(viewerId: string, targetId: string, content: string, media: { type: number; url: string } | null = null): Promise<SocialContent> {
   const viewer = graphQlLongLiteral(viewerId)
   const target = graphQlLongLiteral(targetId)
   const data = await gatewayGraphQl<{ createComment: Record<string, unknown> }>(
-    `mutation CreateComment($content: String!) {
-      createComment(input: { authorId: ${viewer}, targetId: ${target}, content: $content }) { ${CONTENT_FIELDS} }
+    `mutation CreateComment($content: String!, $media: MediaInput) {
+      createComment(input: { authorId: ${viewer}, targetId: ${target}, content: $content, media: $media }) { ${CONTENT_FIELDS} }
     }`,
-    { content },
+    { content, media },
   )
   return contentFromGraphQl(data.createComment)
 }

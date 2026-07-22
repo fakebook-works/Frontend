@@ -344,9 +344,16 @@
   transition: background 0.1s;
 }
 
-.messenger-id:hover {
-  background: var(--hover);
+.messenger-id-avatar {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
 }
+.messenger-id-avatar:hover { filter: brightness(.96); }
 
 .messenger-id span {
   display: flex;
@@ -658,7 +665,8 @@
   color: #fff;
   background: var(--blue);
 }
-.messenger-audio-play svg { margin-left: 1px; }
+.messenger-audio-play > svg { display: block; margin: 0; }
+.messenger-audio-play-glyph { overflow: visible; }
 .messenger-audio-main { position: relative; width: 76px; min-width: 0; display: grid; gap: 2px; }
 .messenger-audio-wave {
   height: 18px;
@@ -1772,15 +1780,15 @@
 }
 
 .messenger-popover-head {
-  min-height: 58px;
+  min-height: 48px;
   align-items: center !important;
-  padding: 12px 14px 6px !important;
+  padding: 6px 12px 3px !important;
 }
 
 .messenger-popover-head h2 {
-  font-size: 1.72rem !important;
+  font-size: 1.38rem !important;
   line-height: 1.1;
-  letter-spacing: -.035em;
+  letter-spacing: -.02em;
 }
 
 .messenger-popover-head small {
@@ -1836,67 +1844,64 @@
 }
 
 .messenger-popover-search {
-  height: 40px;
+  height: 34px;
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin: 4px 14px 10px;
-  padding: 0 13px;
-  border-radius: 22px;
-  color: var(--secondary);
-  background: var(--hover);
+  gap: 8px;
+  margin: 2px 12px 7px;
+  padding: 0 11px;
+  border-radius: 18px;
+  color: color-mix(in srgb, var(--secondary) 74%, var(--text));
+  background: color-mix(in srgb, var(--hover) 58%, var(--card));
 }
+.messenger-popover-search svg { flex: 0 0 auto; color: inherit; }
 .messenger-popover-search input {
   min-width: 0;
   width: 100%;
   border: 0;
   outline: 0;
   color: var(--text);
-  font-size: .93rem;
+  font-size: .98rem;
   background: transparent;
 }
+.messenger-popover-search input::placeholder { color: inherit; opacity: 1; }
 
 .messenger-popover-tabs {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 0 14px 8px;
+  gap: 5px;
+  padding: 0 12px 7px;
 }
 .messenger-popover-tabs button {
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 34px;
+  padding: 0 12px;
   border: 0;
   border-radius: 19px;
   color: var(--text);
-  font-weight: 700;
+  font-size: .84rem;
+  font-weight: 600;
   background: transparent;
 }
 .messenger-popover-tabs button:hover { background: var(--hover); }
-.messenger-popover-tabs button.active { color: var(--blue); background: var(--chip-active); }
-.messenger-popover-tabs .messenger-popover-tab-more {
-  width: 36px;
-  min-width: 36px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-}
+.messenger-popover-tabs button.active { color: var(--blue); background: color-mix(in srgb, var(--blue) 5%, var(--card)); }
 
 .messenger-popover-redesign .messenger-popover-list {
-  max-height: calc(100vh - var(--topbar-h) - 174px);
+  max-height: calc(100vh - var(--topbar-h) - 151px);
   min-height: 0;
   padding: 0 7px 7px;
   scrollbar-width: thin;
 }
 .messenger-popover-redesign .messenger-popover-list > button {
-  min-height: 72px;
-  gap: 11px;
-  padding: 7px 8px;
+  min-height: 60px;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 7px;
   border-radius: 9px;
 }
 .messenger-popover-redesign .messenger-popover-list > button.unread strong,
-.messenger-popover-redesign .messenger-popover-list > button.unread small { color: var(--text); font-weight: 700; }
-.messenger-popover-redesign .messenger-popover-list strong { font-size: .95rem; }
-.messenger-popover-redesign .messenger-popover-list small { font-size: .79rem; }
+.messenger-popover-redesign .messenger-popover-list > button.unread small { color: var(--text); font-weight: 600; }
+.messenger-popover-redesign .messenger-popover-list strong { font-size: .84rem; font-weight: 600; }
+.messenger-popover-redesign .messenger-popover-list small { font-size: .76rem; }
 
 .mini-chat-region {
   z-index: 1400;
@@ -2420,9 +2425,13 @@
   transform: scale(1.06);
   filter: brightness(1.08);
 }
+.mini-chat-overflow-avatar {
+  background: transparent;
+  box-shadow: none;
+}
 .mini-chat-overflow-avatar > .avatar {
-  border: 2px solid var(--card);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, .08);
+  border: 0;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .28);
 }
 .mini-chat-overflow-avatar > b {
   position: absolute;

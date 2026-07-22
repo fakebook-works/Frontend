@@ -123,6 +123,7 @@ describe('SocialGraph Gateway adapter', () => {
       likeCount: 12,
       commentCount: 4,
       shareCount: 2,
+      viewCount: 46,
       viewerHasLiked: true,
       viewerHasSaved: false,
       viewerHasWatched: true,
@@ -130,8 +131,35 @@ describe('SocialGraph Gateway adapter', () => {
 
     const engagement = await socialApi.getContentEngagement('9007199254740993123')
 
-    expect(engagement).toMatchObject({ likeCount: 12, viewerHasLiked: true, viewerHasWatched: true })
+    expect(engagement).toMatchObject({ likeCount: 12, viewCount: 46, viewerHasLiked: true, viewerHasWatched: true })
     expect(gatewayGraphQl.mock.calls[0][0]).toContain('contentEngagement(targetId: 9007199254740993123)')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('viewCount')
+  })
+
+  it('loads one comment image while keeping each query scoped to direct children', async () => {
+    gatewayGraphQl.mockResolvedValue({ comments: {
+      items: [{
+        id: '9007199254740993401', content: 'Photo reply', create: '2026-07-20T01:00:00Z',
+        author: { id: '3', name: 'Commenter', avatar: '', isVerified: true },
+        likeCount: 1, replyCount: 2, viewerHasLiked: false, canFollowAuthor: true, isFollowingAuthor: false, mentions: [],
+        media: { id: '9007199254740993499', type: 0, url: '/comment.jpg' },
+      }],
+      endCursor: 'next',
+      hasNextPage: true,
+    } })
+
+    const page = await socialApi.getComments('9007199254740993400', 20)
+
+    expect(page.items[0]).toMatchObject({
+      id: '9007199254740993401',
+      media: { id: '9007199254740993499', type: 0, url: '/comment.jpg' },
+      replyCount: 2,
+      canFollowAuthor: true,
+      isFollowingAuthor: false,
+    })
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('comments(targetId: 9007199254740993400')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('media { id type url }')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('canFollowAuthor isFollowingAuthor')
   })
 
   it('loads visible user feed photos with content context and lossless IDs', async () => {

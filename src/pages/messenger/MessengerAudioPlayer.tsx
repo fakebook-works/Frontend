@@ -104,7 +104,9 @@ export function MessengerAudioPlayer({ src, name, durationMs, compact = false }:
         aria-label={name}
       />
       <button type="button" className="messenger-audio-play" aria-label={`${playing ? 'Pause' : 'Play'} ${name}`} onClick={() => void togglePlayback()}>
-        <Icon name={playing ? 'pause' : 'play'} size={compact ? 14 : 15} />
+        {playing
+          ? <Icon name="pause" size={compact ? 14 : 15} />
+          : <svg className="messenger-audio-play-glyph" width={compact ? 14 : 15} height={compact ? 14 : 15} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M8.7 6.3 18.45 12 8.7 17.7Z" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" /></svg>}
       </button>
       <div className="messenger-audio-main">
         <div className="messenger-audio-wave" aria-hidden="true">

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MessengerMessageDto, UserSummary } from '../../api/types'
-import { encodeMessengerLike, formatPresence, formatTime, messageGroupPosition, messengerLikeLevel, messengerMessagePreview, shouldShowAvatar, shouldShowTimestamp } from './helpers'
+import { encodeMessengerLike, formatPresence, formatTime, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, messengerMessagePreview, shouldShowAvatar, shouldShowTimestamp } from './helpers'
 
 const alice: UserSummary = { id: '1', username: 'alice', displayName: 'Alice', avatarUrl: null }
 const bob: UserSummary = { id: '2', username: 'bob', displayName: 'Bob', avatarUrl: null }
@@ -65,5 +65,27 @@ describe('Messenger like messages', () => {
     expect(messengerMessagePreview(encodeMessengerLike(3))).toBe('👍')
     expect(messengerLikeLevel('ordinary message')).toBeNull()
     expect(messengerMessagePreview('ordinary message')).toBe('ordinary message')
+  })
+})
+
+describe('conversation message previews', () => {
+  const t = (key: string, values?: Record<string, string | number>) => values?.count === undefined
+    ? key
+    : `${key}:${values.count}`
+
+  it('uses attachment metadata when the newest message has no text body', () => {
+    const base = message('media', bob, 0)
+    expect(messengerConversationPreview({ ...base, body: '', attachments: [{ url: '/photo.jpg', type: 'image', contentType: 'image/jpeg', size: 1, name: 'photo.jpg' }] }, t)).toBe('sentPhotoPreview')
+    expect(messengerConversationPreview({ ...base, body: '', attachments: [{ url: '/voice.webm', type: 'audio', contentType: 'audio/webm', size: 1, name: 'voice.webm' }] }, t)).toBe('sentVoicePreview')
+    expect(messengerConversationPreview({ ...base, body: '', attachments: [{ url: '/clip.mp4', type: 'video', contentType: 'video/mp4', size: 1, name: 'clip.mp4' }] }, t)).toBe('sentVideoPreview')
+    expect(messengerConversationPreview({ ...base, body: '', attachments: [{ url: '/guide.pdf', type: 'file', contentType: 'application/pdf', size: 1, name: 'guide.pdf' }] }, t)).toBe('sentFilePreview')
+  })
+
+  it('summarizes image batches and preserves ordinary text', () => {
+    const base = message('media', bob, 0)
+    const photos = [1, 2].map((index) => ({ url: `/photo-${index}.jpg`, type: 'image' as const, contentType: 'image/jpeg', size: 1, name: `photo-${index}.jpg` }))
+    expect(messengerConversationPreview({ ...base, body: '', attachments: photos }, t)).toBe('sentPhotosPreview:2')
+    expect(messengerConversationPreview({ ...base, body: 'Caption', attachments: photos }, t)).toBe('Caption')
+    expect(messengerConversationPreview(null, t)).toBe('')
   })
 })

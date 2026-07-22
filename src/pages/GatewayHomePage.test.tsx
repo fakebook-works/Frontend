@@ -2,6 +2,7 @@
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { GatewayPost } from '../api/gatewayTypes'
 import { GatewayHomePage } from './GatewayHomePage'
 
 const apiMocks = vi.hoisted(() => ({
@@ -28,6 +29,8 @@ const socialMocks = vi.hoisted(() => ({
   unlikeContent: vi.fn(),
   followUser: vi.fn(),
   requestJoinGroup: vi.fn(),
+  cancelJoinGroupRequest: vi.fn(),
+  updatePost: vi.fn(),
   getProfileRelationshipState: vi.fn(),
   getGroupMembershipState: vi.fn(),
   saveContent: vi.fn(),
@@ -59,7 +62,10 @@ vi.mock('../api/client', () => ({
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../api/messenger', () => ({ messengerApi: messengerMocks }))
 vi.mock('../api/search', () => ({ searchApi: searchMocks }))
-vi.mock('../components/ContentActions', () => ({ ContentActions: () => <div data-testid="content-actions" /> }))
+vi.mock('../components/ContentActions', () => ({
+  ContentActions: () => <div data-testid="content-actions" />,
+  ContentDetailOverlay: ({ contentId, onClose }: { contentId: string; onClose: () => void }) => <div role="dialog" aria-label="shared-post-detail" data-testid="content-detail-overlay"><span>{contentId}</span><button type="button" onClick={onClose}>close</button></div>,
+}))
 
 vi.mock('../lib/auth', () => ({
   useAuth: () => ({
@@ -76,6 +82,7 @@ vi.mock('../i18n', () => ({
 
 describe('GatewayHomePage', () => {
   beforeEach(() => {
+    window.sessionStorage.clear()
     apiMocks.recommendedFeed.mockResolvedValue([])
     apiMocks.homeStories.mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
     apiMocks.myStories.mockResolvedValue(null)
@@ -97,6 +104,8 @@ describe('GatewayHomePage', () => {
     socialMocks.unlikeContent.mockReset().mockResolvedValue(true)
     socialMocks.followUser.mockReset().mockResolvedValue(true)
     socialMocks.requestJoinGroup.mockReset().mockResolvedValue(true)
+    socialMocks.cancelJoinGroupRequest.mockReset().mockResolvedValue(true)
+    socialMocks.updatePost.mockReset()
     socialMocks.getProfileRelationshipState.mockReset().mockResolvedValue({ friendship: 'none', isFollowing: false, followsViewer: false, isBlocked: false, isBlockedBy: false })
     socialMocks.getGroupMembershipState.mockReset().mockResolvedValue({ isMember: false, isAdmin: false, joinRequestPending: false, canViewPosts: true })
     socialMocks.saveContent.mockReset().mockResolvedValue(true)
@@ -120,15 +129,24 @@ describe('GatewayHomePage', () => {
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('renders honest empty states for all composed services', async () => {
-    render(<GatewayHomePage />)
+    const { container, unmount } = render(<GatewayHomePage />)
+
+    expect(container.querySelector('.contacts-module > .spinner')).not.toBeInTheDocument()
 
     expect(await screen.findByText('noRecommendedPosts')).toBeInTheDocument()
     expect(screen.getByText('noStories')).toBeInTheDocument()
     expect(screen.getByText('noVisitedGroups')).toBeInTheDocument()
     expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('9007199254740993123', 0, 12)
+    expect(document.documentElement).toHaveClass('home-page-scroll')
+    expect(document.body).toHaveClass('home-page-scroll')
+
+    unmount()
+    expect(document.documentElement).not.toHaveClass('home-page-scroll')
+    expect(document.body).not.toHaveClass('home-page-scroll')
   })
 
   it('renders retryable service errors', async () => {
@@ -139,6 +157,58 @@ describe('GatewayHomePage', () => {
     expect(await screen.findByText('feedLoadError')).toBeInTheDocument()
     expect(await screen.findByText('storiesLoadError')).toBeInTheDocument()
     expect(screen.getAllByText('tryAgain')).toHaveLength(1)
+  })
+
+  it('renders a recommended reel through the same home post card', async () => {
+    apiMocks.recommendedFeed.mockResolvedValue([{ postId: 'reel-71', post: {
+      __typename: 'ReelDetail', id: 'reel-71', type: 4, content: 'Recommended reel', privacy: 0,
+      create: '2026-07-20T08:00:00Z', author: { id: '7', name: 'Reel Author', avatar: '', isVerified: false, canFollow: true },
+      mentions: [], media: [{ id: 'media-71', type: 1, url: 'https://uploads.example.com/reels/reel-71.mp4' }],
+    } }])
+    const { container } = render(<GatewayHomePage />)
+
+    const content = await screen.findByText('Recommended reel')
+    const card = content.closest('article.gateway-post')
+    expect(card).not.toBeNull()
+    expect(card).toHaveTextContent('Reel Author')
+    expect(card?.querySelector('video')).toHaveAttribute('src', 'https://uploads.example.com/reels/reel-71.mp4')
+    expect(container.querySelectorAll('.feed-section > article.gateway-post')).toHaveLength(1)
+    expect(await within(card as HTMLElement).findByTestId('content-actions')).toBeInTheDocument()
+  })
+
+  it('loads the next feed page automatically when the end sentinel enters the viewport', async () => {
+    let intersect: (() => void) | null = null
+    class IntersectionObserverMock {
+      readonly root = null
+      readonly rootMargin = '520px 0px'
+      readonly thresholds = [0.01]
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = () => callback([{ isIntersecting: true, intersectionRatio: 1 } as unknown as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() { return [] }
+    }
+    vi.stubGlobal('IntersectionObserver', IntersectionObserverMock)
+    const makePost = (id: string): GatewayPost => ({
+      __typename: 'FeedPostDetail', id, type: 1, content: `Post ${id}`, privacy: 0,
+      create: '2026-07-20T08:00:00Z', author: { id: '2', name: 'Feed Author', avatar: '', isVerified: false, canFollow: false },
+      media: [], sharedSource: null,
+    })
+    apiMocks.recommendedFeed.mockImplementation((_viewerId: string, offset: number) => Promise.resolve(offset === 0
+      ? Array.from({ length: 12 }, (_, index) => ({ postId: `page-1-${index}`, post: makePost(`page-1-${index}`) }))
+      : [{ postId: 'page-2-0', post: makePost('page-2-0') }]))
+
+    const { container } = render(<GatewayHomePage />)
+    await waitFor(() => expect(container.querySelectorAll('.feed-section > article.gateway-post')).toHaveLength(12))
+    expect(screen.queryByRole('button', { name: 'loadMorePosts' })).not.toBeInTheDocument()
+    await waitFor(() => expect(intersect).not.toBeNull())
+    act(() => intersect?.())
+
+    await waitFor(() => expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('9007199254740993123', 12, 12))
+    await waitFor(() => expect(container.querySelectorAll('.feed-section > article.gateway-post')).toHaveLength(13))
+    expect(await screen.findByText('endOfFeed')).toBeInTheDocument()
   })
 
   it('hydrates and inserts a newly created SocialGraph post', async () => {
@@ -186,6 +256,17 @@ describe('GatewayHomePage', () => {
     const feedCards = container.querySelectorAll('.feed-section > article.gateway-post')
     expect(feedCards[0]).toHaveTextContent('Hello Gateway')
     expect(feedCards[1]).toHaveTextContent('Older post')
+  })
+
+  it('opens a routed post detail over Home and closes it without leaving Home', async () => {
+    const onDetailClose = vi.fn()
+    render(<GatewayHomePage detailPostId="source-post-from-story" onDetailClose={onDetailClose} />)
+
+    const detail = await screen.findByTestId('content-detail-overlay')
+    expect(detail).toHaveTextContent('source-post-from-story')
+    expect(screen.getByRole('main')).toHaveClass('gateway-home')
+    fireEvent.click(within(detail).getByRole('button', { name: 'close' }))
+    expect(onDetailClose).toHaveBeenCalledTimes(1)
   })
 
   it('stores a selected post background in content metadata and renders only the visible text', async () => {
@@ -317,6 +398,51 @@ describe('GatewayHomePage', () => {
     expect(await screen.findByText('Photo post')).toBeInTheDocument()
     expect(screen.queryByText('publishPostSuccess')).not.toBeInTheDocument()
     expect(apiMocks.cancelPendingMedia).not.toHaveBeenCalled()
+  })
+
+  it('can publish the same video twice without remounting or refreshing the page', async () => {
+    const video = new File([new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112])], 'repeat.mp4', { type: 'video/mp4' })
+    apiMocks.uploadMediaFiles.mockImplementation(async () => [{
+      url: `https://uploads.example.com/media/files/video-${apiMocks.uploadMediaFiles.mock.calls.length}.mp4`,
+      type: 'video',
+      contentType: 'video/mp4',
+      size: video.size,
+      name: video.name,
+    }])
+    apiMocks.createFeedPost
+      .mockResolvedValueOnce({ id: 'video-post-1' })
+      .mockResolvedValueOnce({ id: 'video-post-2' })
+    apiMocks.postDetail.mockResolvedValue(null)
+    render(<GatewayHomePage />)
+
+    const firstInput = screen.getAllByLabelText('photoVideo')[0]
+    fireEvent.change(firstInput, { target: { files: [video] } })
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'createPost' })).getByRole('button', { name: 'post' }))
+    await waitFor(() => expect(apiMocks.createFeedPost).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'createPost' })).not.toBeInTheDocument())
+
+    const secondInput = screen.getAllByLabelText('photoVideo')[0]
+    expect(secondInput).not.toBe(firstInput)
+    fireEvent.change(secondInput, { target: { files: [video] } })
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'createPost' })).getByRole('button', { name: 'post' }))
+
+    await waitFor(() => expect(apiMocks.uploadMediaFiles).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(apiMocks.createFeedPost).toHaveBeenCalledTimes(2))
+    expect(apiMocks.uploadMediaFiles.mock.calls[0][0]).toEqual([video])
+    expect(apiMocks.uploadMediaFiles.mock.calls[1][0]).toEqual([video])
+  })
+
+  it('rejects an oversized feed video before starting the upload request', () => {
+    const video = new File([new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112])], 'too-large.mp4', { type: 'video/mp4' })
+    Object.defineProperty(video, 'size', { value: (100 * 1024 * 1024) + 1 })
+    render(<GatewayHomePage />)
+
+    fireEvent.change(screen.getAllByLabelText('photoVideo')[0], { target: { files: [video] } })
+
+    const dialog = screen.getByRole('dialog', { name: 'createPost' })
+    expect(within(dialog).getByText('postVideoTooLarge')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'post' })).toBeDisabled()
+    expect(apiMocks.uploadMediaFiles).not.toHaveBeenCalled()
   })
 
   it('keeps a successful publish successful when post hydration is temporarily unavailable', async () => {
@@ -482,8 +608,9 @@ describe('GatewayHomePage', () => {
     expect(container.querySelector<HTMLElement>('.create-story-preview')?.style.backgroundImage).toContain('avatar-square.jpg')
     expect(container.querySelectorAll('.story-avatar-ring.unseen')).toHaveLength(1)
     const friendTile = screen.getByText('Friend Story').closest('.story-tile')!
-    expect(friendTile.querySelector<HTMLElement>('.story-cover-backdrop')?.style.backgroundImage).toContain('story.jpg')
-    expect(friendTile.querySelector('.story-cover')).toBeInTheDocument()
+    expect(friendTile.querySelectorAll('.home-story-single-media')).toHaveLength(1)
+    expect(friendTile.querySelector('.home-story-single-media')).toHaveAttribute('src', 'https://uploads.example.com/story.jpg')
+    expect(friendTile.querySelector('.story-stage-backdrop')).not.toBeInTheDocument()
     expect(friendTile.querySelector('.story-avatar-ring')).toHaveClass('unseen')
     expect(friendTile.querySelector('.story-avatar-ring .avatar')).toHaveStyle({ width: '32px', height: '32px' })
     expect(screen.getByText('yourStory').closest('.story-tile')?.querySelector('.story-avatar-ring')).not.toHaveClass('unseen')
@@ -491,6 +618,41 @@ describe('GatewayHomePage', () => {
     fireEvent.click(friendTile.querySelector('.story-open')!)
     await waitFor(() => expect(socialMocks.watchContent).toHaveBeenCalledWith('9007199254740993123', '11'))
     await waitFor(() => expect(friendTile.querySelector('.story-avatar-ring')).not.toHaveClass('unseen'))
+  })
+
+  it('restores a newly shared story preview and its unseen ring after Home loads again', async () => {
+    window.sessionStorage.setItem('fakebook.own-unseen-stories.9007199254740993123', JSON.stringify(['shared-story-1']))
+    apiMocks.myStories.mockResolvedValue({
+      author: { id: '9007199254740993123', name: 'Owner Name', avatar: '', isVerified: false },
+      latestCreate: '2026-07-21T09:00:00Z',
+      hasUnseen: false,
+      unseenCount: 0,
+      stories: [{
+        __typename: 'FeedPostShareStory',
+        id: 'shared-story-1',
+        content: '',
+        create: '2026-07-21T09:00:00Z',
+        sharedSource: {
+          id: 'source-post-1',
+          content: 'Shared post preview text',
+          media: null,
+          author: { id: '2', name: 'Original Author', avatar: '', isVerified: false },
+        },
+      }],
+    })
+
+    const { container } = render(<GatewayHomePage profile={{
+      id: '9007199254740993123', username: 'owner', email: 'owner@example.com', displayName: 'Owner Name', avatarUrl: null,
+      isVerified: false, bio: null, birthDate: null, gender: null, location: null, createdAt: '2026-01-01T00:00:00Z',
+      friendCount: 0, postCount: 0,
+    }} />)
+
+    expect(await screen.findByText('Shared post preview text')).toBeInTheDocument()
+    const ownStoryTile = screen.getByText('yourStory').closest('.story-tile')!
+    expect(ownStoryTile.querySelector('.shared-story-miniature.home-shared-story-preview')).toBeInTheDocument()
+    expect(ownStoryTile.querySelector('.shared-story-mini-post')).toBeInTheDocument()
+    expect(ownStoryTile.querySelector('.story-avatar-ring')).toHaveClass('unseen')
+    expect(container.querySelectorAll('.story-avatar-ring.unseen')).toHaveLength(1)
   })
 
   it('inserts a newly published story into the viewer bucket without a success banner or reload', async () => {
@@ -517,6 +679,31 @@ describe('GatewayHomePage', () => {
 
     fireEvent.click(ownStoryTile.querySelector('.story-open')!)
     await waitFor(() => expect(ownStoryTile.querySelector('.story-avatar-ring')).not.toHaveClass('unseen'))
+  })
+
+  it('removes a deleted story in place without closing the viewer or showing a home banner', async () => {
+    apiMocks.myStories.mockResolvedValue({
+      author: { id: '9007199254740993123', name: 'Owner Name', avatar: '', isVerified: false },
+      latestCreate: '2026-07-17T10:00:00Z',
+      hasUnseen: false,
+      stories: [
+        { __typename: 'NormalStory', id: 'story-delete', content: 'Delete me', create: '2026-07-17T10:00:00Z', media: [] },
+        { __typename: 'NormalStory', id: 'story-keep', content: 'Keep me', create: '2026-07-17T09:00:00Z', media: [] },
+      ],
+    })
+    apiMocks.deleteStory.mockResolvedValue({ success: true, message: null })
+    render(<GatewayHomePage />)
+
+    const ownStoryTile = (await screen.findByText('yourStory')).closest('.story-tile')!
+    fireEvent.click(ownStoryTile.querySelector('.story-open')!)
+    fireEvent.click(await screen.findByRole('button', { name: 'storyOptions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'deleteStory' }))
+
+    await waitFor(() => expect(apiMocks.deleteStory).toHaveBeenCalledWith('9007199254740993123', 'story-delete'))
+    const viewer = screen.getByRole('dialog', { name: 'stories' })
+    await waitFor(() => expect(viewer.querySelector('.story-text-only p')).toHaveTextContent('Keep me'))
+    expect(screen.queryByText('storyDeleted')).not.toBeInTheDocument()
+    expect(apiMocks.myStories).toHaveBeenCalledTimes(1)
   })
 
   it('opens a direct conversation from the contacts rail', async () => {
@@ -555,6 +742,7 @@ describe('GatewayHomePage', () => {
 
     fireEvent.click(container.querySelector<HTMLButtonElement>('.contacts-module button[aria-label="search"]')!)
     fireEvent.change(screen.getByPlaceholderText('searchContacts'), { target: { value: 'o' } })
+    expect(container.querySelector('.contacts-module > .spinner')).not.toBeInTheDocument()
 
     await waitFor(() => expect(searchMocks.searchDirectContacts).toHaveBeenCalledWith('o', 1, 20))
     expect(await screen.findByText('Older Contact')).toBeInTheDocument()
@@ -643,6 +831,7 @@ describe('GatewayHomePage', () => {
 
     const feedCard = (await screen.findByText('Public author post')).closest('article')!
     expect(within(feedCard).getByRole('button', { name: 'Tagged Friend' })).toBeInTheDocument()
+    expect(within(feedCard).queryByRole('button', { name: 'privacyFriends' })).not.toBeInTheDocument()
     expect(feedCard.querySelector('.post-privacy-hover .privacy-2 path')).toHaveAttribute('d', 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5z')
     fireEvent.mouseEnter(feedCard.querySelector('.post-time-hover')!)
     expect(await screen.findByRole('tooltip')).toHaveTextContent('2026')
@@ -653,11 +842,19 @@ describe('GatewayHomePage', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'follow' }))
     await waitFor(() => expect(socialMocks.followUser).toHaveBeenCalledWith('9007199254740993123', '2'))
-    expect(screen.queryByRole('button', { name: 'follow' })).not.toBeInTheDocument()
+    const followingButton = screen.getByRole('button', { name: 'following' })
+    expect(followingButton).toHaveClass('is-settled')
+    fireEvent.click(followingButton)
+    await waitFor(() => expect(socialMocks.unfollowUser).toHaveBeenCalledWith('9007199254740993123', '2'))
+    expect(screen.getByRole('button', { name: 'follow' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'joinGroup' }))
     await waitFor(() => expect(socialMocks.requestJoinGroup).toHaveBeenCalledWith('9007199254740993123', '8'))
-    expect(screen.queryByRole('button', { name: 'joinGroup' })).not.toBeInTheDocument()
+    const requestedButton = screen.getByRole('button', { name: 'joinRequested' })
+    expect(requestedButton).toHaveClass('is-settled')
+    fireEvent.click(requestedButton)
+    await waitFor(() => expect(socialMocks.cancelJoinGroupRequest).toHaveBeenCalledWith('9007199254740993123', '8'))
+    expect(screen.getByRole('button', { name: 'joinGroup' })).toBeInTheDocument()
     expect(screen.getByText('Design Group').closest('button')).toHaveClass('post-group-link')
     expect(container.querySelector('.group-post-avatar-stack .group-post-user-avatar')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'hidePost' })).toHaveLength(2)
@@ -669,6 +866,28 @@ describe('GatewayHomePage', () => {
     fireEvent.click(within(feedCard).getByRole('button', { name: 'hidePost' }))
     expect(screen.queryByText('Public author post')).not.toBeInTheDocument()
     expect(screen.getByText('Public group post')).toBeInTheDocument()
+  })
+
+  it('lets the feed post owner change privacy directly from the metadata icon', async () => {
+    apiMocks.recommendedFeed.mockResolvedValue([{ postId: 'owner-post', post: {
+      __typename: 'FeedPostDetail', id: 'owner-post', type: 1, content: 'Owner privacy post', privacy: 0,
+      create: '2026-07-19T08:00:00Z', author: { id: '9007199254740993123', name: 'Owner', avatar: '', isVerified: false, canFollow: false },
+      media: [], sharedSource: null,
+    } }])
+    socialMocks.updatePost.mockResolvedValue({
+      id: 'owner-post', type: 1, content: 'Owner privacy post', privacy: 3, createdAt: '2026-07-19T08:00:00Z', authorId: '9007199254740993123', media: [],
+    })
+    render(<GatewayHomePage />)
+
+    const card = (await screen.findByText('Owner privacy post')).closest('article')!
+    fireEvent.click(within(card).getByRole('button', { name: 'privacyPublic' }))
+    const privacyMenu = screen.getByRole('listbox', { name: 'privacy' })
+    expect(privacyMenu).not.toHaveTextContent('✓')
+    fireEvent.click(within(privacyMenu).getByRole('option', { name: 'privacyOnlyMe' }))
+
+    await waitFor(() => expect(socialMocks.updatePost).toHaveBeenCalledWith('owner-post', { privacy: 3 }))
+    expect(within(card).getByRole('button', { name: 'privacyOnlyMe' }).querySelector('.privacy-3')).toBeInTheDocument()
+    expect(screen.queryByRole('listbox', { name: 'privacy' })).not.toBeInTheDocument()
   })
 
   it('keeps a share wrapper visible when its source is no longer available', async () => {
@@ -689,5 +908,53 @@ describe('GatewayHomePage', () => {
     expect(await screen.findByText('My commentary survives')).toBeInTheDocument()
     expect(screen.getByText('contentUnavailable')).toBeInTheDocument()
     expect(screen.getByText('contentUnavailableDesc')).toBeInTheDocument()
+  })
+
+  it('renders shared source metadata and a playable adaptive media gallery', async () => {
+    apiMocks.recommendedFeed.mockResolvedValue([{ postId: 'shared-70', post: {
+      __typename: 'FeedPostDetail',
+      id: 'shared-70',
+      type: 1,
+      content: 'Sharer commentary',
+      privacy: 0,
+      create: '2026-07-21T12:00:00Z',
+      author: { id: '7', name: 'Sharer Name', avatar: '', isVerified: false, canFollow: false },
+      media: [],
+      sharedSource: {
+        id: 'original-69',
+        isAvailable: true,
+        type: 1,
+        content: 'Original body',
+        privacy: 2,
+        create: '2026-07-20T09:15:00Z',
+        author: { id: '6', name: 'Original Name', avatar: '', isVerified: true },
+        media: [
+          { id: 'video-1', type: 1, url: 'https://uploads.example.com/original.mp4' },
+          { id: 'image-1', type: 0, url: 'https://uploads.example.com/original-1.jpg' },
+          { id: 'image-2', type: 0, url: 'https://uploads.example.com/original-2.jpg' },
+        ],
+      },
+    } }])
+
+    render(<GatewayHomePage />)
+
+    const sourceCard = (await screen.findByText('Original body')).closest('.shared-post-source')!
+    expect(sourceCard.closest('.gateway-post')).toHaveClass('has-shared-source')
+    expect(sourceCard.querySelector('.post-author-name strong')).toHaveTextContent('Original Name')
+    expect(sourceCard.querySelector('time')).toHaveAttribute('datetime', '2026-07-20T09:15:00Z')
+    expect(within(sourceCard as HTMLElement).getByLabelText('privacyFriends')).toBeInTheDocument()
+    expect(sourceCard.querySelector('.post-media-gallery')).not.toHaveClass('compact')
+    expect(sourceCard.querySelectorAll('.post-media-slot')).toHaveLength(3)
+    expect(sourceCard.querySelector('video')).not.toHaveAttribute('controls')
+    expect(sourceCard.querySelector('.post-video-player')).toBeInTheDocument()
+    expect(sourceCard.querySelector('.post-video-controls')).toBeInTheDocument()
+    fireEvent.click(within(sourceCard as HTMLElement).getByRole('button', { name: 'videoSettings' }))
+    expect(within(sourceCard as HTMLElement).getByRole('menu')).toBeInTheDocument()
+    expect(screen.queryByTestId('content-detail-overlay')).not.toBeInTheDocument()
+    const sourceHeader = sourceCard.querySelector('.shared-source-head')!
+    const sourceGallery = sourceCard.querySelector('.post-media-gallery')!
+    expect(sourceHeader.compareDocumentPosition(sourceGallery) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    fireEvent.click(screen.getByText('Original body'))
+    expect(await screen.findByTestId('content-detail-overlay')).toHaveTextContent('original-69')
   })
 })

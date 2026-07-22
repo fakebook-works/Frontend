@@ -1,7 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { CSSProperties, FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { api, visibleRecommendationPosts } from '../api/client'
-import type { GatewayPost, GatewayStory, GatewayTaggedUser, StoryBucket, VisitedGroup } from '../api/gatewayTypes'
+import type { GatewayPost, GatewayStory, GatewayTaggedUser, SharedStory, StoryBucket, VisitedGroup } from '../api/gatewayTypes'
 import { messengerApi, type MessengerPresenceDto } from '../api/messenger'
 import { searchApi } from '../api/search'
 import { socialApi, type ContentEngagement, type SocialProfile } from '../api/social'
@@ -15,6 +16,9 @@ import { MentionDraftOverlay } from '../components/MentionDraftOverlay'
 import { Icon } from '../components/Icon'
 import { PostMediaGallery } from '../components/PostMediaGallery'
 import { PostOptionsMenu } from '../components/PostOptionsMenu'
+import { PostPrivacyIcon, type PostPrivacy } from '../components/PostPrivacyIcon'
+import { SharedPostSourceCard } from '../components/SharedPostSourceCard'
+import { SharedStoryMiniPreview } from '../components/SharedStoryMiniPreview'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
@@ -28,23 +32,39 @@ import {
 import { readDefaultPostPrivacy } from '../lib/privacy'
 import { formatPostTimestamp } from '../lib/postTime'
 import { decodeStoryContent } from '../lib/storyContent'
+import { forgetOwnUnseenStory, reconcileOwnUnseenStories, rememberOwnUnseenStory } from '../lib/ownStoryUnseen'
 import { useFriendSearch } from '../lib/useFriendSearch'
 import { applyMentionSelection, extractMentionUserIds, reconcileMentionEntities, serializeMentionContent, type MentionEntity } from '../lib/mentions'
 import { formatPresence } from './messenger/helpers'
 
 const FEED_PAGE_SIZE = 12
+const MAX_POST_STANDARD_MEDIA_BYTES = 25 * 1024 * 1024
+const MAX_POST_VIDEO_BYTES = 100 * 1024 * 1024
 const TagPeoplePicker = lazy(() => import('../components/TagPeoplePicker'))
 const ComposerMediaPreview = lazy(() => import('../components/ComposerMediaPreview'))
 const StoryCreatorModal = lazy(() => import('../components/StoryCreatorModal'))
-const StoryViewerPage = lazy(() => import('../components/StoryViewerPage').then((module) => ({ default: module.StoryViewerPage })))
+const loadStoryViewerPage = () => import('../components/StoryViewerPage')
+const StoryViewerPage = lazy(() => loadStoryViewerPage().then((module) => ({ default: module.StoryViewerPage })))
 const ContentActions = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentActions })))
+const ContentDetailOverlay = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentDetailOverlay })))
 
 function mediaType(type: MediaUpload['type']) {
   if (type === 'audio') throw new Error('Audio is not supported in feed posts.')
   return type === 'video' ? 1 : 0
 }
 
-export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { profile?: UserProfile | null; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void> }) {
+function removeStoryFromBucket(bucket: StoryBucket, storyId: string): StoryBucket | null {
+  const stories = bucket.stories.filter((story) => story.id !== storyId)
+  return stories.length > 0 ? { ...bucket, latestCreate: stories[0].create, stories } : null
+}
+
+export function GatewayHomePage({ profile = null, detailPostId = null, onDetailClose, onNavigate, onMessage }: {
+  profile?: UserProfile | null
+  detailPostId?: string | null
+  onDetailClose?: () => void
+  onNavigate?: (path: string) => void
+  onMessage?: (profileId: string) => Promise<void>
+}) {
   const { user } = useAuth()
   const { t, locale } = useI18n()
   const [posts, setPosts] = useState<GatewayPost[]>([])
@@ -73,9 +93,13 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
   const [presenceNow, setPresenceNow] = useState(() => Date.now())
   const contactSearchSequence = useRef(0)
   const locallyCreatedPostIds = useRef(new Set<string>())
+  const feedMoreRequestRef = useRef(false)
+  const feedSentinelRef = useRef<HTMLDivElement>(null)
 
   const loadFeed = useCallback(async (reset = false) => {
     if (!user) return
+    if (!reset && feedMoreRequestRef.current) return
+    if (!reset) feedMoreRequestRef.current = true
     if (reset) setFeedLoading(true)
     else setFeedMoreBusy(true)
     setFeedError(null)
@@ -95,6 +119,7 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
     } finally {
       setFeedLoading(false)
       setFeedMoreBusy(false)
+      if (!reset) feedMoreRequestRef.current = false
     }
   }, [feedOffset, t, user])
 
@@ -108,7 +133,15 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
         api.myStories(user.userId),
       ])
       setStoryBuckets(home.items)
-      setMyStories(mine)
+      if (!mine) {
+        reconcileOwnUnseenStories(user.userId, [])
+        setMyStories(null)
+      } else {
+        const locallyUnseenIds = reconcileOwnUnseenStories(user.userId, mine.stories.map((story) => story.id))
+        const backendUnseenCount = Math.max(0, Number(mine.unseenCount ?? 0))
+        const unseenCount = Math.max(backendUnseenCount, locallyUnseenIds.size)
+        setMyStories({ ...mine, hasUnseen: mine.hasUnseen || unseenCount > 0, unseenCount })
+      }
     } catch {
       setStoriesError(t('storiesLoadError'))
     } finally {
@@ -128,6 +161,36 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
       setGroupsLoading(false)
     }
   }, [t, user])
+
+  const applyCreatedStory = useCallback((story: GatewayStory) => {
+    if (!user) return
+    rememberOwnUnseenStory(user.userId, story.id)
+    setMyStories((current) => {
+      const alreadyPresent = Boolean(current?.stories.some((item) => item.id === story.id))
+      return {
+        author: current?.author ?? {
+          id: user.userId,
+          name: profile?.displayName || user.email.split('@')[0],
+          avatar: profile?.avatarUrl || '',
+          isVerified: Boolean(profile?.isVerified),
+        },
+        latestCreate: story.create,
+        hasUnseen: true,
+        unseenCount: alreadyPresent ? Math.max(1, current?.unseenCount ?? 0) : (current?.unseenCount ?? 0) + 1,
+        stories: [story, ...(current?.stories ?? []).filter((item) => item.id !== story.id)],
+      }
+    })
+    setStoryBuckets((current) => current.filter((bucket) => bucket.author.id !== user.userId))
+  }, [profile?.avatarUrl, profile?.displayName, profile?.isVerified, user])
+
+  const markOwnStoryViewed = useCallback((storyId: string) => {
+    if (!user || !forgetOwnUnseenStory(user.userId, storyId)) return
+    setMyStories((current) => {
+      if (!current?.stories.some((story) => story.id === storyId)) return current
+      const unseenCount = Math.max(0, (current.unseenCount ?? 0) - 1)
+      return { ...current, hasUnseen: unseenCount > 0, unseenCount }
+    })
+  }, [user])
 
   const loadContacts = useCallback(async () => {
     if (!user) return
@@ -171,6 +234,16 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
   }, [user?.userId])
 
   useEffect(() => {
+    const sentinel = feedSentinelRef.current
+    if (!sentinel || feedLoading || feedMoreBusy || feedError || !feedHasMore || posts.length === 0 || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) void loadFeed(false)
+    }, { rootMargin: '520px 0px', threshold: 0.01 })
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [feedError, feedHasMore, feedLoading, feedMoreBusy, loadFeed, posts.length])
+
+  useEffect(() => {
     const query = contactQuery.trim()
     const requestId = ++contactSearchSequence.current
     if (contactMode !== 'contactSearch' || !query) {
@@ -199,6 +272,9 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
 
   const visibleContacts = contactQuery.trim() ? contactResults : contacts
   const visibleContactPeople = contactMode === 'friendPicker' ? friendPickerPeople : visibleContacts
+  const contactListPending = visibleContactPeople.length === 0 && (contactMode === 'friendPicker'
+    ? friendsLoading || (contactQuery.trim().length > 0 && friendsSearching)
+    : contactsLoading || (contactMode === 'contactSearch' && contactQuery.trim().length > 0 && contactsSearching))
   const presenceIds = useMemo(
     () => [...new Set(visibleContactPeople.map((person) => person.id))].slice(0, 100),
     [visibleContactPeople],
@@ -248,6 +324,15 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
     return () => window.clearInterval(intervalId)
   }, [])
 
+  useEffect(() => {
+    document.documentElement.classList.add('home-page-scroll')
+    document.body.classList.add('home-page-scroll')
+    return () => {
+      document.documentElement.classList.remove('home-page-scroll')
+      document.body.classList.remove('home-page-scroll')
+    }
+  }, [])
+
   if (!user) return null
 
   async function openGroup(group: VisitedGroup) {
@@ -278,7 +363,7 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
     }
   }
 
-  return (
+  return <>
     <main className="gateway-home">
       <aside className="gateway-left-rail" aria-label={t('visitedGroups')}>
         <nav className="home-shortcuts" aria-label={t('primaryNavLabel')}>
@@ -329,19 +414,21 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
           userId={user.userId}
           profile={profile}
           onReload={loadStories}
-          onStoryCreated={(story) => {
-            setMyStories((current) => ({
-              author: current?.author ?? {
-                id: user.userId,
-                name: profile?.displayName || user.email.split('@')[0],
-                avatar: profile?.avatarUrl || '',
-                isVerified: Boolean(profile?.isVerified),
-              },
-              latestCreate: story.create,
-              hasUnseen: true,
-              stories: [story, ...(current?.stories ?? []).filter((item) => item.id !== story.id)],
+          onStoryCreated={applyCreatedStory}
+          onStoryViewed={markOwnStoryViewed}
+          onStoryDeleted={(storyId) => {
+            const wasLocallyUnseen = forgetOwnUnseenStory(user.userId, storyId)
+            setMyStories((current) => {
+              if (!current) return null
+              const next = removeStoryFromBucket(current, storyId)
+              if (!next || !wasLocallyUnseen) return next
+              const unseenCount = Math.max(0, (current.unseenCount ?? 0) - 1)
+              return { ...next, hasUnseen: unseenCount > 0, unseenCount }
+            })
+            setStoryBuckets((current) => current.flatMap((bucket) => {
+              const next = removeStoryFromBucket(bucket, storyId)
+              return next ? [next] : []
             }))
-            setStoryBuckets((current) => current.filter((bucket) => bucket.author.id !== user.userId))
           }}
           onNavigate={onNavigate}
         />
@@ -358,17 +445,14 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
           {feedLoading ? <div className="card state-card"><span className="spinner" /><p>{t('loadingMore')}</p></div> : !feedError && posts.length === 0 ? (
             <div className="card state-card"><h2>{t('noRecommendedPosts')}</h2><p>{t('noRecommendedPostsDesc')}</p></div>
           ) : (
-            posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={user.userId} onNavigate={onNavigate} onMessage={onMessage} />)
+            posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={user.userId} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={applyCreatedStory} />)
           )}
-          {!feedLoading && !feedError && posts.length > 0 && (
-            <div className="feed-more">
-              {feedHasMore ? (
-                <button type="button" className="btn-soft" onClick={() => void loadFeed(false)} disabled={feedMoreBusy}>
-                  {feedMoreBusy ? t('loadingMore') : t('loadMorePosts')}
-                </button>
-              ) : <p className="muted">{t('endOfFeed')}</p>}
-            </div>
-          )}
+            {!feedLoading && !feedError && posts.length > 0 && (
+              <div ref={feedSentinelRef} className="feed-more feed-auto-loader" aria-live="polite">
+                {feedMoreBusy && <span className="spinner" aria-label={t('loadingMore')} />}
+                {!feedHasMore && <p className="muted">{t('endOfFeed')}</p>}
+              </div>
+            )}
         </section>
       </div>
 
@@ -377,11 +461,7 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
           <header><h2>{t('contacts')}</h2><div><button type="button" className={contactMode === 'friendPicker' ? 'active' : ''} aria-label={t('newMessage')} aria-pressed={contactMode === 'friendPicker'} onClick={() => { setContactMode((mode) => mode === 'friendPicker' ? 'contacts' : 'friendPicker'); setContactQuery(''); setContactActionError(null) }}><Icon name="plus" size={18} /></button><button type="button" className={contactMode === 'contactSearch' ? 'active' : ''} aria-label={t('search')} aria-pressed={contactMode === 'contactSearch'} onClick={() => { setContactMode((mode) => mode === 'contactSearch' ? 'contacts' : 'contactSearch'); setContactQuery(''); setContactActionError(null) }}><Icon name="search" size={17} /></button><button type="button" aria-label={t('more')} onClick={() => onNavigate?.('/messenger')}><Icon name="more" size={17} /></button></div></header>
           {contactMode !== 'contacts' && <label className="contact-search-wrap"><Icon name="search" size={16} /><input key={contactMode} className="contact-search" autoFocus value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} placeholder={contactMode === 'friendPicker' ? t('searchFriends') : t('searchContacts')} /></label>}
           {contactActionError && <p className="form-error contact-action-error">{contactActionError}</p>}
-          {(contactMode === 'friendPicker'
-            ? friendsLoading || (contactQuery.trim().length > 0 && friendsSearching && visibleContactPeople.length === 0)
-            : contactsLoading || (contactMode === 'contactSearch' && contactQuery.trim().length > 0 && contactsSearching && visibleContactPeople.length === 0))
-            ? <span className="spinner" />
-            : visibleContactPeople.length === 0
+          {!contactListPending && (visibleContactPeople.length === 0
               ? <p>{contactMode === 'friendPicker' ? t('noFriendsFound') : contactQuery ? t('noContactsFound') : t('noContactsYet')}</p>
               : <div className="contact-list">{visibleContactPeople.map((person) => {
                 const presence = presenceByUserId[person.id]
@@ -390,11 +470,19 @@ export function GatewayHomePage({ profile = null, onNavigate, onMessage }: { pro
                   ? online ? t('activeNow') : t('friends')
                   : presence ? formatPresence(presence, t, presenceNow) : null
                 return <button type="button" key={person.id} onClick={() => contactMode === 'friendPicker' ? void startContactConversation(person) : onMessage ? void onMessage(person.id) : onNavigate?.(`/profile/${person.id}`)}><span className="contact-avatar"><Avatar name={person.displayName} src={person.avatarUrl} size={36} online={online} /></span><span className="contact-copy"><strong>{person.displayName}<VerifiedBadge verified={person.isVerified} size={12} /></strong>{statusLabel && <small>{statusLabel}</small>}</span></button>
-              })}</div>}
+              })}</div>)}
         </section>
       </aside>
     </main>
-  )
+    {detailPostId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay
+      viewerId={user.userId}
+      contentId={detailPostId}
+      onClose={() => { if (onDetailClose) onDetailClose(); else onNavigate?.('/home') }}
+      onNavigate={onNavigate}
+      onMessage={onMessage}
+      onStoryCreated={applyCreatedStory}
+    /></Suspense>}
+  </>
 }
 
 interface ComposerMediaFile {
@@ -421,22 +509,11 @@ function revokeFilePreviews(items: ComposerMediaFile[]) {
   })
 }
 
-type PostPrivacy = 0 | 1 | 2 | 3
-
 const POST_COMPOSER_EMOJIS = [
   '😀', '😍', '😂', '🥰', '😎', '🤔', '😢', '😡',
   '👍', '🎉', '❤️', '🔥', '🙏', '💯', '✨', '👏',
 ]
 const POST_BACKGROUND_EDITOR_HEIGHT = 260
-
-function PostPrivacyIcon({ privacy, size = 14 }: { privacy: PostPrivacy; size?: number }) {
-  if (privacy === 0) {
-    return <svg className="home-post-public-icon" width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 17.93A8.02 8.02 0 0 1 4 12c0-.62.08-1.21.21-1.79L9 15v1a2 2 0 0 0 2 2v1.93zm6.9-2.54A2 2 0 0 0 16 16h-1v-3a1 1 0 0 0-1-1H8v-2h2a1 1 0 0 0 1-1V7h2a2 2 0 0 0 2-2v-.41A8 8 0 0 1 17.9 17.39z" />
-    </svg>
-  }
-  return <Icon className={`home-post-privacy-icon privacy-${privacy}`} name={privacy === 3 ? 'lock' : privacy === 1 ? 'friends' : 'user'} size={size} />
-}
 
 function PrivacyCaretIcon() {
   return <svg className="home-post-privacy-caret" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -444,7 +521,7 @@ function PrivacyCaretIcon() {
   </svg>
 }
 
-function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onCreated }: { userId: string; displayName: string; avatarUrl: string | null; isVerified?: boolean; friends: UserSummary[]; onCreated: (post: GatewayPost) => void }) {
+export function PostComposer({ variant = 'home', userId, displayName, avatarUrl, isVerified, friends, onCreated }: { variant?: 'home' | 'profile'; userId: string; displayName: string; avatarUrl: string | null; isVerified?: boolean; friends: UserSummary[]; onCreated: (post: GatewayPost) => void }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [content, setContent] = useState('')
@@ -584,11 +661,23 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
   function selectFiles(fileList: FileList | null, mode: 'append' | 'replace' = 'replace') {
     const incoming = Array.from(fileList ?? [])
     if (incoming.length === 0) return
+    const isVideo = (file: File) => file.type.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(file.name)
+    const rejected = incoming.find((file) => file.size > (isVideo(file) ? MAX_POST_VIDEO_BYTES : MAX_POST_STANDARD_MEDIA_BYTES))
+    const accepted = incoming.filter((file) => file.size <= (isVideo(file) ? MAX_POST_VIDEO_BYTES : MAX_POST_STANDARD_MEDIA_BYTES))
+    const sizeError = rejected
+      ? isVideo(rejected) ? t('postVideoTooLarge') : t('postMediaTooLarge')
+      : null
     setBackgroundId(null)
     setActivePicker(null)
+    if (accepted.length === 0) {
+      setFileKey((value) => value + 1)
+      setMessage(sizeError)
+      setOpen(true)
+      return
+    }
     if (mode === 'replace') {
       const seen = new Set<string>()
-      const nextFiles = incoming
+      const nextFiles = accepted
         .filter((file) => {
           const key = fileIdentity(file)
           if (seen.has(key)) return false
@@ -601,7 +690,7 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
       setSelectedFiles(nextFiles)
     } else {
       const seen = new Set(selectedFiles.map((item) => fileIdentity(item.file)))
-      const additions = incoming
+      const additions = accepted
         .filter((file) => {
           const key = fileIdentity(file)
           if (seen.has(key)) return false
@@ -613,7 +702,7 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
       setSelectedFiles([...selectedFiles, ...additions])
     }
     setFileKey((value) => value + 1)
-    setMessage(null)
+    setMessage(sizeError)
     setOpen(true)
   }
 
@@ -763,16 +852,17 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
   }
 
   return <>
-    <section className="card gateway-composer home-composer-card" aria-label={t('createPost')}>
+    <section className={variant === 'profile' ? 'card gateway-composer home-composer-card profile-composer-card' : 'card gateway-composer home-composer-card'} aria-label={t('createPost')}>
       <div className="home-composer-row">
-        <Avatar name={displayName} src={avatarUrl} size={40} />
-        <button type="button" className="home-composer-prompt" onClick={showComposer}>{t('postComposerPlaceholder')}</button>
-        <label className="home-composer-media" aria-label={t('photoVideo')} title={t('photoVideo')}>
+        <Avatar name={displayName} src={avatarUrl} size={variant === 'profile' ? 42 : 40} />
+        <button type="button" className="home-composer-prompt" onClick={showComposer}>{t(variant === 'profile' ? 'profilePostPrompt' : 'postComposerPlaceholder')}</button>
+        {variant === 'home' && <label className="home-composer-media" aria-label={t('photoVideo')} title={t('photoVideo')}>
           <Icon name="photo" size={24} />
           <span>{t('photoVideo')}</span>
           <input key={`quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} />
-        </label>
+        </label>}
       </div>
+      {variant === 'profile' && <div className="profile-composer-actions"><button type="button" className="live" onClick={showComposer}><Icon name="video" size={24} />{t('profileLiveVideo')}</button><label className="media"><Icon name="photo" size={24} />{t('photoVideo')}<input key={`profile-quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} /></label><button type="button" className="milestone" onClick={showComposer}><Icon name="bookmark" size={23} />{t('profileMilestone')}</button></div>}
       {message && !open && <p className="form-error home-composer-message">{message}</p>}
     </section>
 
@@ -782,7 +872,7 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
         <div className={selectedFiles.length > 0 ? 'home-post-modal-body has-media' : 'home-post-modal-body'}>
           <div className="home-post-author">
             <Avatar name={displayName} src={avatarUrl} size={36} />
-            <div><div className="home-post-author-name"><strong>{displayName}<VerifiedBadge verified={isVerified} size={13} /></strong>{taggedSummary && <span className="home-tagged-summary"> {taggedSummary}</span>}</div><div className="home-post-privacy-picker" ref={privacyPickerRef}><button type="button" className="home-post-privacy-control" aria-label={t('privacy')} aria-haspopup="listbox" aria-expanded={activePicker === 'privacy'} onClick={() => setActivePicker((current) => current === 'privacy' ? null : 'privacy')}><PostPrivacyIcon privacy={privacy} size={14} /><span>{privacyLabel}</span><PrivacyCaretIcon /></button>{activePicker === 'privacy' && <div className="home-post-privacy-menu" role="listbox" aria-label={t('privacy')}>{privacyOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => choosePrivacy(option.value)}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span>{privacy === option.value && <b aria-hidden="true">✓</b>}</button>)}</div>}</div></div>
+            <div><div className="home-post-author-name"><strong>{displayName}<VerifiedBadge verified={isVerified} size={13} /></strong>{taggedSummary && <span className="home-tagged-summary"> {taggedSummary}</span>}</div><div className="home-post-privacy-picker" ref={privacyPickerRef}><button type="button" className="home-post-privacy-control" aria-label={t('privacy')} aria-haspopup="listbox" aria-expanded={activePicker === 'privacy'} onClick={() => setActivePicker((current) => current === 'privacy' ? null : 'privacy')}><PostPrivacyIcon privacy={privacy} size={14} /><span>{privacyLabel}</span><PrivacyCaretIcon /></button>{activePicker === 'privacy' && <div className="home-post-privacy-menu" role="listbox" aria-label={t('privacy')}>{privacyOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => choosePrivacy(option.value)}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span></button>)}</div>}</div></div>
           </div>
           <div className={postEditorClass} data-replicated-value={selectedFiles.length > 0 ? content || composerPlaceholder : undefined} style={selectedBackground ? { background: selectedBackground.background } : undefined}><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} autoFocus value={content} onChange={(event) => changeMentionContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onSelect={(event) => setMentionCaret(event.currentTarget.selectionStart ?? content.length)} placeholder={composerPlaceholder} rows={selectedFiles.length > 0 ? 1 : 6} /><MentionSuggestions text={content} people={friends} textareaRef={textareaRef} caretIndex={mentionCaret} onSelected={selectMention} />{selectedFiles.length > 0 && renderEmojiPicker(true)}</div>
           {selectedFiles.length > 0 && <div className="home-media-preview-viewport" key={`media-scroll-${fileKey}`}><div className="home-media-preview-scroll"><Suspense fallback={<div className="home-media-preview home-media-preview-loading"><span className="spinner" /></div>}><ComposerMediaPreview items={selectedFiles} fileKey={fileKey} busy={busy} onReplace={(fileList) => selectFiles(fileList, 'replace')} onClear={clearFiles} showClear={false} /></Suspense></div><button type="button" className="home-media-preview-fixed-clear" disabled={busy} aria-label={t('removeMedia')} title={t('removeMedia')} onClick={clearFiles}><Icon name="close" size={18} /></button></div>}
@@ -800,29 +890,31 @@ function PostComposer({ userId, displayName, avatarUrl, isVerified, friends, onC
   </>
 }
 
-function StorySection({ buckets, myStories, loading, error, userId, profile, onReload, onStoryCreated, onNavigate }: { buckets: StoryBucket[]; myStories: StoryBucket | null; loading: boolean; error: string | null; userId: string; profile: UserProfile | null; onReload: () => Promise<void>; onStoryCreated: (story: Extract<GatewayStory, { __typename: 'NormalStory' }>) => void; onNavigate?: (path: string) => void }) {
+function StorySection({ buckets, myStories, loading, error, userId, profile, onReload, onStoryCreated, onStoryViewed, onStoryDeleted, onNavigate }: { buckets: StoryBucket[]; myStories: StoryBucket | null; loading: boolean; error: string | null; userId: string; profile: UserProfile | null; onReload: () => Promise<void>; onStoryCreated: (story: GatewayStory) => void; onStoryViewed: (storyId: string) => void; onStoryDeleted: (storyId: string) => void; onNavigate?: (path: string) => void }) {
   const { t } = useI18n()
-  const [message, setMessage] = useState<string | null>(null)
   const [creatorOpen, setCreatorOpen] = useState(false)
   const [selectedBucket, setSelectedBucket] = useState<StoryBucket | null>(null)
   const [locallyWatchedStoryIds, setLocallyWatchedStoryIds] = useState<Set<string>>(() => new Set())
+  const locallyWatchedStoryIdsRef = useRef<Set<string>>(new Set())
   const friendBuckets = buckets.filter((bucket) => bucket.author.id !== userId)
   const orderedBuckets = myStories ? [myStories, ...friendBuckets] : friendBuckets
+  useEffect(() => {
+    if (!loading && orderedBuckets.length > 0) void loadStoryViewerPage()
+  }, [loading, orderedBuckets.length])
   const markStoryWatched = useCallback((storyId: string) => {
-    setLocallyWatchedStoryIds((current) => {
-      if (current.has(storyId)) return current
-      return new Set(current).add(storyId)
-    })
-  }, [])
+    if (locallyWatchedStoryIdsRef.current.has(storyId)) return
+    const next = new Set(locallyWatchedStoryIdsRef.current).add(storyId)
+    locallyWatchedStoryIdsRef.current = next
+    setLocallyWatchedStoryIds(next)
+    onStoryViewed(storyId)
+  }, [onStoryViewed])
 
   function openBucket(bucket: StoryBucket) {
     setSelectedBucket(bucket)
   }
 
-  async function handleViewerStoryDeleted() {
-    setSelectedBucket(null)
-    setMessage(t('storyDeleted'))
-    await onReload()
+  function handleViewerStoryDeleted(storyId: string) {
+    onStoryDeleted(storyId)
   }
 
   async function handleViewerRelationshipRemoved() {
@@ -833,7 +925,7 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
   return <section className="card gateway-stories home-story-section" aria-label={t('stories')}>
     <div className="story-strip">
       <article className="story-tile create-story-tile">
-        <button type="button" className="story-open create-story-button" onClick={() => { setMessage(null); setCreatorOpen(true) }}>
+        <button type="button" className="story-open create-story-button" onClick={() => setCreatorOpen(true)}>
           <span className="create-story-preview" style={profile?.avatarUrl ? { backgroundImage: `url(${JSON.stringify(profile.avatarUrl)})` } : undefined}>{!profile?.avatarUrl && <Avatar name={profile?.displayName || t('fakebookUser')} size={58} />}</span>
           <span className="create-story-plus"><Icon name="plus" size={22} /></span>
           <strong>{t('storyCreate')}</strong>
@@ -843,18 +935,25 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
       {loading && <><article className="story-tile story-skeleton" /><article className="story-tile story-skeleton" /><article className="story-tile story-skeleton" /></>}
       {!loading && orderedBuckets.map((bucket) => {
         const latest = bucket.stories[0]
-        const preview = latest?.__typename === 'NormalStory' ? latest.media[0]?.url : latest?.sharedSource.media?.url
-        const decodedContent = decodeStoryContent(latest?.content)
+        const sharedStory = latest && latest.__typename !== 'NormalStory' ? latest : null
+        const preview = latest?.__typename === 'NormalStory' ? latest.media[0] : null
+        const decodedContent = latest?.__typename === 'NormalStory'
+          ? decodeStoryContent(latest.content)
+          : decodePostContent(sharedStory?.sharedSource.content)
+        const sharedBackground = 'backgroundId' in decodedContent
+          ? getPostBackgroundPreset(decodedContent.backgroundId)
+          : null
         const own = bucket.author.id === userId
         const unseen = Boolean(latest) && bucket.hasUnseen && !locallyWatchedStoryIds.has(latest.id)
         return <article className={`story-tile ${unseen ? 'story-unseen' : 'story-seen'}${own ? ' own-story-tile' : ''}`} key={bucket.author.id}>
           <button type="button" className="story-open" onClick={() => openBucket(bucket)}>
-            {preview
-              ? <>
-                <span className="story-cover-backdrop" style={{ backgroundImage: `url(${JSON.stringify(preview)})` }} aria-hidden="true" />
-                <img className="story-cover" src={preview} alt="" loading="lazy" />
-              </>
-              : <span className="story-text-preview" style={{ backgroundColor: decodedContent.backgroundColor }}>{decodedContent.text || t('stories')}</span>}
+            {sharedStory
+              ? <SharedStoryMiniPreview source={sharedStory.sharedSource} className="home-shared-story-preview" />
+              : preview
+              ? preview.type === 1
+                ? <video key={preview.url} className="home-story-single-media" src={preview.url} muted playsInline preload="auto" />
+                : <img key={preview.url} className="home-story-single-media" src={preview.url} alt="" loading="lazy" decoding="async" />
+              : <span className="story-text-preview" style={{ background: sharedBackground?.background ?? ('backgroundColor' in decodedContent ? decodedContent.backgroundColor : undefined) }}>{decodedContent.text || t('stories')}</span>}
             <span className={`story-avatar-ring${unseen ? ' unseen' : ''}`}><Avatar name={bucket.author.name} src={bucket.author.avatar || null} size={32} /></span>
             <strong>{own ? t('yourStory') : bucket.author.name}<VerifiedBadge verified={bucket.author.isVerified} size={12} /></strong>
           </button>
@@ -862,7 +961,7 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
       })}
       {!loading && orderedBuckets.length === 0 && <article className="story-tile story-empty-tile"><Icon name="clock" size={28} /><span>{t('noStories')}</span></article>}
     </div>
-    {(message || error) && !creatorOpen && <p className={message === t('storyDeleted') ? 'form-success story-section-message' : 'form-error story-section-message'}>{message || error}</p>}
+    {error && !creatorOpen && <p className="form-error story-section-message">{error}</p>}
 
     {creatorOpen && <Suspense fallback={<div className="modal-backdrop story-creator-loading-backdrop" role="presentation"><span className="spinner" /></div>}><StoryCreatorModal
       open
@@ -877,6 +976,7 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
       onClose={() => setSelectedBucket(null)}
       onNavigate={onNavigate}
       onViewed={markStoryWatched}
+      onCreateStory={() => { setSelectedBucket(null); setCreatorOpen(true) }}
       onStoryDeleted={handleViewerStoryDeleted}
       onRelationshipRemoved={handleViewerRelationshipRemoved}
     /></Suspense>}
@@ -925,7 +1025,7 @@ export function LegacyStoryViewerModal({ bucket, viewerId, onClose, onNavigate, 
     try {
       const success = next ? await socialApi.likeContent(viewerId, story.id) : await socialApi.unlikeContent(viewerId, story.id)
       if (!success) throw new Error('Reaction rejected')
-      setEngagement((current) => ({ ...(current ?? { targetId: story.id, likeCount: 0, commentCount: 0, shareCount: 0, viewerHasSaved: false, viewerHasWatched: true }), viewerHasLiked: next, likeCount: Math.max(0, (current?.likeCount ?? 0) + (next ? 1 : -1)) }))
+      setEngagement((current) => ({ ...(current ?? { targetId: story.id, likeCount: 0, commentCount: 0, shareCount: 0, viewCount: 0, viewerHasSaved: false, viewerHasWatched: true }), viewerHasLiked: next, likeCount: Math.max(0, (current?.likeCount ?? 0) + (next ? 1 : -1)) }))
     } finally {
       setBusy(false)
     }
@@ -950,35 +1050,120 @@ function TaggedUsersInline({ users, onNavigate }: { users: GatewayTaggedUser[]; 
   </span>
 }
 
-export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage, authorPath }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; authorPath?: (authorId: string) => string }) {
+function PostPrivacyControl({ privacy, label, options, busy, onSelect }: { privacy: PostPrivacy; label: string; options: Array<{ value: PostPrivacy; label: string }>; busy: boolean; onSelect: (privacy: PostPrivacy) => void }) {
+  const { t } = useI18n()
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState<CSSProperties>({ visibility: 'hidden' })
+
+  useEffect(() => {
+    if (!open) return
+    function closeFromOutside(event: PointerEvent) {
+      const target = event.target as Node
+      if (!buttonRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
+    }
+    function closeFromEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeFromOutside)
+    document.addEventListener('keydown', closeFromEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeFromOutside)
+      document.removeEventListener('keydown', closeFromEscape)
+    }
+  }, [open])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    function placeMenu() {
+      const button = buttonRef.current
+      const menu = menuRef.current
+      if (!button || !menu) return
+      const buttonBox = button.getBoundingClientRect()
+      const menuBox = menu.getBoundingClientRect()
+      const padding = 6
+      const left = Math.min(
+        Math.max(padding, buttonBox.left),
+        Math.max(padding, window.innerWidth - menuBox.width - padding),
+      )
+      const below = buttonBox.bottom + 6
+      const top = below + menuBox.height <= window.innerHeight - padding
+        ? below
+        : Math.max(padding, buttonBox.top - menuBox.height - 6)
+      setPosition({ left, top, visibility: 'visible' })
+    }
+    placeMenu()
+    window.addEventListener('resize', placeMenu)
+    window.addEventListener('scroll', placeMenu, true)
+    return () => {
+      window.removeEventListener('resize', placeMenu)
+      window.removeEventListener('scroll', placeMenu, true)
+    }
+  }, [open])
+
+  return <>
+    <HoverTooltip label={label} className="post-meta-hover post-privacy-hover" disabled={open}>
+      <button ref={buttonRef} type="button" className="post-card-privacy-control" aria-label={label} aria-haspopup="listbox" aria-expanded={open} disabled={busy} onClick={() => setOpen((current) => !current)}><PostPrivacyIcon privacy={privacy} size={13} /></button>
+    </HoverTooltip>
+    {open && createPortal(<div ref={menuRef} className="home-post-privacy-menu post-card-privacy-menu" role="listbox" aria-label={t('privacy')} style={position}>{options.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => { setOpen(false); onSelect(option.value) }}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span></button>)}</div>, document.body)}
+  </>
+}
+
+export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage, onStoryCreated, authorPath }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string }) {
   const { t } = useI18n()
   const [current, setCurrent] = useState(post)
   const [deleting, setDeleting] = useState(false)
   const [removed, setRemoved] = useState(false)
   const [relationshipBusy, setRelationshipBusy] = useState(false)
   const [relationshipError, setRelationshipError] = useState<string | null>(null)
-  useEffect(() => setCurrent(post), [post])
+  const [followingFromCard, setFollowingFromCard] = useState(false)
+  const [joinRequestedFromCard, setJoinRequestedFromCard] = useState(false)
+  const [privacyBusy, setPrivacyBusy] = useState(false)
+  const [privacyError, setPrivacyError] = useState<string | null>(null)
+  const [sharedDetailId, setSharedDetailId] = useState<string | null>(null)
+  useEffect(() => {
+    setCurrent(post)
+    setFollowingFromCard(false)
+    setJoinRequestedFromCard(false)
+    setSharedDetailId(null)
+  }, [post])
   if (removed) return null
   const timestamp = formatPostTimestamp(current.create, locale)
   const owned = viewerId != null && viewerId === current.author.id
+  const isFeedLike = current.__typename !== 'GroupPostDetail'
   const openAuthor = () => onNavigate?.(authorPath?.(current.author.id) ?? `/profile/${current.author.id}`)
-  const canFollow = current.__typename === 'FeedPostDetail' && !owned && Boolean(current.author.canFollow)
-  const canJoin = current.__typename === 'GroupPostDetail' && Boolean(current.group.canJoin)
+  const canFollow = isFeedLike && !owned && (Boolean(current.author.canFollow) || followingFromCard)
+  const canJoin = current.__typename === 'GroupPostDetail' && (Boolean(current.group.canJoin) || joinRequestedFromCard)
   const postPrivacy: PostPrivacy = current.privacy === 1 || current.privacy === 2 || current.privacy === 3 ? current.privacy : 0
   const privacyLabel = postPrivacy === 0 ? t('privacyPublic') : postPrivacy === 1 ? t('privacyFriendsFollowers') : postPrivacy === 2 ? t('privacyFriends') : t('privacyOnlyMe')
+  const privacyOptions: Array<{ value: PostPrivacy; label: string }> = [
+    { value: 0, label: t('privacyPublic') },
+    { value: 1, label: t('privacyFriendsFollowers') },
+    { value: 2, label: t('privacyFriends') },
+    { value: 3, label: t('privacyOnlyMe') },
+  ]
   const taggedUsers = current.__typename === 'FeedPostDetail'
     ? (current.taggedUsers ?? []).filter((person) => person.id !== current.author.id)
     : []
   const decodedContent = decodePostContent(current.content)
   const postBackground = current.media.length === 0 ? getPostBackgroundPreset(decodedContent.backgroundId) : null
+  const hasSharedSource = current.__typename === 'FeedPostDetail' && Boolean(current.sharedSource)
+  const canReshare = isFeedLike && current.privacy === 0 && (
+    current.__typename !== 'FeedPostDetail' || !current.sharedSource || current.sharedSource.isAvailable
+  )
 
   async function followAuthor() {
-    if (!viewerId || current.__typename !== 'FeedPostDetail') return
+    if (!viewerId || current.__typename === 'GroupPostDetail') return
     setRelationshipBusy(true)
     setRelationshipError(null)
     try {
-      if (!await socialApi.followUser(viewerId, current.author.id)) throw new Error('Follow rejected')
-      setCurrent((value) => ({ ...value, author: { ...value.author, canFollow: false } }))
+      const success = followingFromCard
+        ? await socialApi.unfollowUser(viewerId, current.author.id)
+        : await socialApi.followUser(viewerId, current.author.id)
+      if (!success) throw new Error('Follow action rejected')
+      setFollowingFromCard((currentValue) => !currentValue)
+      setCurrent((value) => ({ ...value, author: { ...value.author, canFollow: followingFromCard } }))
     } catch {
       setRelationshipError(t('genericError'))
     } finally {
@@ -991,8 +1176,12 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
     setRelationshipBusy(true)
     setRelationshipError(null)
     try {
-      if (!await socialApi.requestJoinGroup(viewerId, current.group.id)) throw new Error('Join rejected')
-      setCurrent((value) => value.__typename === 'GroupPostDetail' ? { ...value, group: { ...value.group, canJoin: false } } : value)
+      const success = joinRequestedFromCard
+        ? await socialApi.cancelJoinGroupRequest(viewerId, current.group.id)
+        : await socialApi.requestJoinGroup(viewerId, current.group.id)
+      if (!success) throw new Error('Join action rejected')
+      setJoinRequestedFromCard((currentValue) => !currentValue)
+      setCurrent((value) => value.__typename === 'GroupPostDetail' ? { ...value, group: { ...value.group, canJoin: joinRequestedFromCard } } : value)
     } catch {
       setRelationshipError(t('joinGroupError'))
     } finally {
@@ -1000,22 +1189,43 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
     }
   }
 
-  return (
-    <article className="card gateway-post">
+  async function changePostPrivacy(nextPrivacy: PostPrivacy) {
+    if (!owned || current.__typename === 'GroupPostDetail' || nextPrivacy === postPrivacy) return
+    const previousPrivacy = postPrivacy
+    setPrivacyBusy(true)
+    setPrivacyError(null)
+    setCurrent((value) => ({ ...value, privacy: nextPrivacy }))
+    try {
+      const updated = await socialApi.updatePost(current.id, { privacy: nextPrivacy })
+      if (!updated) throw new Error('Privacy update rejected')
+      const savedPrivacy: PostPrivacy = updated.privacy === 1 || updated.privacy === 2 || updated.privacy === 3 ? updated.privacy : 0
+      setCurrent((value) => ({ ...value, privacy: savedPrivacy }))
+    } catch {
+      setCurrent((value) => ({ ...value, privacy: previousPrivacy }))
+      setPrivacyError(t('postPrivacyUpdateError'))
+    } finally {
+      setPrivacyBusy(false)
+    }
+  }
+
+  return <>
+    <article className={`card gateway-post${hasSharedSource ? ' has-shared-source' : ''}`}>
       <header className={current.__typename === 'GroupPostDetail' ? 'group-feed-post-head' : 'feed-post-head'}>
-        {current.__typename === 'GroupPostDetail' ? <button type="button" className="post-author-avatar" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><GroupPostAvatar groupName={current.group.name} groupAvatar={current.group.avatar || null} userName={current.author.name} userAvatar={current.author.avatar || null} size={44} /></button> : <button type="button" className="post-author-avatar" onClick={openAuthor}><Avatar name={current.author.name} src={current.author.avatar || null} size={44} /></button>}
+        {current.__typename === 'GroupPostDetail' ? <button type="button" className="post-author-avatar" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><GroupPostAvatar groupName={current.group.name} groupAvatar={current.group.avatar || null} userName={current.author.name} userAvatar={current.author.avatar || null} size={42} /></button> : <button type="button" className="post-author-avatar" onClick={openAuthor}><Avatar name={current.author.name} src={current.author.avatar || null} size={42} /></button>}
         <div className="post-head-copy">
           <div className="post-head-primary">
             {current.__typename === 'GroupPostDetail' ? <button type="button" className="post-group-link" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><strong>{current.group.name}</strong></button> : <button type="button" className="post-author-name" onClick={openAuthor}><strong>{current.author.name}<VerifiedBadge verified={current.author.isVerified} /></strong></button>}
             <TaggedUsersInline users={taggedUsers} onNavigate={onNavigate} />
-            {canFollow && <button type="button" className="post-inline-action" disabled={relationshipBusy} onClick={() => void followAuthor()}>{t('follow')}</button>}
-            {canJoin && <button type="button" className="post-inline-action" disabled={relationshipBusy} onClick={() => void joinGroup()}>{t('joinGroup')}</button>}
+            {canFollow && <button type="button" className={followingFromCard ? 'post-inline-action is-settled' : 'post-inline-action'} disabled={relationshipBusy} onClick={() => void followAuthor()}>{t(followingFromCard ? 'following' : 'follow')}</button>}
+            {canJoin && <button type="button" className={joinRequestedFromCard ? 'post-inline-action is-settled' : 'post-inline-action'} disabled={relationshipBusy} onClick={() => void joinGroup()}>{t(joinRequestedFromCard ? 'joinRequested' : 'joinGroup')}</button>}
           </div>
           <span className="post-head-meta">
             {current.__typename === 'GroupPostDetail' && <><button type="button" className="post-meta-author" onClick={openAuthor}>{current.author.name}<VerifiedBadge verified={current.author.isVerified} size={12} /></button><i>·</i></>}
             <HoverTooltip label={timestamp.detail} className="post-meta-hover post-time-hover"><time dateTime={current.create}>{timestamp.display}</time></HoverTooltip>
             <i>·</i>
-            <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={postPrivacy} size={13} /></span></HoverTooltip>
+            {owned && isFeedLike
+              ? <PostPrivacyControl privacy={postPrivacy} label={privacyLabel} options={privacyOptions} busy={privacyBusy} onSelect={(value) => void changePostPrivacy(value)} />
+              : <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={postPrivacy} size={13} /></span></HoverTooltip>}
           </span>
         </div>
         <div className="post-header-actions">
@@ -1023,30 +1233,15 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
           <button type="button" className="post-header-icon" aria-label={t('hidePost')} title={t('hidePost')} onClick={() => setRemoved(true)}><Icon name="close" size={20} /></button>
         </div>
       </header>
-      {relationshipError && <p className="form-error post-relationship-error">{relationshipError}</p>}
+      {(relationshipError || privacyError) && <p className="form-error post-relationship-error">{relationshipError || privacyError}</p>}
       {decodedContent.text && <p className={postBackground ? 'gateway-post-content has-background' : 'gateway-post-content'} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={current.mentions} onNavigate={onNavigate} /></p>}
       <PostMediaGallery media={current.media} />
-      {current.__typename === 'FeedPostDetail' && current.sharedSource && <SharedPostSourceCard source={current.sharedSource} onNavigate={onNavigate} />}
-      {viewerId && <Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={current.id} post={current} canShare={current.__typename === 'GroupPostDetail' || current.privacy === 0} canReshare={current.__typename === 'FeedPostDetail' && current.privacy === 0} onNavigate={onNavigate} onMessage={onMessage} /></Suspense>}
+      {current.__typename === 'FeedPostDetail' && current.sharedSource && <SharedPostSourceCard source={current.sharedSource} locale={locale} onNavigate={onNavigate} onOpenSource={(sourceId) => setSharedDetailId(sourceId)} />}
+      {viewerId && <Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={current.id} post={current} canShare={current.__typename === 'GroupPostDetail' || current.privacy === 0} canReshare={canReshare} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
       {deleting && <DeletePostModal postId={current.id} onClose={() => setDeleting(false)} onDeleted={() => setRemoved(true)} />}
     </article>
-  )
-}
-
-function SharedPostSourceCard({ source, onNavigate }: { source: NonNullable<Extract<GatewayPost, { __typename: 'FeedPostDetail' }>['sharedSource']>; onNavigate?: (path: string) => void }) {
-  const { t } = useI18n()
-  if (!source.isAvailable) {
-    return <section className="shared-post-source unavailable"><Icon name="lock" size={24} /><div><strong>{t('contentUnavailable')}</strong><p>{t('contentUnavailableDesc')}</p></div></section>
-  }
-  const decodedContent = decodePostContent(source.content)
-  const postBackground = source.media.length === 0 ? getPostBackgroundPreset(decodedContent.backgroundId) : null
-  return <section className="shared-post-source">
-    <PostMediaGallery media={source.media} compact controls={false} onOpen={() => onNavigate?.(`/content/${source.id}`)} />
-    <div className="shared-source-body">
-      <button type="button" className="shared-source-author" disabled={!source.author} onClick={() => source.author && onNavigate?.(`/profile/${source.author.id}`)}><Avatar name={source.author?.name || t('fakebookUser')} src={source.author?.avatar || null} size={38} /><strong>{source.author?.name || t('fakebookUser')}<VerifiedBadge verified={source.author?.isVerified} size={12} /></strong></button>
-      {decodedContent.text && <div className={postBackground ? 'shared-source-content has-background' : 'shared-source-content'} style={postBackground ? { background: postBackground.background } : undefined} role="button" tabIndex={0} onClick={() => onNavigate?.(`/content/${source.id}`)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onNavigate?.(`/content/${source.id}`) }}><MentionContent content={decodedContent.text} mentions={source.mentions} onNavigate={onNavigate} /></div>}
-    </div>
-  </section>
+    {viewerId && sharedDetailId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={sharedDetailId} onClose={() => setSharedDetailId(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
+  </>
 }
 
 function DeletePostModal({ postId, onClose, onDeleted }: { postId: string; onClose: () => void; onDeleted: () => void }) {

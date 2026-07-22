@@ -50,6 +50,7 @@ function Harness({ messages }: { messages: MessengerMessageDto[] }) {
     showDetail={false}
     typingUserId={null}
     replyTarget={replyTarget}
+    onInteract={() => undefined}
     onDraftChange={() => undefined}
     onAttachFiles={() => undefined}
     onRemoveAttachment={() => undefined}

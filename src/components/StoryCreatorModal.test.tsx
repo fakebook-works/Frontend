@@ -78,7 +78,7 @@ describe('StoryCreatorModal', () => {
 
     fireEvent.change(screen.getByLabelText('storyChooseMedia'), { target: { files: [file] } })
     const preview = await waitFor(() => {
-      const image = document.querySelector('.story-editor-canvas img')
+      const image = document.querySelector('.story-editor-media-foreground')
       expect(image).toBeInTheDocument()
       return image as HTMLImageElement
     })
@@ -104,15 +104,30 @@ describe('StoryCreatorModal', () => {
     })
   })
 
+  it('uploads an unedited image at its original quality', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'original-story.png', { type: 'image/png' })
+    apiMocks.uploadMedia.mockResolvedValue({
+      assetId: 'asset-original', state: 'pending', url: '/media/files/original-story.png', type: 'image',
+      contentType: 'image/png', size: file.size, name: file.name,
+    })
+    render(<StoryCreatorModal open authorId="42" onCreated={vi.fn()} onClose={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('storyChooseMedia'), { target: { files: [file] } })
+    fireEvent.click(screen.getByRole('button', { name: 'publishStory' }))
+
+    await waitFor(() => expect(apiMocks.uploadMedia).toHaveBeenCalledWith(file))
+    expect(imageMocks.createEditedStoryImage).not.toHaveBeenCalled()
+  })
+
   it('keeps background choices visible and switches from media back to a text background', async () => {
     const file = new File([new Uint8Array([1])], 'story.png', { type: 'image/png' })
     render(<StoryCreatorModal open authorId="42" onCreated={vi.fn()} onClose={vi.fn()} />)
 
     fireEvent.change(screen.getByLabelText('storyChooseMedia'), { target: { files: [file] } })
-    await waitFor(() => expect(document.querySelector('.story-editor-canvas img')).toBeInTheDocument())
+    await waitFor(() => expect(document.querySelector('.story-editor-media-foreground')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'storyBackground 3' }))
 
-    expect(document.querySelector('.story-editor-canvas img')).not.toBeInTheDocument()
+    expect(document.querySelector('.story-editor-media-foreground')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'storyBackground 3' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByLabelText('storyChooseMedia').closest('label')).not.toHaveClass('selected')
     expect(screen.queryByRole('button', { name: 'storyZoomIn' })).not.toBeInTheDocument()
@@ -151,6 +166,7 @@ describe('StoryCreatorModal', () => {
     render(<StoryCreatorModal open authorId="42" onCreated={vi.fn()} onClose={vi.fn()} />)
 
     fireEvent.change(screen.getByLabelText('storyChooseMedia'), { target: { files: [file] } })
+    fireEvent.click(screen.getByRole('button', { name: 'storyZoomIn' }))
     fireEvent.click(screen.getByRole('button', { name: 'publishStory' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('storyPublishError')

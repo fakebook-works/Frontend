@@ -8,6 +8,7 @@ import type {
   CreateGatewayStoryInput,
   CreatedContent,
   GatewayPost,
+  GatewayStory,
   NormalStory,
   PremiumCheckout,
   PremiumOrder,
@@ -16,6 +17,7 @@ import type {
   PremiumPlanOffer,
   RecommendationItem,
   StoryPage,
+  SharedStory,
   VisitedGroupPage,
 } from './gatewayTypes'
 
@@ -246,8 +248,11 @@ function normalizeGatewayPost(post: GatewayPost): GatewayPost {
       mentions: normalizeMentions(post.sharedSource.mentions),
     } : null,
   }
-  return post.__typename === 'GroupPostDetail'
-    ? { ...normalized, __typename: 'GroupPostDetail', group: { ...post.group, id: String(post.group.id) } }
+  if (post.__typename === 'GroupPostDetail') {
+    return { ...normalized, __typename: 'GroupPostDetail', group: { ...post.group, id: String(post.group.id) } }
+  }
+  return post.__typename === 'ReelDetail'
+    ? { ...normalized, __typename: 'ReelDetail' }
     : { ...normalized, __typename: 'FeedPostDetail' }
 }
 
@@ -530,11 +535,17 @@ const HOME_POST_FIELDS = `
     author { id name avatar isVerified canFollow }
     media { id type url }
     sharedSource {
-      id isAvailable type content
+      id isAvailable type content privacy create
       mentions { userId name available }
       author { id name avatar isVerified }
       media { id type url }
     }
+  }
+  ... on ReelDetail {
+    id type content privacy create
+    mentions { userId name available }
+    author { id name avatar isVerified canFollow }
+    media { id type url }
   }
   ... on GroupPostDetail {
     id type content privacy create
@@ -559,30 +570,36 @@ const HOME_STORY_FIELDS = `
 `
 
 
+function normalizeStory(story: GatewayStory): GatewayStory {
+  const base = { ...story, id: String(story.id) }
+  if (story.__typename === 'NormalStory') {
+    return { ...base, __typename: 'NormalStory', media: story.media.map(normalizeMedia) }
+  }
+  return {
+    ...base,
+    __typename: story.__typename,
+    sharedSource: {
+      ...story.sharedSource,
+      id: String(story.sharedSource.id),
+      content: story.sharedSource.content ?? '',
+      media: story.sharedSource.media ? normalizeMedia(story.sharedSource.media) : null,
+      author: story.sharedSource.author
+        ? { ...story.sharedSource.author, id: String(story.sharedSource.author.id) }
+        : null,
+    },
+  }
+}
+
 function normalizeStoryPage(page: StoryPage): StoryPage {
   return {
     ...page,
     items: page.items.map((bucket) => ({
       ...bucket,
+      unseenCount: Number.isFinite(Number(bucket.unseenCount))
+        ? Math.max(0, Number(bucket.unseenCount))
+        : bucket.hasUnseen ? bucket.stories.length : 0,
       author: { ...bucket.author, id: String(bucket.author.id) },
-      stories: bucket.stories.map((story) => {
-        const base = { ...story, id: String(story.id) }
-        if (story.__typename === 'NormalStory') {
-          return { ...base, __typename: 'NormalStory', media: story.media.map(normalizeMedia) }
-        }
-        return {
-          ...base,
-          __typename: story.__typename,
-          sharedSource: {
-            ...story.sharedSource,
-            id: String(story.sharedSource.id),
-            media: story.sharedSource.media ? normalizeMedia(story.sharedSource.media) : null,
-            author: story.sharedSource.author
-              ? { ...story.sharedSource.author, id: String(story.sharedSource.author.id) }
-              : null,
-          },
-        }
-      }),
+      stories: bucket.stories.map(normalizeStory),
     })),
   }
 }
@@ -829,6 +846,7 @@ export const api = {
             author { id name avatar isVerified }
             latestCreate
             hasUnseen
+            unseenCount
             stories { ${HOME_STORY_FIELDS} }
           }
           endCursor
@@ -847,6 +865,7 @@ export const api = {
           author { id name avatar isVerified }
           latestCreate
           hasUnseen
+          unseenCount
           stories { ${HOME_STORY_FIELDS} }
         }
       }`,
@@ -871,10 +890,10 @@ export const api = {
       media: data.createNormalStory.media.map(normalizeMedia),
     }
   },
-  createShareStory: async (authorIdValue: string, sourceIdValue: string, content: string) => {
+  createShareStory: async (authorIdValue: string, sourceIdValue: string, content: string): Promise<SharedStory> => {
     const authorId = graphQlLongLiteral(authorIdValue)
     const sourceId = graphQlLongLiteral(sourceIdValue)
-    const data = await graphQlRequest<{ createShareStory: { __typename: string; id: string } }>(
+    const data = await graphQlRequest<{ createShareStory: SharedStory }>(
       `mutation CreateShareStory($content: String!) {
         createShareStory(input: { authorId: ${authorId}, content: $content, sharedSourceId: ${sourceId} }) {
           ${HOME_STORY_FIELDS}
@@ -882,7 +901,7 @@ export const api = {
       }`,
       { content },
     )
-    return { ...data.createShareStory, id: String(data.createShareStory.id) }
+    return normalizeStory(data.createShareStory) as SharedStory
   },
   deleteStory: async (authorIdValue: string, storyIdValue: string): Promise<AuthActionResult> => {
     const authorId = graphQlLongLiteral(authorIdValue)

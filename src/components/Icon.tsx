@@ -51,6 +51,7 @@ export type IconName =
   | 'volumeOff'
   | 'eye'
   | 'expand'
+  | 'link'
 
 const PATHS: Record<IconName, string> = {
   home: 'M11.3 3.3 3 10.5c-.3.3-.5.7-.5 1.1V20a1 1 0 0 0 1 1h5v-6h7v6h5a1 1 0 0 0 1-1v-8.4c0-.4-.2-.8-.5-1.1L12.7 3.3a1 1 0 0 0-1.4 0z',
@@ -123,6 +124,7 @@ const PATHS: Record<IconName, string> = {
   volumeOff: 'M3 9v6h4l5 4V5L7 9H3zm12.1.1-1.4 1.4L15.2 12l-1.5 1.5 1.4 1.4 1.5-1.5 1.5 1.5 1.4-1.4L18 12l1.5-1.5-1.4-1.4-1.5 1.5-1.5-1.5z',
   eye: 'M12 5c-5.5 0-9.5 7-9.5 7s4 7 9.5 7 9.5-7 9.5-7S17.5 5 12 5zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm0-2a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
   expand: 'M4 4h6v2H7.4l3.3 3.3-1.4 1.4L6 7.4V10H4V4zm10 0h6v6h-2V7.4l-3.3 3.3-1.4-1.4L16.6 6H14V4zM9.3 13.3l1.4 1.4L7.4 18H10v2H4v-6h2v2.6l3.3-3.3zm5.4 0 3.3 3.3V14h2v6h-6v-2h2.6l-3.3-3.3 1.4-1.4z',
+  link: 'M10.6 13.4a4 4 0 0 0 5.66 0l2.14-2.14a4 4 0 0 0-5.66-5.66l-1.22 1.22M13.4 10.6a4 4 0 0 0-5.66 0L5.6 12.74a4 4 0 1 0 5.66 5.66l1.22-1.22',
 }
 
 export function Icon({
@@ -134,7 +136,7 @@ export function Icon({
   size?: number
   className?: string
 }) {
-  const outline = name === 'likeOutline' || name === 'commentOutline' || name === 'shareOutline' || name === 'sticker'
+  const outline = name === 'likeOutline' || name === 'commentOutline' || name === 'shareOutline' || name === 'sticker' || name === 'link'
   return (
     <svg
       className={className}

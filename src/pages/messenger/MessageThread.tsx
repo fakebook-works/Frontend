@@ -26,6 +26,7 @@ interface MessageThreadProps {
   showDetail: boolean
   presence?: MessengerPresenceDto
   typingUserId: string | null
+  onInteract: () => void
   onDraftChange: (value: string) => void
   onAttachFiles: (files: FileList | null) => void
   onRemoveAttachment: (url: string) => void
@@ -53,6 +54,7 @@ export function MessageThread({
   showDetail,
   presence,
   typingUserId,
+  onInteract,
   onDraftChange,
   onAttachFiles,
   onRemoveAttachment,
@@ -158,23 +160,21 @@ export function MessageThread({
   }
 
   return (
-    <section className="messenger-thread" aria-label={name}>
+    <section className="messenger-thread" aria-label={name} onClickCapture={onInteract}>
       {/* Header */}
       <header className="messenger-thread-head">
         <button type="button" className="messenger-back" onClick={onBack} aria-label={t('backToChats')}>
           <Icon name="caret" size={20} />
         </button>
-        <button
-          type="button"
-          className="messenger-id"
-          onClick={() => otherParticipant && onOpenProfile(otherParticipant.id)}
-        >
-          <Avatar name={name} src={avatar} size={40} online={isOnline} />
+        <div className="messenger-id">
+          <button type="button" className="messenger-id-avatar" aria-label={name} onClick={() => otherParticipant && onOpenProfile(otherParticipant.id)}>
+            <Avatar name={name} src={avatar} size={40} online={isOnline} />
+          </button>
           <span>
             <strong>{name}<VerifiedBadge verified={otherParticipant?.isVerified} size={13} /></strong>
             {conversation.type === 'DIRECT' && <small className={typingParticipant ? 'typing' : isOnline ? 'online' : 'offline'}>{typingParticipant ? t('typingNow') : formatPresence(presence, t, presenceNow)}</small>}
           </span>
-        </button>
+        </div>
         <div className="messenger-actions">
           <button
             type="button"

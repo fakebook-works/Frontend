@@ -111,7 +111,8 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
     let upload: MediaUpload | null = null
     let persisted = false
     try {
-      const uploadFile = file && file.type.startsWith('image/')
+      const imageWasEdited = Math.abs(zoom - 1) > .001 || rotation % 360 !== 0
+      const uploadFile = file && file.type.startsWith('image/') && imageWasEdited
         ? await createEditedStoryImage(file, { zoom, rotation })
         : file
       upload = uploadFile ? await api.uploadMedia(uploadFile) : null
@@ -180,9 +181,12 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
               style={!file ? { backgroundColor } : undefined}
               onWheel={handleZoomWheel}
             >
-              {file && previewUrl && (isVideo
+              {file && previewUrl && <span className="story-editor-media-backdrop" aria-hidden="true">{isVideo
                 ? <video src={previewUrl} muted loop autoPlay playsInline />
-                : <img src={previewUrl} alt="" style={{ transform }} />)}
+                : <img src={previewUrl} alt="" />}</span>}
+              {file && previewUrl && (isVideo
+                ? <video className="story-editor-media-foreground" src={previewUrl} muted loop autoPlay playsInline />
+                : <img className="story-editor-media-foreground" src={previewUrl} alt="" style={{ transform }} />)}
               <textarea
                 autoFocus
                 value={content}

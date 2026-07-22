@@ -1,5 +1,6 @@
 import type { MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 import type { MessengerPresenceDto } from '../../api/messenger'
+import { resolveMediaKind } from './MediaGallery'
 
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 const MESSENGER_LIKE_PATTERN = /^\[\[fakebook:like:([123])\]\]$/
@@ -19,6 +20,27 @@ export function messengerLikeLevel(body: string | null | undefined): MessengerLi
 
 export function messengerMessagePreview(body: string | null | undefined): string {
   return messengerLikeLevel(body) ? '👍' : body ?? ''
+}
+
+export function messengerConversationPreview(message: MessengerMessageDto | null | undefined, t: Translate): string {
+  if (!message) return ''
+  const text = messengerMessagePreview(message.body).trim()
+  if (text) return text
+
+  const attachments = message.attachments ?? []
+  if (attachments.length === 0) return t('sentMessagePreview')
+  const kinds = attachments.map(resolveMediaKind)
+  if (kinds.every((kind) => kind === 'image')) {
+    return attachments.length === 1
+      ? t('sentPhotoPreview')
+      : t('sentPhotosPreview', { count: attachments.length })
+  }
+  if (attachments.length === 1) {
+    if (kinds[0] === 'audio') return t('sentVoicePreview')
+    if (kinds[0] === 'video') return t('sentVideoPreview')
+    return t('sentFilePreview')
+  }
+  return t('sentAttachmentsPreview', { count: attachments.length })
 }
 
 export function conversationName(conversation: MessengerConversationDto, me: UserSummary): string {

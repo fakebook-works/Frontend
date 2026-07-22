@@ -1,5 +1,5 @@
-export const STORY_IMAGE_WIDTH = 1080
-export const STORY_IMAGE_HEIGHT = 1920
+export const STORY_IMAGE_WIDTH = 1440
+export const STORY_IMAGE_HEIGHT = 2560
 
 export interface StoryImageEditOptions {
   zoom?: number
@@ -24,7 +24,7 @@ function canvasToBlob(canvas: HTMLCanvasElement) {
     canvas.toBlob((blob) => {
       if (blob) resolve(blob)
       else reject(new Error('The edited story image could not be exported.'))
-    }, 'image/jpeg', .92)
+    }, 'image/jpeg', .98)
   })
 }
 
@@ -52,10 +52,30 @@ export async function createEditedStoryImage(
     const context = canvas.getContext('2d')
     if (!context) throw new Error('Canvas 2D is not supported in this browser.')
 
-    context.fillStyle = '#000000'
+    context.fillStyle = '#18191a'
     context.fillRect(0, 0, canvas.width, canvas.height)
     context.imageSmoothingEnabled = true
     context.imageSmoothingQuality = 'high'
+
+    const coverScale = Math.max(
+      canvas.width / image.naturalWidth,
+      canvas.height / image.naturalHeight,
+    ) * 1.38
+    const backdropWidth = image.naturalWidth * coverScale
+    const backdropHeight = image.naturalHeight * coverScale
+    context.save()
+    context.filter = 'blur(290px) brightness(0.94) saturate(0.88)'
+    context.drawImage(
+      image,
+      (canvas.width - backdropWidth) / 2,
+      (canvas.height - backdropHeight) / 2,
+      backdropWidth,
+      backdropHeight,
+    )
+    context.restore()
+    context.filter = 'none'
+    context.fillStyle = 'rgba(0, 0, 0, 0.08)'
+    context.fillRect(0, 0, canvas.width, canvas.height)
 
     const containScale = Math.min(
       canvas.width / image.naturalWidth,

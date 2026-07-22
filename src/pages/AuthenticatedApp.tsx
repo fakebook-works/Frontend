@@ -13,7 +13,7 @@ import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
 import { groupMemberRoute, pathSegment, useAppLocation } from '../lib/router'
-import { timeAgo } from '../lib/format'
+import { relativeTime } from '../lib/format'
 import { notificationTarget, notificationText } from '../lib/notifications'
 import { unlockSoundEffects } from '../lib/sounds'
 import { FriendsPage } from './FriendsPage'
@@ -216,6 +216,8 @@ export function AuthenticatedApp() {
   const groupRouteId = memberRoute?.groupId ?? (location.pathname.startsWith('/groups/') ? pathSegment(location.pathname, 1) : null)
   const groupMemberProfileId = memberRoute?.profileId ?? null
   const groupId = groupMemberProfileId ? null : groupRouteId
+  const isHomeRoute = location.pathname === '/' || location.pathname === '/home'
+  const homeDetailPostId = isHomeRoute ? location.params.get('post') : null
 
   function go(path: string) {
     setMenuOpen(false)
@@ -283,7 +285,7 @@ export function AuthenticatedApp() {
       </div>
 
       <nav className="app-shell-nav" aria-label={t('appNavigation')}>
-        <NavButton icon="home" label={t('home')} active={location.pathname === '/' || location.pathname === '/home'} onClick={() => go('/home')} />
+        <NavButton icon="home" label={t('home')} active={isHomeRoute} onClick={() => go('/home')} />
         <NavButton icon="friends" label={t('friends')} active={location.pathname.startsWith('/friends')} onClick={() => go('/friends')} />
         <NavButton icon="video" label={t('reels')} active={location.pathname.startsWith('/reels')} onClick={() => go('/reels')} />
         <NavButton icon="groups" label={t('groups')} active={location.pathname.startsWith('/groups')} onClick={() => go('/groups')} />
@@ -311,7 +313,7 @@ export function AuthenticatedApp() {
 
     {notificationPanelOpen && <NotificationPopover items={notificationItems} unreadCount={unreadNotifications} loading={notificationsLoading} onOpen={(item) => void openNotification(item)} onMarkAll={() => void markAllNotificationsRead()} onClose={() => setNotificationPanelOpen(false)} />}
 
-    {(location.pathname === '/' || location.pathname === '/home') && <GatewayHomePage profile={currentProfile} onNavigate={go} onMessage={openDirectMessage} />}
+    {isHomeRoute && <GatewayHomePage profile={currentProfile} detailPostId={homeDetailPostId} onDetailClose={() => navigate('/home', { replace: true })} onNavigate={go} onMessage={openDirectMessage} />}
     {location.pathname === '/search' && <SearchPage query={location.params.get('q') ?? ''} tab={searchTab} userId={user.userId} onNavigate={go} />}
     {location.pathname.startsWith('/friends') && <FriendsPage userId={user.userId} section={normalizeFriendSection(pathSegment(location.pathname, 1))} onNavigate={go} onMessage={openDirectMessage} />}
     {location.pathname.startsWith('/reels') && <ReelsPage userId={user.userId} mode={normalizeReelMode(pathSegment(location.pathname, 1))} onNavigate={go} />}
@@ -331,7 +333,7 @@ export function AuthenticatedApp() {
 }
 
 function NotificationPopover({ items, unreadCount, loading, onOpen, onMarkAll, onClose }: { items: AppNotification[]; unreadCount: number; loading: boolean; onOpen: (item: AppNotification) => void; onMarkAll: () => void; onClose: () => void }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
   const [unreadItems, setUnreadItems] = useState<AppNotification[] | null>(null)
   const [unreadLoading, setUnreadLoading] = useState(false)
@@ -403,8 +405,8 @@ function NotificationPopover({ items, unreadCount, loading, onOpen, onMarkAll, o
     <div className="notification-popover-list">{loading || (filter === 'unread' && unreadLoading) ? <div className="state-card"><span className="spinner" /></div> : visible.length === 0 ? <p className="muted">{t('noNotifications')}</p> : visible.map((item) => {
       const actorName = item.actor?.displayName ?? t('fakebookUser')
       return <button type="button" key={item.id} className={item.isRead ? '' : 'unread'} onClick={() => openItem(item)}>
-        <span className="notification-avatar-wrap"><Avatar name={actorName} src={item.actor?.avatarUrl} size={56} /><NotificationKindIcon actionType={item.actionType} /></span>
-        <span className="notification-popover-copy"><span><strong>{actorName}<VerifiedBadge verified={item.actor?.isVerified} size={12} /></strong> {notificationText(item.actionType, t)}</span><small>{timeAgo(item.createdAt)}</small></span>
+        <span className="notification-avatar-wrap"><Avatar name={actorName} src={item.actor?.avatarUrl} size={48} /><NotificationKindIcon actionType={item.actionType} /></span>
+        <span className="notification-popover-copy"><span><strong>{actorName}<VerifiedBadge verified={item.actor?.isVerified} size={12} /></strong> {notificationText(item.actionType, t)}</span><small>{relativeTime(item.createdAt, locale)}</small></span>
         {!item.isRead && <i />}
       </button>
     })}</div>

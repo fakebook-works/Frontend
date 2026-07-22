@@ -1,10 +1,20 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 import { MessengerAudioPlayer } from './MessengerAudioPlayer'
 
 describe('MessengerAudioPlayer', () => {
+  afterEach(cleanup)
+
+  it('uses a centered filled play glyph with softly rounded corners', () => {
+    const { container } = render(<MessengerAudioPlayer src="/media/files/voice.webm" name="voice.webm" durationMs={10_000} />)
+    const glyph = container.querySelector('.messenger-audio-play-glyph')
+    expect(glyph).toBeInTheDocument()
+    expect(glyph?.querySelector('path')).toHaveAttribute('stroke-linejoin', 'round')
+    expect(glyph?.querySelector('path')).toHaveAttribute('stroke-linecap', 'round')
+  })
+
   it('cycles playback speed from 0.5x through 2x per audio message', () => {
     const { container } = render(<MessengerAudioPlayer src="/media/files/voice.webm" name="voice.webm" durationMs={10_000} />)
     const audio = container.querySelector('audio')!

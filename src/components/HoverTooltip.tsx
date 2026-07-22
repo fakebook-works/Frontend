@@ -6,17 +6,19 @@ interface HoverTooltipProps {
   label: string
   children: ReactNode
   className?: string
+  disabled?: boolean
 }
 
-export function HoverTooltip({ label, children, className }: HoverTooltipProps) {
+export function HoverTooltip({ label, children, className, disabled = false }: HoverTooltipProps) {
   const anchorRef = useRef<HTMLSpanElement>(null)
   const tooltipRef = useRef<HTMLSpanElement>(null)
   const [visible, setVisible] = useState(false)
   const [position, setPosition] = useState<CSSProperties>({ visibility: 'hidden' })
   const tooltipId = useId()
+  const renderedVisible = visible && !disabled
 
   useLayoutEffect(() => {
-    if (!visible) return
+    if (!renderedVisible) return
 
     function placeTooltip() {
       const anchor = anchorRef.current
@@ -45,22 +47,22 @@ export function HoverTooltip({ label, children, className }: HoverTooltipProps) 
       window.removeEventListener('resize', placeTooltip)
       window.removeEventListener('scroll', placeTooltip, true)
     }
-  }, [label, visible])
+  }, [label, renderedVisible])
 
   return <>
     <span
       ref={anchorRef}
       className={className}
       tabIndex={0}
-      aria-describedby={visible ? tooltipId : undefined}
-      onMouseEnter={() => setVisible(true)}
+      aria-describedby={renderedVisible ? tooltipId : undefined}
+      onMouseEnter={() => { if (!disabled) setVisible(true) }}
       onMouseLeave={() => setVisible(false)}
-      onFocus={() => setVisible(true)}
+      onFocus={() => { if (!disabled) setVisible(true) }}
       onBlur={() => setVisible(false)}
     >
       {children}
     </span>
-    {visible && createPortal(
+    {renderedVisible && createPortal(
       <span ref={tooltipRef} id={tooltipId} role="tooltip" className="post-meta-tooltip" style={position}>{label}</span>,
       document.body,
     )}

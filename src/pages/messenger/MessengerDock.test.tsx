@@ -70,7 +70,7 @@ function directConversation(friendId: string): MessengerConversationDto {
   }
 }
 
-function Harness() {
+function Harness({ onOpenProfile = () => undefined }: { onOpenProfile?: (id: string) => void } = {}) {
   const dock = useRef<MessengerDockHandle>(null)
   return <>
     {['2', '3', '4', '5'].map((id) => <button key={id} type="button" onClick={() => void dock.current?.openDirect(id)}>open-{id}</button>)}
@@ -81,9 +81,20 @@ function Harness() {
       panelOpen={false}
       onPanelClose={() => undefined}
       onOpenAll={() => undefined}
-      onOpenProfile={() => undefined}
+      onOpenProfile={onOpenProfile}
     />
   </>
+}
+
+function PanelHarness() {
+  return <MessengerDock
+    me={me}
+    friends={[]}
+    panelOpen
+    onPanelClose={() => undefined}
+    onOpenAll={() => undefined}
+    onOpenProfile={() => undefined}
+  />
 }
 
 describe('MessengerDock overflow windows', () => {
@@ -210,7 +221,7 @@ describe('MessengerDock overflow windows', () => {
 
     expect(await within(chat).findByText('Đã gửi')).toBeInTheDocument()
     expect(chat.querySelector('[title="Friend 2 đã xem"]')).toBeInTheDocument()
-    await waitFor(() => expect(messengerMocks.markRead).toHaveBeenCalledWith('conversation-2', '2'))
+    expect(messengerMocks.markRead).not.toHaveBeenCalled()
   })
 
   it('keeps a mini chat pinned to the bottom when reply opens there', async () => {
@@ -270,8 +281,13 @@ describe('MessengerDock overflow windows', () => {
   })
 
   it('opens and promotes a chat when an incoming message arrives', async () => {
-    const incomingConversation = directConversation('2')
+    const incomingMessage: MessengerMessageDto = {
+      id: 'message-1', conversationId: 'conversation-2', sequence: '1', sender: friend('2'), body: 'Incoming',
+      createdAt: '2026-07-18T00:00:00Z', status: 'delivered', attachments: [], reactions: [], deleted: false,
+    }
+    const incomingConversation = { ...directConversation('2'), unreadCount: 1, lastMessage: incomingMessage }
     messengerMocks.conversations.mockResolvedValue([incomingConversation])
+    messengerMocks.messages.mockResolvedValue([incomingMessage])
     render(<Harness />)
     await waitFor(() => expect(inboxListener).not.toBeNull())
 
@@ -292,9 +308,105 @@ describe('MessengerDock overflow windows', () => {
     expect(chat).toHaveClass('has-attention')
     expect(messengerMocks.messages).toHaveBeenCalledWith(incomingConversation.id, me.id)
     expect(soundMocks.playIncomingMessageSound).toHaveBeenCalledTimes(1)
+    expect(messengerMocks.markRead).not.toHaveBeenCalled()
 
-    fireEvent.click(chat.querySelector('.mini-chat-messages')!)
-    expect(chat).not.toHaveClass('has-attention')
+    await within(chat).findByText('Incoming')
+    fireEvent.click(within(chat).getByPlaceholderText('Aa'))
+    await waitFor(() => expect(messengerMocks.markRead).toHaveBeenCalledWith(incomingConversation.id, '1'))
+    await waitFor(() => expect(chat).not.toHaveClass('has-attention'))
+  })
+
+  it('does not mark an automatically opened incoming chat read from minimize', async () => {
+    const incomingMessage: MessengerMessageDto = {
+      id: 'message-controls', conversationId: 'conversation-2', sequence: '7', sender: friend('2'), body: 'Unread controls',
+      createdAt: '2026-07-18T00:00:00Z', status: 'delivered', attachments: [], reactions: [], deleted: false,
+    }
+    const incomingConversation = { ...directConversation('2'), unreadCount: 1, lastMessage: incomingMessage }
+    messengerMocks.conversations.mockResolvedValue([incomingConversation])
+    messengerMocks.messages.mockResolvedValue([incomingMessage])
+    render(<Harness />)
+    await waitFor(() => expect(inboxListener).not.toBeNull())
+
+    await act(async () => {
+      inboxListener?.({
+        eventId: 'incoming-controls', kind: 'MESSAGE_ADDED', conversationId: incomingConversation.id,
+        messageId: incomingMessage.id, userId: '2', sequence: '7', occurredAt: incomingMessage.createdAt, expiresAt: null,
+      })
+    })
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    await within(chat).findByText('Unread controls')
+
+    fireEvent.click(within(chat).getByRole('button', { name: 'minimize' }))
+    expect(messengerMocks.markRead).not.toHaveBeenCalled()
+  })
+
+  it('does not mark an automatically opened incoming chat read from close', async () => {
+    const incomingMessage: MessengerMessageDto = {
+      id: 'message-close', conversationId: 'conversation-2', sequence: '8', sender: friend('2'), body: 'Unread close',
+      createdAt: '2026-07-18T00:00:00Z', status: 'delivered', attachments: [], reactions: [], deleted: false,
+    }
+    const incomingConversation = { ...directConversation('2'), unreadCount: 1, lastMessage: incomingMessage }
+    messengerMocks.conversations.mockResolvedValue([incomingConversation])
+    messengerMocks.messages.mockResolvedValue([incomingMessage])
+    render(<Harness />)
+    await waitFor(() => expect(inboxListener).not.toBeNull())
+
+    await act(async () => {
+      inboxListener?.({
+        eventId: 'incoming-close', kind: 'MESSAGE_ADDED', conversationId: incomingConversation.id,
+        messageId: incomingMessage.id, userId: '2', sequence: '8', occurredAt: incomingMessage.createdAt, expiresAt: null,
+      })
+    })
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    await within(chat).findByText('Unread close')
+
+    fireEvent.click(within(chat).getByRole('button', { name: 'close' }))
+    expect(messengerMocks.markRead).not.toHaveBeenCalled()
+  })
+
+  it('opens a profile only from the header avatar, not from the name', async () => {
+    const onOpenProfile = vi.fn()
+    render(<Harness onOpenProfile={onOpenProfile} />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+
+    fireEvent.click(chat.querySelector('.mini-chat-name')!)
+    expect(onOpenProfile).not.toHaveBeenCalled()
+    fireEvent.click(chat.querySelector('.mini-chat-id')!)
+    expect(onOpenProfile).toHaveBeenCalledWith('2')
+  })
+
+  it('keeps the compact panel free of unread-number badges and the extra filter menu', async () => {
+    const updatedAt = new Date(Date.now() - 14 * 24 * 60 * 60_000).toISOString()
+    const preview: MessengerMessageDto = {
+      id: 'panel-message', conversationId: 'conversation-2', sequence: '4', sender: friend('2'), body: 'Panel preview',
+      createdAt: updatedAt, status: 'delivered', attachments: [], reactions: [], deleted: false,
+    }
+    messengerMocks.conversations.mockResolvedValue([{
+      ...directConversation('2'), updatedAt, unreadCount: 4, lastMessage: preview,
+    }])
+    render(<PanelHarness />)
+
+    const dialog = await screen.findByRole('dialog', { name: 'messages' })
+    const row = await within(dialog).findByRole('button', { name: /Friend 2/ })
+    expect(row.querySelector('b')).not.toBeInTheDocument()
+    expect(row.querySelector('.avatar')).toHaveStyle({ width: '48px', height: '48px' })
+    expect(within(row).getByText(/2 tuần trước/)).toBeInTheDocument()
+    expect(within(dialog).getAllByRole('button', { name: 'messengerSettings' })).toHaveLength(1)
+  })
+
+  it('shows the attachment kind instead of the empty-conversation fallback for a media-only latest message', async () => {
+    const latest: MessengerMessageDto = {
+      id: 'panel-audio', conversationId: 'conversation-2', sequence: '5', sender: friend('2'), body: '',
+      createdAt: new Date().toISOString(), status: 'delivered', reactions: [], deleted: false,
+      attachments: [{ url: '/voice.webm', type: 'audio', contentType: 'audio/webm', size: 10, name: 'voice.webm' }],
+    }
+    messengerMocks.conversations.mockResolvedValue([{ ...directConversation('2'), lastMessage: latest }])
+    render(<PanelHarness />)
+
+    const dialog = await screen.findByRole('dialog', { name: 'messages' })
+    expect(await within(dialog).findByText(/sentVoicePreview/)).toBeInTheDocument()
+    expect(within(dialog).queryByText(/startConversation/)).not.toBeInTheDocument()
   })
 
   it('uses real presence and displays realtime typing without refetching messages', async () => {

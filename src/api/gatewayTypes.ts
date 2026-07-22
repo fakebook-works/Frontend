@@ -30,6 +30,8 @@ export interface SharedPostSource {
   isAvailable: boolean
   type: number | null
   content: string | null
+  privacy?: number | null
+  create?: string | null
   author: Omit<GatewayAuthor, 'canFollow'> | null
   media: GatewayMedia[]
   mentions?: GatewayMention[]
@@ -59,7 +61,11 @@ export interface GroupPost extends Omit<FeedPost, '__typename'> {
   }
 }
 
-export type GatewayPost = FeedPost | GroupPost
+export interface ReelPost extends Omit<FeedPost, '__typename'> {
+  __typename: 'ReelDetail'
+}
+
+export type GatewayPost = FeedPost | GroupPost | ReelPost
 
 export interface RecommendationItem {
   postId: string
@@ -103,12 +109,15 @@ export interface ReelShareStory extends Omit<FeedPostShareStory, '__typename'> {
   __typename: 'ReelShareStory'
 }
 
-export type GatewayStory = NormalStory | FeedPostShareStory | ReelShareStory
+export type SharedStory = FeedPostShareStory | ReelShareStory
+
+export type GatewayStory = NormalStory | SharedStory
 
 export interface StoryBucket {
   author: Omit<GatewayAuthor, 'canFollow'>
   latestCreate: string
   hasUnseen: boolean
+  unseenCount?: number
   stories: GatewayStory[]
 }
 

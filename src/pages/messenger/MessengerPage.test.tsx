@@ -149,4 +149,42 @@ describe('Messenger unavailable state', () => {
     expect(await screen.findByText('first.png')).toBeInTheDocument()
     expect(uploadMocks.cancelPendingMedia).not.toHaveBeenCalled()
   })
+
+  it('keeps an initially selected conversation unread until the user clicks the thread', async () => {
+    const me = { id: 'me', username: 'me', displayName: 'Me', avatarUrl: null }
+    const friend = { id: 'friend', username: 'friend', displayName: 'Friend', avatarUrl: null }
+    const message = {
+      id: 'message-9', conversationId: 'conversation-9', sequence: '9', sender: friend, body: 'Unread thread',
+      createdAt: '2026-07-20T00:00:00Z', status: 'delivered' as const, attachments: [], reactions: [], deleted: false,
+    }
+    messengerMocks.conversations.mockResolvedValue([{
+      id: 'conversation-9', type: 'DIRECT', participants: [me, friend], title: null, avatarUrl: null,
+      updatedAt: message.createdAt, unreadCount: 1, lastMessage: message,
+    }])
+    messengerMocks.messages.mockResolvedValue([message])
+    render(<MessengerPage me={me} friends={[friend]} onOpenProfile={vi.fn()} />)
+
+    await screen.findByText('Unread thread')
+    expect(messengerMocks.markRead).not.toHaveBeenCalled()
+
+    fireEvent.click(document.querySelector('.messenger-messages')!)
+    await waitFor(() => expect(messengerMocks.markRead).toHaveBeenCalledWith('conversation-9', '9'))
+  })
+
+  it('opens the full-page profile only from the thread avatar', async () => {
+    const me = { id: 'me', username: 'me', displayName: 'Me', avatarUrl: null }
+    const friend = { id: 'friend', username: 'friend', displayName: 'Friend', avatarUrl: null }
+    messengerMocks.conversations.mockResolvedValue([{
+      id: 'conversation-profile', type: 'DIRECT', participants: [me, friend], title: null, avatarUrl: null,
+      updatedAt: '2026-07-20T00:00:00Z', unreadCount: 0, lastMessage: null,
+    }])
+    const onOpenProfile = vi.fn()
+    const { container } = render(<MessengerPage me={me} friends={[friend]} onOpenProfile={onOpenProfile} />)
+    await screen.findAllByText('Friend')
+
+    fireEvent.click(container.querySelector('.messenger-thread .messenger-id > span')!)
+    expect(onOpenProfile).not.toHaveBeenCalled()
+    fireEvent.click(container.querySelector('.messenger-thread .messenger-id-avatar')!)
+    expect(onOpenProfile).toHaveBeenCalledWith('friend')
+  })
 })

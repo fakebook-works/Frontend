@@ -5,6 +5,7 @@ import { STORY_IMAGE_HEIGHT, STORY_IMAGE_WIDTH, createEditedStoryImage } from '.
 describe('createEditedStoryImage', () => {
   const context = {
     fillStyle: '',
+    filter: 'none',
     imageSmoothingEnabled: false,
     imageSmoothingQuality: 'low',
     fillRect: vi.fn(),
@@ -49,18 +50,21 @@ describe('createEditedStoryImage', () => {
     vi.unstubAllGlobals()
   })
 
-  it('exports a centered 1080x1920 image using contain, zoom and rotation', async () => {
+  it('exports a centered high-resolution story image using contain, zoom and rotation', async () => {
     const source = new File([new Uint8Array([9])], 'holiday.png', { type: 'image/png' })
 
     const result = await createEditedStoryImage(source, { zoom: 1.5, rotation: 90 })
 
     expect(result.name).toBe('holiday-story-edited.jpg')
     expect(result.type).toBe('image/jpeg')
+    expect(HTMLCanvasElement.prototype.toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/jpeg', .98)
     expect(context.fillRect).toHaveBeenCalledWith(0, 0, STORY_IMAGE_WIDTH, STORY_IMAGE_HEIGHT)
-    expect(context.translate).toHaveBeenCalledWith(540, 960)
+    expect(context.drawImage).toHaveBeenCalledTimes(2)
+    expect(context.drawImage).toHaveBeenNthCalledWith(1, expect.anything(), expect.any(Number), expect.any(Number), expect.any(Number), expect.any(Number))
+    expect(context.translate).toHaveBeenCalledWith(720, 1280)
     expect(context.rotate).toHaveBeenCalledWith(Math.PI / 2)
     expect(context.scale).toHaveBeenCalledWith(1.5, 1.5)
-    expect(context.drawImage).toHaveBeenCalledWith(expect.anything(), -540, -270, 1080, 540)
+    expect(context.drawImage).toHaveBeenCalledWith(expect.anything(), -720, -360, 1440, 720)
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:source-image')
   })
 
