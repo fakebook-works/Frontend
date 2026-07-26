@@ -37,7 +37,12 @@ function subscriptionHeaders(): Headers {
   return headers
 }
 
-async function readSubscription<T>(response: Response, subscription: GatewaySubscription<T>, signal: AbortSignal) {
+async function readSubscription<T>(
+  response: Response,
+  subscription: GatewaySubscription<T>,
+  signal: AbortSignal,
+  onHealthy?: () => void,
+) {
   if (!response.ok) throw new Error(`Realtime connection failed (${response.status}).`)
   if (!response.body) throw new Error('Realtime response did not include a stream.')
 
@@ -53,7 +58,12 @@ async function readSubscription<T>(response: Response, subscription: GatewaySubs
       if (payloadText === '[DONE]') return
       const payload = parseGraphQlEnvelope<T>(payloadText) as GraphQlSsePayload<T>
       if (payload.errors?.length) throw new Error(payload.errors[0]?.message || 'Realtime operation failed.')
-      if (payload.data) subscription.onData(payload.data)
+      if (payload.data) {
+        // The stream is genuinely working, which is the only safe point to forget
+        // previous failures.
+        onHealthy?.()
+        subscription.onData(payload.data)
+      }
     }
     if (done) return
   }
@@ -74,8 +84,13 @@ export function subscribeGatewayGraphQl<T>(subscription: GatewaySubscription<T>)
         body: JSON.stringify({ query: subscription.query, variables: subscription.variables ?? {} }),
         signal: controller.signal,
       })
-      retryAttempt = 0
-      await readSubscription(response, subscription, controller.signal)
+      // Deliberately not reset here: fetch resolving says nothing about whether the
+      // gateway accepted the subscription. A 401, 429 or 500 rejects inside
+      // readSubscription, and resetting first put the backoff back to one second, so a
+      // failing gateway was hammered once a second forever by every open stream.
+      await readSubscription(response, subscription, controller.signal, () => {
+        retryAttempt = 0
+      })
       if (!controller.signal.aborted) scheduleReconnect()
     } catch (error) {
       if (controller.signal.aborted) return
@@ -86,7 +101,10 @@ export function subscribeGatewayGraphQl<T>(subscription: GatewaySubscription<T>)
 
   const scheduleReconnect = () => {
     if (controller.signal.aborted || retryTimer !== null) return
-    const delay = Math.min(15_000, 1_000 * 2 ** retryAttempt++)
+    // Jitter keeps the several streams a single tab holds open from reconnecting in
+    // lockstep after a gateway restart.
+    const backoff = Math.min(15_000, 1_000 * 2 ** retryAttempt++)
+    const delay = backoff / 2 + Math.random() * (backoff / 2)
     retryTimer = window.setTimeout(() => {
       retryTimer = null
       void connect()
