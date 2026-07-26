@@ -206,8 +206,9 @@ interface GraphQlEnvelope<T> {
 export function parseGraphQlEnvelope<T>(text: string): GraphQlEnvelope<T> {
   // HotChocolate Long values are JSON numbers. Quote Snowflake-sized identity
   // fields before JSON.parse so JavaScript cannot round them past 2^53 - 1.
+  // Match identity keys "id", "id1"/"id2" (association edge sides) and "<name>Id".
   const losslessIdentityJson = text.replace(
-    /("(?:id|[A-Za-z][A-Za-z0-9]*Id)"\s*:\s*)(-?\d{16,})(?=\s*[,}])/g,
+    /("(?:id|[A-Za-z][A-Za-z0-9]*Id)\d*"\s*:\s*)(-?\d{16,})(?=\s*[,}])/g,
     '$1"$2"',
   )
   return JSON.parse(losslessIdentityJson) as GraphQlEnvelope<T>

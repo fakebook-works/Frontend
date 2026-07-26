@@ -22,6 +22,7 @@ VITE_API_GATEWAY_URL=/api
 VITE_GRAPHQL_GATEWAY_URL=/graphql
 VITE_UPLOAD_SERVER_URL=/media
 VITE_GRAPHQL_TIMEOUT_MS=20000
+VITE_IP_GEOLOCATION_URL=https://ipwho.is/
 ```
 
 For local development, keep browser URLs relative and configure Vite's private proxy targets:
@@ -29,6 +30,7 @@ For local development, keep browser URLs relative and configure Vite's private p
 ```sh
 VITE_DEV_GATEWAY_TARGET=http://localhost:2001
 VITE_DEV_UPLOAD_TARGET=http://localhost:4001
+VITE_DEV_ALLOWED_HOST=fakebook.example.ts.net
 ```
 
 Realtime notifications and Messenger events use authenticated GraphQL-over-SSE subscriptions through the same `VITE_GRAPHQL_GATEWAY_URL` endpoint. Messenger loads only server conversations (there is no synthetic fallback), creates direct conversations idempotently for friends, and also supports selecting multiple friends to create a group conversation. The top-bar dock keeps at most three floating chat windows; a profile's Message action opens the canonical direct conversation.
@@ -37,7 +39,7 @@ All active authentication, social, search, recommendation, messaging, notificati
 
 ## Application routes
 
-The authenticated shell uses browser History routing for `/home`, `/search`, `/friends`, `/reels`, `/groups`, `/profile/:id`, `/messenger`, `/notifications`, `/saved`, `/settings/:section`, and `/premium/payment`. All browser-owned social data is requested through Gateway GraphQL; media upload remains the intentional direct Upload Server flow.
+The authenticated shell uses browser History routing for `/home`, `/search`, `/friends`, `/reels`, `/groups`, `/profile/:id`, `/messenger`, `/saved`, `/settings/:section`, `/premium`, `/premium/payment`, and `/content/:id`. Notifications open in a top-bar panel rather than a dedicated route. All browser-owned social data is requested through Gateway GraphQL; media upload remains the intentional direct Upload Server flow.
 
 ## Media flow
 
@@ -70,6 +72,12 @@ Run lint checks:
 
 ```sh
 npm run lint
+```
+
+Run tests:
+
+```sh
+npm test
 ```
 
 Preview the production build:

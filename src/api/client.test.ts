@@ -36,6 +36,18 @@ describe('Gateway contract helpers', () => {
     })
   })
 
+  it('preserves Snowflake ids on association-edge fields (id1/id2)', () => {
+    const envelope = parseGraphQlEnvelope<{
+      groupJoinRequests: { items: { id1: string; id2: string }[] }
+    }>(
+      '{"data":{"groupJoinRequests":{"items":[{"id1":9007199254740993126,"id2":9007199254740993127}]}}}',
+    )
+
+    expect(envelope.data?.groupJoinRequests.items).toEqual([
+      { id1: '9007199254740993126', id2: '9007199254740993127' },
+    ])
+  })
+
   it('accepts only positive decimal Long literals', () => {
     expect(graphQlLongLiteral('9007199254740993123')).toBe('9007199254740993123')
     expect(() => graphQlLongLiteral('1) { __typename }')).toThrow(ApiError)
