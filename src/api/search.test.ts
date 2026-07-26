@@ -74,6 +74,23 @@ describe('Search Gateway adapter', () => {
     expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 'f', page: 1, size: 20 })
   })
 
+  it.each([
+    ['friends', 'FRIENDS'],
+    ['following', 'FOLLOWING'],
+    ['followers', 'FOLLOWERS'],
+  ] as const)('searches the selected %s profile connection through Search and Gateway', async (connectionType, graphQlType) => {
+    gatewayGraphQl.mockResolvedValue({ searchProfileConnections: { items: [{ user: {
+      id: '12', name: 'Scoped User', avatar: '', bio: '', isVerified: false,
+      friendCount: 0, followerCount: 0, followingCount: 0, privacy: 0,
+    } }] } })
+
+    const result = await searchApi.searchProfileConnections(connectionType, ' s ')
+
+    expect(result[0]).toMatchObject({ id: '12', displayName: 'Scoped User' })
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('searchProfileConnections')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 's', type: graphQlType, page: 1, size: 100 })
+  })
+
   it('records a trusted viewer opening a search result through the Gateway mutation', async () => {
     gatewayGraphQl.mockResolvedValue({ recordSearchResultView: true })
 

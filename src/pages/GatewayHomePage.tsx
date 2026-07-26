@@ -13,12 +13,13 @@ import { HoverTooltip } from '../components/HoverTooltip'
 import { MentionSuggestions } from '../components/MentionSuggestions'
 import { MentionContent } from '../components/MentionContent'
 import { MentionDraftOverlay } from '../components/MentionDraftOverlay'
-import { Icon } from '../components/Icon'
+import { FriendsShortcutIcon, GroupsShortcutIcon, Icon, LiveVideoIcon, ReelIcon, SavedShortcutIcon } from '../components/Icon'
 import { PostMediaGallery } from '../components/PostMediaGallery'
 import { PostOptionsMenu } from '../components/PostOptionsMenu'
 import { PostPrivacyIcon, type PostPrivacy } from '../components/PostPrivacyIcon'
 import { SharedPostSourceCard } from '../components/SharedPostSourceCard'
 import { SharedStoryMiniPreview } from '../components/SharedStoryMiniPreview'
+import { StoryImageMedia } from '../components/StoryImageMedia'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
@@ -47,6 +48,7 @@ const loadStoryViewerPage = () => import('../components/StoryViewerPage')
 const StoryViewerPage = lazy(() => loadStoryViewerPage().then((module) => ({ default: module.StoryViewerPage })))
 const ContentActions = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentActions })))
 const ContentDetailOverlay = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentDetailOverlay })))
+const PostPhotoViewer = lazy(() => import('../components/PostPhotoViewer').then((module) => ({ default: module.PostPhotoViewer })))
 
 function mediaType(type: MediaUpload['type']) {
   if (type === 'audio') throw new Error('Audio is not supported in feed posts.')
@@ -95,6 +97,8 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
   const locallyCreatedPostIds = useRef(new Set<string>())
   const feedMoreRequestRef = useRef(false)
   const feedSentinelRef = useRef<HTMLDivElement>(null)
+  const leftRailRef = useRef<HTMLElement>(null)
+  const rightRailRef = useRef<HTMLElement>(null)
 
   const loadFeed = useCallback(async (reset = false) => {
     if (!user) return
@@ -333,6 +337,21 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
     }
   }, [])
 
+  useEffect(() => {
+    const rails = [leftRailRef.current, rightRailRef.current].filter((rail): rail is HTMLElement => rail !== null)
+    const keepWheelInsideRail = (event: WheelEvent) => {
+      if (window.innerWidth <= 860 || event.ctrlKey) return
+      const rail = event.currentTarget as HTMLElement
+      const deltaScale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rail.clientHeight : 1
+      event.preventDefault()
+      event.stopPropagation()
+      rail.scrollTop += event.deltaY * deltaScale
+    }
+
+    rails.forEach((rail) => rail.addEventListener('wheel', keepWheelInsideRail, { passive: false }))
+    return () => rails.forEach((rail) => rail.removeEventListener('wheel', keepWheelInsideRail))
+  }, [user?.userId])
+
   if (!user) return null
 
   async function openGroup(group: VisitedGroup) {
@@ -365,13 +384,13 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
 
   return <>
     <main className="gateway-home">
-      <aside className="gateway-left-rail" aria-label={t('visitedGroups')}>
+      <aside ref={leftRailRef} className="gateway-left-rail" aria-label={t('visitedGroups')}>
         <nav className="home-shortcuts" aria-label={t('primaryNavLabel')}>
           <button type="button" onClick={() => onNavigate?.(`/profile/${user.userId}`)}><Avatar name={profile?.displayName || user.email} src={profile?.avatarUrl} size={36} /><strong>{profile?.displayName || user.email.split('@')[0]}<VerifiedBadge verified={profile?.isVerified} size={13} /></strong></button>
-          <button type="button" onClick={() => onNavigate?.('/saved')}><span className="shortcut-icon saved"><Icon name="bookmark" size={20} /></span><strong>{t('saved')}</strong></button>
-          <button type="button" onClick={() => onNavigate?.('/friends')}><span className="shortcut-icon friends"><Icon name="friends" size={20} /></span><strong>{t('friends')}</strong></button>
-          <button type="button" onClick={() => onNavigate?.('/reels')}><span className="shortcut-icon reels"><Icon name="watch" size={20} /></span><strong>{t('reels')}</strong></button>
-          <button type="button" onClick={() => onNavigate?.('/groups')}><span className="shortcut-icon groups"><Icon name="groups" size={20} /></span><strong>{t('groups')}</strong></button>
+          <button type="button" onClick={() => onNavigate?.('/saved')}><span className="shortcut-icon saved"><SavedShortcutIcon size={27} /></span><strong>{t('saved')}</strong></button>
+          <button type="button" onClick={() => onNavigate?.('/friends')}><span className="shortcut-icon friends"><FriendsShortcutIcon size={27} /></span><strong>{t('friends')}</strong></button>
+          <button type="button" onClick={() => onNavigate?.('/reels')}><span className="shortcut-icon reels"><ReelIcon size={27} filled gradient /></span><strong>{t('reels')}</strong></button>
+          <button type="button" onClick={() => onNavigate?.('/groups')}><span className="shortcut-icon groups"><GroupsShortcutIcon size={27} /></span><strong>{t('groups')}</strong></button>
         </nav>
         <section className="card service-panel">
           <div className="service-heading">
@@ -401,6 +420,7 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
           avatarUrl={profile?.avatarUrl || null}
           isVerified={profile?.isVerified}
           friends={friends}
+          onReel={() => onNavigate?.('/reels')}
           onCreated={(post) => {
             locallyCreatedPostIds.current.add(post.id)
             setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])
@@ -442,7 +462,7 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
             <button type="button" className="btn-soft sm" onClick={() => void loadFeed(true)} disabled={feedLoading}>{t('refresh')}</button>
           </div>
           {feedError && <div className="card state-card"><p className="form-error">{feedError}</p><button type="button" className="btn-primary" onClick={() => void loadFeed(true)}>{t('tryAgain')}</button></div>}
-          {feedLoading ? <div className="card state-card"><span className="spinner" /><p>{t('loadingMore')}</p></div> : !feedError && posts.length === 0 ? (
+          {feedLoading ? <HomeFeedSkeleton label={t('loadingMore')} /> : !feedError && posts.length === 0 ? (
             <div className="card state-card"><h2>{t('noRecommendedPosts')}</h2><p>{t('noRecommendedPostsDesc')}</p></div>
           ) : (
             posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={user.userId} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={applyCreatedStory} />)
@@ -456,10 +476,10 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
         </section>
       </div>
 
-      <aside className="gateway-right-rail" aria-label={t('contacts')}>
+      <aside ref={rightRailRef} className="gateway-right-rail" aria-label={t('contacts')}>
         <section className={`right-rail-module contacts-module${contactMode === 'friendPicker' ? ' friend-picker-mode' : ''}`}>
-          <header><h2>{t('contacts')}</h2><div><button type="button" className={contactMode === 'friendPicker' ? 'active' : ''} aria-label={t('newMessage')} aria-pressed={contactMode === 'friendPicker'} onClick={() => { setContactMode((mode) => mode === 'friendPicker' ? 'contacts' : 'friendPicker'); setContactQuery(''); setContactActionError(null) }}><Icon name="plus" size={18} /></button><button type="button" className={contactMode === 'contactSearch' ? 'active' : ''} aria-label={t('search')} aria-pressed={contactMode === 'contactSearch'} onClick={() => { setContactMode((mode) => mode === 'contactSearch' ? 'contacts' : 'contactSearch'); setContactQuery(''); setContactActionError(null) }}><Icon name="search" size={17} /></button><button type="button" aria-label={t('more')} onClick={() => onNavigate?.('/messenger')}><Icon name="more" size={17} /></button></div></header>
-          {contactMode !== 'contacts' && <label className="contact-search-wrap"><Icon name="search" size={16} /><input key={contactMode} className="contact-search" autoFocus value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} placeholder={contactMode === 'friendPicker' ? t('searchFriends') : t('searchContacts')} /></label>}
+          <header><h2>{t('contacts')}</h2><div><button type="button" className={contactMode === 'friendPicker' ? 'active' : ''} aria-label={t('newMessage')} aria-pressed={contactMode === 'friendPicker'} onClick={() => { setContactMode((mode) => mode === 'friendPicker' ? 'contacts' : 'friendPicker'); setContactQuery(''); setContactActionError(null) }}><Icon name="plus" size={18} /></button><button type="button" className={contactMode === 'contactSearch' ? 'active' : ''} aria-label={t('search')} aria-pressed={contactMode === 'contactSearch'} onClick={() => { setContactMode((mode) => mode === 'contactSearch' ? 'contacts' : 'contactSearch'); setContactQuery(''); setContactActionError(null) }}><ContactSearchIcon /></button><button type="button" aria-label={t('more')} onClick={() => onNavigate?.('/messenger')}><Icon name="more" size={17} /></button></div></header>
+          {contactMode !== 'contacts' && <label className="contact-search-wrap"><ContactSearchIcon /><input key={contactMode} className="contact-search" autoFocus value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} placeholder={contactMode === 'friendPicker' ? t('searchFriends') : t('searchContacts')} /></label>}
           {contactActionError && <p className="form-error contact-action-error">{contactActionError}</p>}
           {!contactListPending && (visibleContactPeople.length === 0
               ? <p>{contactMode === 'friendPicker' ? t('noFriendsFound') : contactQuery ? t('noContactsFound') : t('noContactsYet')}</p>
@@ -483,6 +503,30 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
       onStoryCreated={applyCreatedStory}
     /></Suspense>}
   </>
+}
+
+function ContactSearchIcon() {
+  return <svg className="contact-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.3" /><path d="m14.95 14.95 4.75 4.75" /></svg>
+}
+
+function HomeFeedSkeleton({ label }: { label: string }) {
+  return <article className="card gateway-post home-feed-skeleton" role="status" aria-label={label}>
+    <header className="feed-post-head" aria-hidden="true">
+      <span className="home-feed-skeleton-avatar" />
+      <div className="home-feed-skeleton-heading"><span /><span /></div>
+    </header>
+    <div className="home-feed-skeleton-copy" aria-hidden="true"><span /><span /><span /></div>
+    <div className="home-feed-skeleton-media" aria-hidden="true" />
+    <div className="home-feed-skeleton-actions" aria-hidden="true"><span /><span /><span /></div>
+  </article>
+}
+
+function HomeStoryMediaPreview({ type, url }: { type: number; url: string }) {
+  return <span className={`home-story-media-preview${type === 1 ? ' video' : ' image'}`}>
+    {type === 1
+      ? <><span className="story-stage-backdrop" aria-hidden="true"><video src={url} muted playsInline preload="auto" /></span><video className="home-story-video-foreground" src={url} muted playsInline preload="auto" /></>
+      : <StoryImageMedia src={url} onReady={() => undefined} />}
+  </span>
 }
 
 interface ComposerMediaFile {
@@ -521,7 +565,7 @@ function PrivacyCaretIcon() {
   </svg>
 }
 
-export function PostComposer({ variant = 'home', userId, displayName, avatarUrl, isVerified, friends, onCreated }: { variant?: 'home' | 'profile'; userId: string; displayName: string; avatarUrl: string | null; isVerified?: boolean; friends: UserSummary[]; onCreated: (post: GatewayPost) => void }) {
+export function PostComposer({ variant = 'home', userId, displayName, avatarUrl, isVerified, friends, onReel, onCreated, triggerOnly = false, externalOpenRequest = 0 }: { variant?: 'home' | 'profile'; userId: string; displayName: string; avatarUrl: string | null; isVerified?: boolean; friends: UserSummary[]; onReel?: () => void; onCreated: (post: GatewayPost) => void; triggerOnly?: boolean; externalOpenRequest?: number }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [content, setContent] = useState('')
@@ -548,6 +592,12 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   }, [selectedFiles])
 
   useEffect(() => () => revokeFilePreviews(selectedFilesRef.current), [])
+
+  useEffect(() => {
+    if (externalOpenRequest <= 0) return
+    setMessage(null)
+    setOpen(true)
+  }, [externalOpenRequest])
 
   useEffect(() => {
     if (!activePicker) return
@@ -852,19 +902,23 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   }
 
   return <>
-    <section className={variant === 'profile' ? 'card gateway-composer home-composer-card profile-composer-card' : 'card gateway-composer home-composer-card'} aria-label={t('createPost')}>
+    {!triggerOnly && <section className={variant === 'profile' ? 'card gateway-composer home-composer-card profile-composer-card' : 'card gateway-composer home-composer-card'} aria-label={t('createPost')}>
       <div className="home-composer-row">
-        <Avatar name={displayName} src={avatarUrl} size={variant === 'profile' ? 42 : 40} />
+        <Avatar name={displayName} src={avatarUrl} size={40} />
         <button type="button" className="home-composer-prompt" onClick={showComposer}>{t(variant === 'profile' ? 'profilePostPrompt' : 'postComposerPlaceholder')}</button>
-        {variant === 'home' && <label className="home-composer-media" aria-label={t('photoVideo')} title={t('photoVideo')}>
-          <Icon name="photo" size={24} />
-          <span>{t('photoVideo')}</span>
-          <input key={`quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} />
-        </label>}
+        {variant === 'home' && <div className="home-composer-quick-actions">
+          <button type="button" className="home-composer-quick-action live" aria-label={t('liveVideo')} title={t('liveVideo')} onClick={() => undefined}><LiveVideoIcon size={29} /></button>
+          <label className="home-composer-media" aria-label={t('photoVideo')} title={t('photoVideo')}>
+            <Icon name="photo" size={26} />
+            <span>{t('photoVideo')}</span>
+            <input key={`quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} />
+          </label>
+          <button type="button" className="home-composer-quick-action reel" aria-label={t('createReel')} title={t('createReel')} onClick={() => onReel?.()}><ReelIcon size={26} filled /></button>
+        </div>}
       </div>
-      {variant === 'profile' && <div className="profile-composer-actions"><button type="button" className="live" onClick={showComposer}><Icon name="video" size={24} />{t('profileLiveVideo')}</button><label className="media"><Icon name="photo" size={24} />{t('photoVideo')}<input key={`profile-quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} /></label><button type="button" className="milestone" onClick={showComposer}><Icon name="bookmark" size={23} />{t('profileMilestone')}</button></div>}
+      {variant === 'profile' && <div className="profile-composer-actions"><button type="button" className="live" onClick={showComposer}><LiveVideoIcon size={29} /><span className="profile-composer-action-label">{t('profileLiveVideo')}</span></button><label className="media"><Icon name="photo" size={26} /><span className="profile-composer-action-label">{t('photoVideo')}</span><input key={`profile-quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} /></label><button type="button" className="reel" onClick={() => onReel?.()}><ReelIcon size={26} filled /><span className="profile-composer-action-label">{t('profileTabReels')}</span></button></div>}
       {message && !open && <p className="form-error home-composer-message">{message}</p>}
-    </section>
+    </section>}
 
     {open && <div className="modal-backdrop home-composer-backdrop" role="presentation" onClick={closeComposer}>
       <form className={selectedFiles.length > 0 ? 'modal home-post-modal has-media' : 'modal home-post-modal'} role="dialog" aria-modal="true" aria-label={t('createPost')} onSubmit={submit} onClick={(event) => event.stopPropagation()}>
@@ -950,10 +1004,9 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
             {sharedStory
               ? <SharedStoryMiniPreview source={sharedStory.sharedSource} className="home-shared-story-preview" />
               : preview
-              ? preview.type === 1
-                ? <video key={preview.url} className="home-story-single-media" src={preview.url} muted playsInline preload="auto" />
-                : <img key={preview.url} className="home-story-single-media" src={preview.url} alt="" loading="lazy" decoding="async" />
+              ? <HomeStoryMediaPreview key={preview.url} type={preview.type} url={preview.url} />
               : <span className="story-text-preview" style={{ background: sharedBackground?.background ?? ('backgroundColor' in decodedContent ? decodedContent.backgroundColor : undefined) }}>{decodedContent.text || t('stories')}</span>}
+            {!sharedStory && preview && decodedContent.text && <p className="home-story-caption-preview">{decodedContent.text}</p>}
             <span className={`story-avatar-ring${unseen ? ' unseen' : ''}`}><Avatar name={bucket.author.name} src={bucket.author.avatar || null} size={32} /></span>
             <strong>{own ? t('yourStory') : bucket.author.name}<VerifiedBadge verified={bucket.author.isVerified} size={12} /></strong>
           </button>
@@ -1122,11 +1175,13 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
   const [privacyBusy, setPrivacyBusy] = useState(false)
   const [privacyError, setPrivacyError] = useState<string | null>(null)
   const [sharedDetailId, setSharedDetailId] = useState<string | null>(null)
+  const [photoViewer, setPhotoViewer] = useState<{ contentId: string; mediaId: string; mediaUrl: string; initialPost?: GatewayPost } | null>(null)
   useEffect(() => {
     setCurrent(post)
     setFollowingFromCard(false)
     setJoinRequestedFromCard(false)
     setSharedDetailId(null)
+    setPhotoViewer(null)
   }, [post])
   if (removed) return null
   const timestamp = formatPostTimestamp(current.create, locale)
@@ -1211,7 +1266,7 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
   return <>
     <article className={`card gateway-post${hasSharedSource ? ' has-shared-source' : ''}`}>
       <header className={current.__typename === 'GroupPostDetail' ? 'group-feed-post-head' : 'feed-post-head'}>
-        {current.__typename === 'GroupPostDetail' ? <button type="button" className="post-author-avatar" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><GroupPostAvatar groupName={current.group.name} groupAvatar={current.group.avatar || null} userName={current.author.name} userAvatar={current.author.avatar || null} size={42} /></button> : <button type="button" className="post-author-avatar" onClick={openAuthor}><Avatar name={current.author.name} src={current.author.avatar || null} size={42} /></button>}
+        {current.__typename === 'GroupPostDetail' ? <button type="button" className="post-author-avatar" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><GroupPostAvatar groupName={current.group.name} groupAvatar={current.group.avatar || null} userName={current.author.name} userAvatar={current.author.avatar || null} size={40} /></button> : <button type="button" className="post-author-avatar" onClick={openAuthor}><Avatar name={current.author.name} src={current.author.avatar || null} size={40} /></button>}
         <div className="post-head-copy">
           <div className="post-head-primary">
             {current.__typename === 'GroupPostDetail' ? <button type="button" className="post-group-link" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><strong>{current.group.name}</strong></button> : <button type="button" className="post-author-name" onClick={openAuthor}><strong>{current.author.name}<VerifiedBadge verified={current.author.isVerified} /></strong></button>}
@@ -1235,12 +1290,13 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
       </header>
       {(relationshipError || privacyError) && <p className="form-error post-relationship-error">{relationshipError || privacyError}</p>}
       {decodedContent.text && <p className={postBackground ? 'gateway-post-content has-background' : 'gateway-post-content'} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={current.mentions} onNavigate={onNavigate} /></p>}
-      <PostMediaGallery media={current.media} />
-      {current.__typename === 'FeedPostDetail' && current.sharedSource && <SharedPostSourceCard source={current.sharedSource} locale={locale} onNavigate={onNavigate} onOpenSource={(sourceId) => setSharedDetailId(sourceId)} />}
+      <PostMediaGallery media={current.media} onOpenImage={viewerId && current.__typename !== 'ReelDetail' ? (media) => setPhotoViewer({ contentId: current.id, mediaId: media.id, mediaUrl: media.url, initialPost: current }) : undefined} />
+      {current.__typename === 'FeedPostDetail' && current.sharedSource && <SharedPostSourceCard source={current.sharedSource} locale={locale} onNavigate={onNavigate} onOpenSource={(sourceId) => setSharedDetailId(sourceId)} onOpenImage={viewerId && current.sharedSource.type !== 4 ? (source, media) => setPhotoViewer({ contentId: source.id, mediaId: media.id, mediaUrl: media.url }) : undefined} />}
       {viewerId && <Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={current.id} post={current} canShare={current.__typename === 'GroupPostDetail' || current.privacy === 0} canReshare={canReshare} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
       {deleting && <DeletePostModal postId={current.id} onClose={() => setDeleting(false)} onDeleted={() => setRemoved(true)} />}
     </article>
     {viewerId && sharedDetailId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={sharedDetailId} onClose={() => setSharedDetailId(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
+    {viewerId && photoViewer && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={photoViewer.contentId} initialMediaId={photoViewer.mediaId} initialMediaUrl={photoViewer.mediaUrl} initialPost={photoViewer.initialPost} onClose={() => setPhotoViewer(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
   </>
 }
 

@@ -173,16 +173,23 @@ describe('MessengerDock overflow windows', () => {
   })
 
   it('turns the minimize action into an avatar bubble and restores it on click', async () => {
-    render(<Harness />)
+    const { container } = render(<Harness />)
+    expect(container.querySelector('.mini-chat-bubble-rail')).not.toBeInTheDocument()
+    expect(document.body).not.toHaveClass('mini-chat-bubble-rail-open')
+
     fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
     const chat = await screen.findByRole('region', { name: 'Friend 2' })
 
     fireEvent.click(within(chat).getByRole('button', { name: 'minimize' }))
 
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Friend 2' })).not.toBeInTheDocument())
+    expect(container.querySelector('.mini-chat-bubble-rail')).toBeInTheDocument()
+    expect(document.body).toHaveClass('mini-chat-bubble-rail-open')
     const bubble = screen.getByRole('button', { name: 'messages: Friend 2' })
     fireEvent.click(bubble)
     expect(await screen.findByRole('region', { name: 'Friend 2' })).toBeInTheDocument()
+    await waitFor(() => expect(container.querySelector('.mini-chat-bubble-rail')).not.toBeInTheDocument())
+    expect(document.body).not.toHaveClass('mini-chat-bubble-rail-open')
   })
 
   it('shows the current friendship state in the conversation introduction', async () => {

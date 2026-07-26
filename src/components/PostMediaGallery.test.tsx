@@ -91,6 +91,25 @@ describe('PostMediaGallery', () => {
     expect(container.querySelector('.post-video-quality-options')).toHaveTextContent('videoOriginalQuality')
   })
 
+  it('opens only clicked images with their original media index', () => {
+    const onOpenImage = vi.fn()
+    const media = [
+      { id: 'photo-a', type: 0, url: '/photo-a.jpg' },
+      { id: 'video-a', type: 1, url: '/video-a.mp4' },
+      { id: 'photo-b', type: 0, url: '/photo-b.jpg' },
+    ]
+    const { container } = render(<PostMediaGallery media={media} onOpenImage={onOpenImage} />)
+
+    const slots = container.querySelectorAll<HTMLElement>('.post-media-slot')
+    fireEvent.click(slots[0])
+    fireEvent.click(slots[1])
+    fireEvent.click(slots[2])
+
+    expect(onOpenImage).toHaveBeenNthCalledWith(1, media[0], 0)
+    expect(onOpenImage).toHaveBeenNthCalledWith(2, media[2], 2)
+    expect(onOpenImage).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps a silent-video volume icon crisp but non-interactive', async () => {
     const { container } = render(<PostMediaGallery media={[{ id: 'silent-feed-video', type: 1, url: '/silent-feed-video.mp4' }]} />)
     const video = container.querySelector<HTMLVideoElement>('video')!

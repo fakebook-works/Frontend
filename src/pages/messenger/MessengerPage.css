@@ -1908,6 +1908,7 @@
   right: 16px;
   bottom: 0;
 }
+.mini-chat-region.has-bubble-rail { right: 10px; }
 .mini-chat-dock-layout {
   display: flex;
   align-items: flex-end;
@@ -2388,6 +2389,7 @@
   flex: 0 0 44px;
   display: flex;
   flex-direction: column;
+  align-items: center;
   justify-content: flex-end;
   gap: 12px;
   box-sizing: border-box;
@@ -2452,6 +2454,22 @@
 .mini-chat-new-button {
   color: var(--text);
   background: var(--hover);
+}
+
+body.post-photo-viewer-open .mini-chat-region.has-bubble-rail {
+  right: 0;
+  bottom: 0;
+}
+body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-bubble-rail {
+  width: 92px;
+  height: calc(100vh - var(--topbar-h));
+  height: calc(100dvh - var(--topbar-h));
+  flex-basis: 92px;
+  padding: 14px 0 16px 27px;
+  border-top: 1px solid color-mix(in srgb, var(--divider) 88%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--divider) 82%, transparent);
+  background: var(--card);
+  box-shadow: -2px 0 12px rgb(0 0 0 / 18%);
 }
 
 @media (max-width: 1200px) and (min-width: 761px) {

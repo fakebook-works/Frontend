@@ -10,11 +10,12 @@ import { PostMediaGallery } from './PostMediaGallery'
 import { PostPrivacyIcon, type PostPrivacy } from './PostPrivacyIcon'
 import { VerifiedBadge } from './VerifiedBadge'
 
-export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource }: {
+export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource, onOpenImage }: {
   source: SharedPostSource
   locale: string
   onNavigate?: (path: string) => void
   onOpenSource?: (sourceId: string) => void
+  onOpenImage?: (source: SharedPostSource, media: SharedPostSource['media'][number], index: number) => void
 }) {
   const { t } = useI18n()
   if (!source.isAvailable) {
@@ -34,15 +35,19 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource 
         : t('privacyOnlyMe')
   const timestamp = source.create ? formatPostTimestamp(source.create, locale) : null
   const openSource = onOpenSource ? () => onOpenSource(source.id) : undefined
-  const openAuthor = () => source.author && onNavigate?.(`/profile/${source.author.id}`)
 
   return <section className="shared-post-source">
     <div className="shared-source-body">
-      <header className="shared-source-head">
-        <button type="button" className="post-author-avatar shared-source-avatar" disabled={!source.author} onClick={openAuthor}><Avatar name={source.author?.name || t('fakebookUser')} src={source.author?.avatar || null} size={38} /></button>
+      <header className={`shared-source-head${openSource ? ' interactive' : ''}`} role={openSource ? 'button' : undefined} tabIndex={openSource ? 0 : undefined} onClick={openSource} onKeyDown={openSource ? (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          openSource()
+        }
+      } : undefined}>
+        <span className="post-author-avatar shared-source-avatar"><Avatar name={source.author?.name || t('fakebookUser')} src={source.author?.avatar || null} size={38} /></span>
         <div className="post-head-copy">
           <div className="post-head-primary">
-            <button type="button" className="post-author-name" disabled={!source.author} onClick={openAuthor}><strong>{source.author?.name || t('fakebookUser')}<VerifiedBadge verified={source.author?.isVerified} size={12} /></strong></button>
+            <span className="post-author-name"><strong>{source.author?.name || t('fakebookUser')}<VerifiedBadge verified={source.author?.isVerified} size={12} /></strong></span>
           </div>
           {(timestamp || hasPrivacy) && <span className="post-head-meta">
             {timestamp && <HoverTooltip label={timestamp.detail} className="post-meta-hover post-time-hover"><time dateTime={source.create ?? undefined}>{timestamp.display}</time></HoverTooltip>}
@@ -58,6 +63,6 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource 
         }
       } : undefined}><MentionContent content={decodedContent.text} mentions={source.mentions} onNavigate={onNavigate} /></div>}
     </div>
-    <PostMediaGallery media={source.media} controls onOpen={openSource} />
+    <PostMediaGallery media={source.media} controls onOpenImage={onOpenImage ? (media, index) => onOpenImage(source, media, index) : undefined} />
   </section>
 }

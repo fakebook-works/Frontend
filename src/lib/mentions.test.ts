@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeMention, activeMentionAt, applyMentionSelection, extractMentionUserIds, parseMentionContent, parseMentionDraft, reconcileMentionEntities, serializeMentionContent } from './mentions'
+import { activeMention, activeMentionAt, applyMentionSelection, deleteMentionAtSelection, extractMentionUserIds, parseMentionContent, parseMentionDraft, reconcileMentionEntities, serializeMentionContent } from './mentions'
 
 const person = { id: '9007199254740993124', username: 'lan', displayName: 'Lan Nguyen', avatarUrl: null }
 
@@ -24,6 +24,22 @@ describe('mention content tokens', () => {
     const entity = { userId: person.id, displayName: person.displayName, start: 6, end: 16 }
     expect(reconcileMentionEntities('Hello Lan Nguyen', 'Hey Hello Lan Nguyen', [entity])).toEqual([{ ...entity, start: 10, end: 20 }])
     expect(reconcileMentionEntities('Hello Lan Nguyen', 'Hello Lan XNguyen', [entity])).toEqual([])
+  })
+
+  it('deletes a selected mention and its inserted space as one unit', () => {
+    const selected = applyMentionSelection('@La', { start: 0, end: 3, query: 'la' }, person)
+    expect(deleteMentionAtSelection(selected.text, [selected.entity], selected.text.length, selected.text.length, 'backward')).toEqual({
+      text: '',
+      entities: [],
+      caret: 0,
+    })
+
+    const embedded = { userId: person.id, displayName: person.displayName, start: 3, end: 13 }
+    expect(deleteMentionAtSelection('Hi Lan Nguyen there', [embedded], 6, 6, 'forward')).toEqual({
+      text: 'Hi there',
+      entities: [],
+      caret: 3,
+    })
   })
 
   it('parses repeated tokens while returning unique user IDs', () => {

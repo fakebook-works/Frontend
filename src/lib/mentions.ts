@@ -22,6 +22,12 @@ export interface MentionDisplayUser {
   available: boolean
 }
 
+export interface MentionDeletionResult {
+  text: string
+  entities: MentionEntity[]
+  caret: number
+}
+
 export type MentionContentSegment =
   | { type: 'text'; value: string }
   | { type: 'mention'; userId: string }
@@ -100,6 +106,55 @@ export function reconcileMentionEntities(previousText: string, nextText: string,
     if (entity.start >= previousEditEnd) return [{ ...entity, start: entity.start + delta, end: entity.end + delta }]
     return []
   })
+}
+
+export function deleteMentionAtSelection(
+  text: string,
+  entities: MentionEntity[],
+  selectionStart: number,
+  selectionEnd: number,
+  direction: 'backward' | 'forward',
+): MentionDeletionResult | null {
+  const start = Math.max(0, Math.min(selectionStart, selectionEnd, text.length))
+  const end = Math.max(start, Math.min(Math.max(selectionStart, selectionEnd), text.length))
+  const validEntities = entities.filter((entity) => (
+    entity.start >= 0 &&
+    entity.end > entity.start &&
+    text.slice(entity.start, entity.end) === entity.displayName
+  ))
+
+  let deleteStart = start
+  let deleteEnd = end
+  if (start !== end) {
+    const touched = validEntities.filter((entity) => entity.start < end && entity.end > start)
+    if (touched.length === 0) return null
+    deleteStart = Math.min(start, ...touched.map((entity) => entity.start))
+    deleteEnd = Math.max(end, ...touched.map((entity) => entity.end))
+  } else {
+    const targetIndex = direction === 'backward' ? start - 1 : start
+    const touched = validEntities.find((entity) => (
+      targetIndex >= entity.start && targetIndex < entity.end
+    ) || (
+      direction === 'backward' &&
+      start === entity.end + 1 &&
+      text[entity.end] === ' '
+    ))
+    if (!touched) return null
+    deleteStart = touched.start
+    deleteEnd = touched.end
+  }
+
+  if (text[deleteEnd] === ' ') deleteEnd += 1
+  const removedLength = deleteEnd - deleteStart
+  return {
+    text: `${text.slice(0, deleteStart)}${text.slice(deleteEnd)}`,
+    entities: validEntities
+      .filter((entity) => entity.end <= deleteStart || entity.start >= deleteEnd)
+      .map((entity) => entity.start >= deleteEnd
+        ? { ...entity, start: entity.start - removedLength, end: entity.end - removedLength }
+        : entity),
+    caret: deleteStart,
+  }
 }
 
 export function serializeMentionContent(text: string, entities: MentionEntity[]): string {

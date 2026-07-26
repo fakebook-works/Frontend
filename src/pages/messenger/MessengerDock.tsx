@@ -877,8 +877,6 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     })
   }, [conversations, me, panelFilter, panelQuery])
 
-  if (hidden) return null
-
   const openConversations = fullOpenIds.flatMap((id) => {
     const conversation = conversations.find((item) => item.id === id)
     return conversation ? [conversation] : []
@@ -887,6 +885,14 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     const conversation = conversations.find((item) => item.id === id)
     return conversation ? [conversation] : []
   })
+  const hasCollapsedRail = !hidden && collapsedConversations.length > 0
+
+  useEffect(() => {
+    document.body.classList.toggle('mini-chat-bubble-rail-open', hasCollapsedRail)
+    return () => document.body.classList.remove('mini-chat-bubble-rail-open')
+  }, [hasCollapsedRail])
+
+  if (hidden) return null
 
   return <>
     {panelOpen && <aside ref={messengerPopoverRef} className="messenger-popover messenger-popover-redesign" role="dialog" aria-label={t('messages')}>
@@ -916,7 +922,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       })}</div>
     </aside>}
 
-    <div className="mini-chat-region"><div className="mini-chat-dock-layout">{openConversations.length > 0 && <div className="mini-chat-windows" aria-label={t('messages')}>{openConversations.map((conversation) => {
+    <div className={`mini-chat-region${hasCollapsedRail ? ' has-bubble-rail' : ''}`}><div className="mini-chat-dock-layout">{openConversations.length > 0 && <div className="mini-chat-windows" aria-label={t('messages')}>{openConversations.map((conversation) => {
       const name = conversationName(conversation, me)
       const other = conversation.participants.find((person) => person.id !== me.id)
       const isFriend = other
@@ -1030,8 +1036,8 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         </>
       </section>
     })}</div>}
-      <aside className="mini-chat-bubble-rail" aria-label={t('messages')}>
-        {collapsedConversations.length > 0 && <div className="mini-chat-overflow-list">{collapsedConversations.map((conversation) => {
+      {hasCollapsedRail && <aside className="mini-chat-bubble-rail" aria-label={t('messages')}>
+        <div className="mini-chat-overflow-list">{collapsedConversations.map((conversation) => {
           const name = conversationName(conversation, me)
           const other = conversation.type === 'DIRECT'
             ? conversation.participants.find((person) => person.id !== me.id)
@@ -1047,9 +1053,9 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
             <Avatar name={name} src={conversationAvatar(conversation, me)} size={40} online={Boolean(other && presenceByUserId[other.id]?.isOnline)} />
             {conversation.unreadCount > 0 && <b>{Math.min(99, conversation.unreadCount)}</b>}
           </button>
-        })}</div>}
+        })}</div>
         <button type="button" className="mini-chat-new-button" aria-label={t('newMessage')} title={t('newMessage')} onClick={() => setShowNewModal(true)}><Icon name="edit" size={23} /></button>
-      </aside>
+      </aside>}
     </div></div>
 
     {showNewModal && <NewConversationModal friends={friends} onStart={startConversation} onCreateGroup={startGroupConversation} onClose={() => setShowNewModal(false)} />}

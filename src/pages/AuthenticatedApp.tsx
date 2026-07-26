@@ -8,7 +8,7 @@ import { socialApi, type SocialProfile } from '../api/social'
 import type { GatewayPost } from '../api/gatewayTypes'
 import type { UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
-import { Icon, type IconName } from '../components/Icon'
+import { Icon, ReelIcon, type IconName } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
@@ -279,7 +279,7 @@ export function AuthenticatedApp() {
       <div className="shell-brand-search">
         <button type="button" className="app-brand" onClick={() => go('/home')} aria-label={t('home')}><img src="/brand/fakebook-minimal-cropped.png" alt="Fakebook" /></button>
         <form ref={searchRef} className="shell-search-wrap" onSubmit={submitSearch} onFocus={() => setQuickOpen(true)} onBlur={() => window.setTimeout(() => { if (!searchRef.current?.contains(document.activeElement)) setQuickOpen(false) }, 0)}>
-          <label className="shell-search"><Icon name="search" size={18} /><input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder={t('searchPlaceholder')} aria-label={t('searchPlaceholder')} /></label>
+          <label className="shell-search"><svg className="shell-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder={t('searchPlaceholder')} aria-label={t('searchPlaceholder')} /></label>
           {quickOpen && searchText.trim().length >= 1 && <QuickSearchDropdown items={quickResults} loading={quickLoading} onOpen={openQuickResult} onSeeAll={runSearch} />}
         </form>
       </div>
@@ -296,7 +296,7 @@ export function AuthenticatedApp() {
         <button type="button" className={location.pathname === '/messenger' || messengerPanelOpen ? 'icon-circle shell-messenger-button active' : 'icon-circle shell-messenger-button'} aria-label={t('messages')} aria-expanded={messengerPanelOpen} onClick={() => { setMessengerPanelOpen((open) => !open); setMenuOpen(false); setAppsMenuOpen(false) }}><Icon name="messenger" size={20} /></button>
         <button type="button" className={notificationPanelOpen ? 'icon-circle shell-notification-button active badge-button' : 'icon-circle shell-notification-button badge-button'} aria-label={t('notifications')} aria-expanded={notificationPanelOpen} onClick={() => { setNotificationPanelOpen((open) => !open); setMessengerPanelOpen(false); setMenuOpen(false); setAppsMenuOpen(false) }}><Icon name="bell" size={20} />{unreadNotifications > 0 && <span>{Math.min(99, unreadNotifications)}</span>}</button>
         <div className="account-menu-wrap" ref={menuRef}>
-          <button ref={menuTriggerRef} type="button" className="shell-avatar-button" aria-haspopup="dialog" aria-expanded={menuOpen} aria-label={displayName} onClick={() => { setMenuOpen((open) => !open); setMenuView('root') }}><Avatar name={displayName} src={avatarUrl} size={36} /></button>
+          <button ref={menuTriggerRef} type="button" className="shell-avatar-button" aria-haspopup="dialog" aria-expanded={menuOpen} aria-label={displayName} onClick={() => { setMenuOpen((open) => !open); setMenuView('root') }}><Avatar name={displayName} src={avatarUrl} size={40} /></button>
           {menuOpen && <div className={`account-dropdown account-dropdown-${menuView}`} role="dialog" aria-label={t('accountMenu')}>
             {menuView === 'root' ? <>
               <div className="account-profile-card"><button type="button" onClick={() => go(`/profile/${user.userId}`)}><Avatar name={displayName} src={avatarUrl} size={58} /><span><strong>{displayName}<VerifiedBadge verified={currentProfile?.isVerified} /></strong><small>{user.email}</small></span></button><button type="button" className="view-profile-link" onClick={() => go(`/profile/${user.userId}`)}>{t('seeYourProfile')}</button></div>
@@ -497,13 +497,13 @@ function ShellNavGlyph({ icon, active }: { icon: ShellNavIcon; active: boolean }
   if (active) {
     if (icon === 'home') return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M11.18 2.7a1.25 1.25 0 0 1 1.64 0l8.25 7.15c.28.24.43.59.43.95v9.45c0 .69-.56 1.25-1.25 1.25h-5.7v-6.45h-5.1v6.45h-5.7c-.69 0-1.25-.56-1.25-1.25V10.8c0-.36.16-.71.43-.95l8.25-7.15Z" /></svg>
     if (icon === 'friends') return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="8.7" cy="7.7" r="4" /><circle cx="17.2" cy="7.4" r="3" /><path d="M1.8 20.7v-1.3c0-3.6 3.1-6 6.9-6s6.9 2.4 6.9 6v1.3H1.8Zm14.8 0v-1.3c0-2.1-.75-3.9-2.1-5.25.84-.42 1.8-.65 2.8-.65 3 0 5.2 1.9 5.2 4.8v2.4h-5.9Z" /></svg>
-    if (icon === 'video') return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="2.5" y="2.5" width="19" height="19" rx="3.4" /><path d="M2.9 8.7h18.2M7.4 2.9l3.3 5.8m2.8-5.8 3.3 5.8" fill="none" stroke="var(--card)" strokeWidth="1.8" /><path d="m10 11.8 5.4 3.2-5.4 3.2v-6.4Z" fill="var(--card)" /></svg>
+    if (icon === 'video') return <ReelIcon className="shell-nav-glyph" size={24} filled />
     return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="12" cy="7.6" r="3.3" /><circle cx="5.2" cy="9" r="2.45" /><circle cx="18.8" cy="9" r="2.45" /><path d="M5.3 20.8v-1.6c0-3.45 2.95-5.7 6.7-5.7s6.7 2.25 6.7 5.7v1.6H5.3ZM.7 19.2v-1c0-2.65 2.05-4.45 4.9-4.65a7.4 7.4 0 0 0-1.7 4.75v.9H.7Zm22.6 0h-3.2v-.9a7.4 7.4 0 0 0-1.7-4.75c2.85.2 4.9 2 4.9 4.65v1Z" /></svg>
   }
 
   if (icon === 'home') return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="m3.5 10.5 8.5-7.4 8.5 7.4v9.25c0 .7-.55 1.25-1.25 1.25h-4.9v-6.15h-4.7V21h-4.9c-.7 0-1.25-.55-1.25-1.25V10.5Z" /></svg>
   if (icon === 'friends') return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="8.7" cy="7.7" r="3.7" /><circle cx="17.2" cy="7.4" r="2.7" /><path d="M2.2 20v-1.1c0-3.25 2.9-5.4 6.5-5.4s6.5 2.15 6.5 5.4V20h-13Zm14.65-6.4c2.75.35 4.65 2.05 4.65 4.55V20h-3.9" /></svg>
-  if (icon === 'video') return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><rect x="2.8" y="2.8" width="18.4" height="18.4" rx="3.2" /><path d="M3.2 8.7h17.6M7.5 3.2l3.15 5.5m2.8-5.5 3.15 5.5" /><path d="m10.1 11.9 5.2 3.1-5.2 3.1v-6.2Z" fill="currentColor" stroke="none" /></svg>
+  if (icon === 'video') return <ReelIcon className="shell-nav-glyph" size={24} />
   return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="7.7" r="3.1" /><circle cx="5.4" cy="9.1" r="2.25" /><circle cx="18.6" cy="9.1" r="2.25" /><path d="M5.8 20v-1.35c0-3.1 2.7-5.15 6.2-5.15s6.2 2.05 6.2 5.15V20H5.8ZM1.2 18.8v-.7c0-2.35 1.75-3.95 4.25-4.2M22.8 18.8v-.7c0-2.35-1.75-3.95-4.25-4.2" /></svg>
 }
 

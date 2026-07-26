@@ -49,6 +49,66 @@ describe('SocialGraph Gateway adapter', () => {
     expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
   })
 
+  it('loads friend profiles with mutual counts in one request', async () => {
+    gatewayGraphQl.mockResolvedValue({ friendProfilesWithMutualCounts: [{
+      profile: {
+        id: '2', avatar: '/friend.png', background: '', name: 'Friend', bio: '', gender: 0,
+        birthdate: '', location: '', privacy: 0, create: '2026-01-01', verify: '', isVerified: false,
+        friendCount: 4, followerCount: 0, followingCount: 0,
+      },
+      mutualFriendCount: 3,
+    }] })
+
+    const friends = await socialApi.getFriendProfilesWithMutualCounts('1', 9)
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('friendProfilesWithMutualCounts(userId: 1')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ limit: 9 })
+    expect(friends[0]).toMatchObject({ profile: { id: '2', displayName: 'Friend' }, mutualFriendCount: 3 })
+    expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
+  })
+
+  it('loads the selected profile connection list from SocialGraph', async () => {
+    gatewayGraphQl.mockResolvedValue({ profileConnections: [] })
+
+    await socialApi.getProfileConnections('1', 'followers', 40)
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('profileConnections(userId: 1')
+    expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('$query')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ associationType: 4, limit: 40 })
+  })
+
+  it('loads reel view counts in one composed GraphQL request', async () => {
+    gatewayGraphQl.mockResolvedValue({
+      e0: { targetId: '10', viewCount: 7 },
+      e1: { targetId: '11', viewCount: 9 },
+    })
+
+    const counts = await socialApi.getContentViewCounts(['10', '11'])
+
+    expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('e0: contentEngagement(targetId: 10)')
+    expect(counts).toEqual({ '10': 7, '11': 9 })
+  })
+
+  it('loads every reel view count in batches and ignores missing engagement rows', async () => {
+    const ids = Array.from({ length: 52 }, (_, index) => String(index + 1))
+    gatewayGraphQl
+      .mockResolvedValueOnce(Object.fromEntries(ids.slice(0, 50).map((id, index) => [`e${index}`, { targetId: id, viewCount: index + 1 }])))
+      .mockResolvedValueOnce({ e0: { targetId: '51', viewCount: 51 }, e1: null })
+
+    const counts = await socialApi.getContentViewCounts([...ids, '1'])
+
+    expect(gatewayGraphQl).toHaveBeenCalledTimes(2)
+    expect(counts['1']).toBe(1)
+    expect(counts['51']).toBe(51)
+    expect(counts['52']).toBeUndefined()
+  })
+
+  it('does not query engagement when the reel list is empty', async () => {
+    await expect(socialApi.getContentViewCounts([])).resolves.toEqual({})
+    expect(gatewayGraphQl).not.toHaveBeenCalled()
+  })
+
   it('loads friend suggestions with mutual-friend summaries', async () => {
     gatewayGraphQl.mockResolvedValue({ friendSuggestions: [{
       profile: {

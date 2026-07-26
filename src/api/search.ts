@@ -3,6 +3,7 @@ import type { GatewayPost } from './gatewayTypes'
 import type { SocialContent, SocialGroup, SocialProfile } from './social'
 
 export type SearchTab = 'posts' | 'people' | 'reels' | 'groups'
+export type ProfileConnectionSearchType = 'friends' | 'following' | 'followers'
 
 export type QuickSearchItem =
   | { kind: 'user'; id: string; referenceId: string; profile: SocialProfile }
@@ -276,6 +277,28 @@ export async function searchFriends(keyword: string, page = 1, pageSize = 20): P
   return data.searchFriends.items.flatMap((item) => item ? [userFromSearch(item.user)] : [])
 }
 
+export async function searchProfileConnections(
+  connectionType: ProfileConnectionSearchType,
+  keyword: string,
+  page = 1,
+  pageSize = 100,
+): Promise<SocialProfile[]> {
+  const normalized = keyword.trim()
+  if (normalized.length < 1) return []
+  const type = connectionType === 'friends' ? 'FRIENDS' : connectionType === 'following' ? 'FOLLOWING' : 'FOLLOWERS'
+  const data = await gatewayGraphQl<{
+    searchProfileConnections: { items: Array<{ user: SearchUserGraphQl } | null> }
+  }>(
+    `query SearchProfileConnections($keyword: String!, $type: ProfileConnectionType!, $page: Int!, $size: Int!) {
+      searchProfileConnections(keyword: $keyword, connectionType: $type, pageNumber: $page, pageSize: $size) {
+        items { user { ${SEARCH_USER_FIELDS} } }
+      }
+    }`,
+    { keyword: normalized, type, page, size: pageSize },
+  )
+  return data.searchProfileConnections.items.flatMap((item) => item ? [userFromSearch(item.user)] : [])
+}
+
 export async function recordSearchResultView(referenceId: string): Promise<boolean> {
   const data = await gatewayGraphQl<{ recordSearchResultView: boolean }>(
     `mutation RecordSearchResultView($referenceId: ID!) { recordSearchResultView(referenceId: $referenceId) }`,
@@ -284,4 +307,4 @@ export async function recordSearchResultView(referenceId: string): Promise<boole
   return data.recordSearchResultView
 }
 
-export const searchApi = { fastSearch, search, searchDirectContacts, searchFriends, recordSearchResultView }
+export const searchApi = { fastSearch, search, searchDirectContacts, searchFriends, searchProfileConnections, recordSearchResultView }

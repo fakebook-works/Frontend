@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GatewayPost } from '../api/gatewayTypes'
-import { GatewayHomePage } from './GatewayHomePage'
+import { GatewayHomePage, PostComposer } from './GatewayHomePage'
 
 const apiMocks = vi.hoisted(() => ({
   recommendedFeed: vi.fn(),
@@ -65,6 +65,9 @@ vi.mock('../api/search', () => ({ searchApi: searchMocks }))
 vi.mock('../components/ContentActions', () => ({
   ContentActions: () => <div data-testid="content-actions" />,
   ContentDetailOverlay: ({ contentId, onClose }: { contentId: string; onClose: () => void }) => <div role="dialog" aria-label="shared-post-detail" data-testid="content-detail-overlay"><span>{contentId}</span><button type="button" onClick={onClose}>close</button></div>,
+}))
+vi.mock('../components/PostPhotoViewer', () => ({
+  PostPhotoViewer: ({ contentId, initialMediaId, onClose }: { contentId: string; initialMediaId?: string; onClose: () => void }) => <div role="dialog" aria-label="post-photo-viewer" data-testid="post-photo-viewer"><span>{contentId}:{initialMediaId}</span><button type="button" onClick={onClose}>close-photo</button></div>,
 }))
 
 vi.mock('../lib/auth', () => ({
@@ -149,6 +152,49 @@ describe('GatewayHomePage', () => {
     expect(document.body).not.toHaveClass('home-page-scroll')
   })
 
+  it('keeps desktop wheel movement inside the hovered side rail', async () => {
+    vi.stubGlobal('innerWidth', 1440)
+    const { container } = render(<GatewayHomePage />)
+    await screen.findByText('noRecommendedPosts')
+
+    const leftRail = container.querySelector<HTMLElement>('.gateway-left-rail')!
+    const rightRail = container.querySelector<HTMLElement>('.gateway-right-rail')!
+    const leftWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 120 })
+    const rightWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 80 })
+
+    expect(leftRail.dispatchEvent(leftWheel)).toBe(false)
+    expect(rightRail.dispatchEvent(rightWheel)).toBe(false)
+    expect(leftRail.scrollTop).toBe(120)
+    expect(rightRail.scrollTop).toBe(80)
+  })
+
+  it('uses a structured feed skeleton while the initial Home request is pending', async () => {
+    apiMocks.recommendedFeed.mockReturnValue(new Promise(() => undefined))
+    const { container } = render(<GatewayHomePage />)
+
+    await screen.findByText('noStories')
+    expect(screen.getByRole('status', { name: 'loadingMore' })).toHaveClass('home-feed-skeleton')
+    expect(container.querySelector('.home-feed-skeleton-avatar')).toBeInTheDocument()
+    expect(container.querySelector('.home-feed-skeleton-media')).toBeInTheDocument()
+    expect(container.querySelector('.feed-section > .state-card')).not.toBeInTheDocument()
+  })
+
+  it('keeps the profile composer width contract while matching Home avatar and icon sizes', () => {
+    const onReel = vi.fn()
+    const { container } = render(<PostComposer variant="profile" userId="9007199254740993123" displayName="Profile Owner" avatarUrl={null} friends={[]} onReel={onReel} onCreated={vi.fn()} />)
+    const composer = container.querySelector('.profile-composer-card')!
+
+    expect(composer.querySelector('.home-composer-row .avatar')).toHaveStyle({ width: '40px', height: '40px' })
+    expect(composer.querySelector('.profile-composer-actions .live svg')).toHaveAttribute('width', '29')
+    expect(composer.querySelector('.profile-composer-actions .media svg')).toHaveAttribute('width', '26')
+    expect(composer.querySelector('.profile-composer-actions .reel svg')).toHaveAttribute('width', '26')
+    expect(composer.querySelector('.profile-composer-actions .live .profile-composer-action-label')).toHaveTextContent('profileLiveVideo')
+    expect(composer.querySelector('.profile-composer-actions .media .profile-composer-action-label')).toHaveTextContent('photoVideo')
+    expect(composer.querySelector('.profile-composer-actions .reel .profile-composer-action-label')).toHaveTextContent('profileTabReels')
+    fireEvent.click(within(composer as HTMLElement).getByRole('button', { name: 'profileTabReels' }))
+    expect(onReel).toHaveBeenCalledTimes(1)
+  })
+
   it('renders retryable service errors', async () => {
     apiMocks.recommendedFeed.mockRejectedValueOnce(new Error('offline'))
     apiMocks.homeStories.mockRejectedValueOnce(new Error('offline'))
@@ -171,6 +217,7 @@ describe('GatewayHomePage', () => {
     const card = content.closest('article.gateway-post')
     expect(card).not.toBeNull()
     expect(card).toHaveTextContent('Reel Author')
+    expect(card?.querySelector('.post-author-avatar .avatar')).toHaveStyle({ width: '40px', height: '40px', fontSize: '17px' })
     expect(card?.querySelector('video')).toHaveAttribute('src', 'https://uploads.example.com/reels/reel-71.mp4')
     expect(container.querySelectorAll('.feed-section > article.gateway-post')).toHaveLength(1)
     expect(await within(card as HTMLElement).findByTestId('content-actions')).toBeInTheDocument()
@@ -595,7 +642,8 @@ describe('GatewayHomePage', () => {
       hasNextPage: false,
     })
 
-    const { container } = render(<GatewayHomePage profile={{
+    const onNavigate = vi.fn()
+    const { container } = render(<GatewayHomePage onNavigate={onNavigate} profile={{
       id: '9007199254740993123', username: 'owner', email: 'owner@example.com', displayName: 'Owner Name', avatarUrl: 'https://uploads.example.com/avatar-square.jpg',
       bio: null, birthDate: null, gender: null, location: null, createdAt: '2026-01-01T00:00:00Z', friendCount: 0, postCount: 0,
     }} />)
@@ -603,14 +651,21 @@ describe('GatewayHomePage', () => {
     await screen.findByText('Friend Story')
     const shortcutLabels = [...screen.getByRole('navigation', { name: 'primaryNavLabel' }).querySelectorAll('button strong')].map((item) => item.textContent)
     expect(shortcutLabels).toEqual(['Owner Name', 'saved', 'friends', 'reels', 'groups'])
+    const composerQuickActions = [...container.querySelector('.home-composer-quick-actions')!.children].map((item) => item.getAttribute('aria-label'))
+    expect(composerQuickActions).toEqual(['liveVideo', 'photoVideo', 'createReel'])
+    fireEvent.click(screen.getByRole('button', { name: 'liveVideo' }))
+    expect(screen.queryByRole('dialog', { name: 'createPost' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'createReel' }))
+    expect(onNavigate).toHaveBeenCalledWith('/reels')
     const storyLabels = [...container.querySelectorAll('.story-tile strong')].map((item) => item.textContent)
     expect(storyLabels).toEqual(['storyCreate', 'yourStory', 'Friend Story'])
     expect(container.querySelector<HTMLElement>('.create-story-preview')?.style.backgroundImage).toContain('avatar-square.jpg')
     expect(container.querySelectorAll('.story-avatar-ring.unseen')).toHaveLength(1)
     const friendTile = screen.getByText('Friend Story').closest('.story-tile')!
-    expect(friendTile.querySelectorAll('.home-story-single-media')).toHaveLength(1)
-    expect(friendTile.querySelector('.home-story-single-media')).toHaveAttribute('src', 'https://uploads.example.com/story.jpg')
-    expect(friendTile.querySelector('.story-stage-backdrop')).not.toBeInTheDocument()
+    expect(friendTile.querySelectorAll('.home-story-media-preview')).toHaveLength(1)
+    expect(friendTile.querySelector('.story-image-foreground-source')).toHaveAttribute('src', 'https://uploads.example.com/story.jpg')
+    expect(friendTile.querySelector('.story-stage-backdrop canvas')).toBeInTheDocument()
+    expect(friendTile.querySelector('.home-story-caption-preview')).toHaveTextContent('Friend update')
     expect(friendTile.querySelector('.story-avatar-ring')).toHaveClass('unseen')
     expect(friendTile.querySelector('.story-avatar-ring .avatar')).toHaveStyle({ width: '32px', height: '32px' })
     expect(screen.getByText('yourStory').closest('.story-tile')?.querySelector('.story-avatar-ring')).not.toHaveClass('unseen')
@@ -954,7 +1009,36 @@ describe('GatewayHomePage', () => {
     const sourceHeader = sourceCard.querySelector('.shared-source-head')!
     const sourceGallery = sourceCard.querySelector('.post-media-gallery')!
     expect(sourceHeader.compareDocumentPosition(sourceGallery) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
-    fireEvent.click(screen.getByText('Original body'))
+    fireEvent.click(sourceHeader)
     expect(await screen.findByTestId('content-detail-overlay')).toHaveTextContent('original-69')
+    fireEvent.click(within(screen.getByTestId('content-detail-overlay')).getByRole('button', { name: 'close' }))
+    fireEvent.click(sourceCard.querySelectorAll<HTMLElement>('.post-media-slot.image-interactive')[0])
+    expect(await screen.findByTestId('post-photo-viewer')).toHaveTextContent('original-69:image-1')
+  })
+
+  it('opens a normal post image in the photo viewer but leaves its video controls alone', async () => {
+    apiMocks.recommendedFeed.mockResolvedValue([{ postId: 'photo-post', post: {
+      __typename: 'FeedPostDetail',
+      id: 'photo-post',
+      type: 1,
+      content: 'Mixed media post',
+      privacy: 0,
+      create: '2026-07-24T10:00:00Z',
+      author: { id: '2', name: 'Author', avatar: '', isVerified: false, canFollow: false },
+      media: [
+        { id: 'post-image', type: 0, url: '/post-image.jpg' },
+        { id: 'post-video', type: 1, url: '/post-video.mp4' },
+      ],
+      sharedSource: null,
+    } }])
+
+    render(<GatewayHomePage />)
+
+    const card = (await screen.findByText('Mixed media post')).closest('.gateway-post')!
+    fireEvent.click(card.querySelector<HTMLElement>('.post-media-slot.image-interactive')!)
+    expect(await screen.findByTestId('post-photo-viewer')).toHaveTextContent('photo-post:post-image')
+    fireEvent.click(screen.getByRole('button', { name: 'close-photo' }))
+    fireEvent.click(card.querySelector<HTMLElement>('.post-video-player')!)
+    expect(screen.queryByTestId('post-photo-viewer')).not.toBeInTheDocument()
   })
 })

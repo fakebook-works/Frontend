@@ -68,6 +68,7 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(screen.getByRole('button', { name: 'friends' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'groups' })).toBeEnabled()
     expect(screen.getAllByRole('button', { name: 'home' }).every((button) => !button.hasAttribute('disabled'))).toBe(true)
+    expect(screen.getByRole('button', { name: 'test' }).querySelector('.avatar')).toHaveStyle({ width: '40px', height: '40px' })
   })
 
   it('uses a filled icon for the active destination and outlines for the others', () => {

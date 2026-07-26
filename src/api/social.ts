@@ -33,6 +33,13 @@ export interface FriendSuggestion {
   mutualFriends: UserSummary[]
 }
 
+export interface FriendProfileWithMutualCount {
+  profile: SocialProfile
+  mutualFriendCount: number
+}
+
+export type ProfileConnectionType = 'friends' | 'following' | 'followers'
+
 export interface SocialGroup {
   id: string
   avatarUrl: string | null
@@ -451,6 +458,47 @@ export async function getRelationProfiles(userId: string, associationType: numbe
   return data.friendRelationProfiles.map((profile) => profileFromGraphQl(profile))
 }
 
+export async function getFriendProfilesWithMutualCounts(userId: string, limit = 60): Promise<FriendProfileWithMutualCount[]> {
+  const id = graphQlLongLiteral(userId)
+  const data = await gatewayGraphQl<{ friendProfilesWithMutualCounts: Array<{
+    profile: ProfileGraphQl
+    mutualFriendCount: number
+  }> }>(
+    `query FriendProfilesWithMutualCounts($limit: Int!) {
+      friendProfilesWithMutualCounts(userId: ${id}, limit: $limit) {
+        profile { ${PROFILE_FIELDS} }
+        mutualFriendCount
+      }
+    }`,
+    { limit },
+  )
+  return data.friendProfilesWithMutualCounts.map((item) => ({
+    profile: profileFromGraphQl(item.profile),
+    mutualFriendCount: Number(item.mutualFriendCount),
+  }))
+}
+
+export async function getProfileConnections(userId: string, type: ProfileConnectionType, limit = 100): Promise<FriendProfileWithMutualCount[]> {
+  const id = graphQlLongLiteral(userId)
+  const associationType = type === 'friends' ? 0 : type === 'following' ? 3 : 4
+  const data = await gatewayGraphQl<{ profileConnections: Array<{
+    profile: ProfileGraphQl
+    mutualFriendCount: number
+  }> }>(
+    `query ProfileConnections($associationType: Short!, $limit: Int!) {
+      profileConnections(userId: ${id}, associationType: $associationType, limit: $limit) {
+        profile { ${PROFILE_FIELDS} }
+        mutualFriendCount
+      }
+    }`,
+    { associationType, limit },
+  )
+  return data.profileConnections.map((item) => ({
+    profile: profileFromGraphQl(item.profile),
+    mutualFriendCount: Number(item.mutualFriendCount),
+  }))
+}
+
 export async function getFriendSuggestions(userId: string, limit = 30): Promise<FriendSuggestion[]> {
   const id = graphQlLongLiteral(userId)
   const data = await gatewayGraphQl<{ friendSuggestions: Array<{
@@ -623,6 +671,23 @@ export async function getContentEngagement(targetId: string): Promise<ContentEng
     targetId: String(data.contentEngagement.targetId),
     viewCount: Number(data.contentEngagement.viewCount ?? 0),
   } : null
+}
+
+export async function getContentViewCounts(targetIds: string[]): Promise<Record<string, number>> {
+  const ids = [...new Set(targetIds)]
+  if (ids.length === 0) return {}
+  const counts: Record<string, number> = {}
+  for (let start = 0; start < ids.length; start += 50) {
+    const batch = ids.slice(start, start + 50)
+    const selections = batch
+      .map((id, index) => `e${index}: contentEngagement(targetId: ${graphQlLongLiteral(id)}) { targetId viewCount }`)
+      .join('\n')
+    const data = await gatewayGraphQl<Record<string, { targetId: string; viewCount: number } | null>>(`query ContentViewCounts { ${selections} }`)
+    for (const item of Object.values(data)) {
+      if (item) counts[String(item.targetId)] = Number(item.viewCount)
+    }
+  }
+  return counts
 }
 
 export async function getComments(targetId: string, limit = 30, cursor: string | null = null): Promise<{ items: SocialComment[]; endCursor: string | null; hasNextPage: boolean }> {
@@ -1176,6 +1241,8 @@ export const socialApi = {
   getMyFeedPhotoCandidates,
   getGroupPhotoCandidates,
   getRelationProfiles,
+  getFriendProfilesWithMutualCounts,
+  getProfileConnections,
   getFriendSuggestions,
   getProfileRelationshipState,
   getMemberGroups,
@@ -1188,6 +1255,7 @@ export const socialApi = {
   getGroupPosts,
   getGroupUserPosts,
   getContentEngagement,
+  getContentViewCounts,
   getComments,
   getSavedContent,
   getRecommendedReels,

@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 // Filled glyph set used across the UI. Single-path 24x24 icons drawn with
 // currentColor so callers control size/color via CSS.
 export type IconName =
@@ -125,6 +127,143 @@ const PATHS: Record<IconName, string> = {
   eye: 'M12 5c-5.5 0-9.5 7-9.5 7s4 7 9.5 7 9.5-7 9.5-7S17.5 5 12 5zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm0-2a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
   expand: 'M4 4h6v2H7.4l3.3 3.3-1.4 1.4L6 7.4V10H4V4zm10 0h6v6h-2V7.4l-3.3 3.3-1.4-1.4L16.6 6H14V4zM9.3 13.3l1.4 1.4L7.4 18H10v2H4v-6h2v2.6l3.3-3.3zm5.4 0 3.3 3.3V14h2v6h-6v-2h2.6l-3.3-3.3 1.4-1.4z',
   link: 'M10.6 13.4a4 4 0 0 0 5.66 0l2.14-2.14a4 4 0 0 0-5.66-5.66l-1.22 1.22M13.4 10.6a4 4 0 0 0-5.66 0L5.6 12.74a4 4 0 1 0 5.66 5.66l1.22-1.22',
+}
+
+export function SavedShortcutIcon({ size = 20, className }: { size?: number; className?: string }) {
+  const gradientId = `saved-shortcut-${useId().replace(/:/g, '')}`
+
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id={gradientId} x1="5" y1="2" x2="19" y2="22.5" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#b469f2" />
+          <stop offset="0.52" stopColor="#8a5bea" />
+          <stop offset="1" stopColor="#6558ee" />
+        </linearGradient>
+      </defs>
+      <path d="M7.2 2.2h9.6a2 2 0 0 1 2 2v17.05c0 1.03-1.15 1.65-2.01 1.08l-3.97-2.62a1.5 1.5 0 0 0-1.64 0l-3.97 2.62c-.86.57-2.01-.05-2.01-1.08V4.2a2 2 0 0 1 2-2Z" fill={`url(#${gradientId})`} stroke={`url(#${gradientId})`} strokeWidth="0.7" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function FriendsShortcutIcon({ size = 20, className }: { size?: number; className?: string }) {
+  const id = useId().replace(/:/g, '')
+  const frontGradientId = `friends-front-${id}`
+  const backGradientId = `friends-back-${id}`
+
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id={frontGradientId} x1="3" y1="4" x2="15.5" y2="21" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#48c9f4" />
+          <stop offset="1" stopColor="#1877f2" />
+        </linearGradient>
+        <linearGradient id={backGradientId} x1="14" y1="4" x2="21.5" y2="19" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#ff9b62" />
+          <stop offset="1" stopColor="#ef5e6f" />
+        </linearGradient>
+      </defs>
+      <circle cx="16.85" cy="7.55" r="3.15" fill={`url(#${backGradientId})`} />
+      <path d="M12.9 19.95v-1.02c0-3.14 1.78-5.25 4.35-5.25s4.55 2.11 4.55 5.25v1.02H12.9Z" fill={`url(#${backGradientId})`} stroke={`url(#${backGradientId})`} strokeWidth="0.85" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="8.65" cy="7.75" r="4.05" fill={`url(#${frontGradientId})`} />
+      <path d="M1.75 21v-1.18c0-4.02 2.96-6.65 6.9-6.65s6.9 2.63 6.9 6.65V21H1.75Z" fill={`url(#${frontGradientId})`} stroke={`url(#${frontGradientId})`} strokeWidth="0.85" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function GroupsShortcutIcon({ size = 20, className }: { size?: number; className?: string }) {
+  const id = useId().replace(/:/g, '')
+  const centerGradientId = `groups-center-${id}`
+  const leftGradientId = `groups-left-${id}`
+  const rightGradientId = `groups-right-${id}`
+
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id={centerGradientId} x1="7" y1="5" x2="17" y2="21" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#43c5f5" />
+          <stop offset="1" stopColor="#2767e8" />
+        </linearGradient>
+        <linearGradient id={leftGradientId} x1="1" y1="5" x2="9" y2="18" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#75d9f7" />
+          <stop offset="1" stopColor="#399ce8" />
+        </linearGradient>
+        <linearGradient id={rightGradientId} x1="16" y1="5" x2="23" y2="18" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#63d8ae" />
+          <stop offset="1" stopColor="#20a987" />
+        </linearGradient>
+      </defs>
+      <circle cx="5.25" cy="8.4" r="2.75" fill={`url(#${leftGradientId})`} />
+      <path d="M.75 18.35v-.72c0-2.9 1.88-4.82 4.67-4.82 1.22 0 2.28.37 3.08 1.04A7.2 7.2 0 0 0 6.35 19v.32H1.72a.97.97 0 0 1-.97-.97Z" fill={`url(#${leftGradientId})`} stroke={`url(#${leftGradientId})`} strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="18.75" cy="8.4" r="2.75" fill={`url(#${rightGradientId})`} />
+      <path d="M23.25 18.35v-.72c0-2.9-1.88-4.82-4.67-4.82-1.22 0-2.28.37-3.08 1.04A7.2 7.2 0 0 1 17.65 19v.32h4.63c.54 0 .97-.43.97-.97Z" fill={`url(#${rightGradientId})`} stroke={`url(#${rightGradientId})`} strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="12" cy="7.55" r="3.55" fill={`url(#${centerGradientId})`} />
+      <path d="M5.75 21v-1.08c0-3.82 2.66-6.35 6.25-6.35s6.25 2.53 6.25 6.35V21H5.75Z" fill={`url(#${centerGradientId})`} stroke={`url(#${centerGradientId})`} strokeWidth="0.85" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function ReelIcon({
+  size = 20,
+  className,
+  filled = false,
+  gradient = false,
+}: {
+  size?: number
+  className?: string
+  filled?: boolean
+  gradient?: boolean
+}) {
+  const id = useId().replace(/:/g, '')
+  const gradientId = `reel-gradient-${id}`
+  const maskId = `reel-mask-${id}`
+
+  if (filled) {
+    return (
+      <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id={gradientId} x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#ff7095" />
+            <stop offset="0.5" stopColor="#f24364" />
+            <stop offset="1" stopColor="#d92343" />
+          </linearGradient>
+          <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+            <rect x="2.5" y="2.5" width="19" height="19" rx="3.4" fill="#fff" />
+            <path d="M2.9 8.7h18.2M7.4 2.9l3.3 5.8m2.8-5.8 3.3 5.8" fill="none" stroke="#000" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M10.05 11.72c0-.64.7-1.04 1.25-.72l4.56 2.64c.55.32.55 1.12 0 1.44l-4.56 2.64c-.55.32-1.25-.08-1.25-.72v-5.28Z" fill="#000" />
+          </mask>
+        </defs>
+        <rect width="24" height="24" fill={gradient ? `url(#${gradientId})` : 'currentColor'} mask={`url(#${maskId})`} />
+      </svg>
+    )
+  }
+
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <rect x="2.8" y="2.8" width="18.4" height="18.4" rx="3.2" />
+      <path d="M3.2 8.7h17.6M7.5 3.2l3.15 5.5m2.8-5.5 3.15 5.5" />
+      <path d="m10.1 11.9 5.2 3.1-5.2 3.1v-6.2Z" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+export function LiveVideoIcon({ size = 20, className }: { size?: number; className?: string }) {
+  const eyeMaskId = `live-video-eye-${useId().replace(/:/g, '')}`
+
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      <defs>
+        <mask id={eyeMaskId} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+          <rect width="24" height="24" fill="#000" />
+          <rect x="2" y="5.2" width="14.4" height="13.6" rx="3.2" fill="#fff" />
+          <path d="m17.45 9.05 3.6-2.1c.43-.25.95.06.95.55v9c0 .49-.52.8-.95.55l-3.6-2.1v-5.9Z" fill="#fff" />
+          <path d="M4.35 12s2.23-3.15 5.1-3.15 5.1 3.15 5.1 3.15-2.23 3.15-5.1 3.15S4.35 12 4.35 12Z" fill="#000" />
+        </mask>
+      </defs>
+      <rect width="24" height="24" fill="currentColor" mask={`url(#${eyeMaskId})`} />
+      <circle cx="9.45" cy="12" r="1.22" fill="currentColor" />
+    </svg>
+  )
 }
 
 export function Icon({

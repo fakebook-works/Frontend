@@ -186,14 +186,54 @@ describe('ContentActions refreshed overlays', () => {
 
     const rootNode = screen.getByText('Root comment').closest('.thread-comment-node')!
     const rootArticle = rootNode.querySelector<HTMLElement>(':scope > .thread-comment')!
-    fireEvent.click(within(rootArticle).getByRole('button', { name: 'reply' }))
+    const replyButton = within(rootArticle).getByRole('button', { name: 'reply' })
+    fireEvent.click(replyButton)
     const textarea = screen.getByPlaceholderText('writeReply') as HTMLTextAreaElement
     expect(textarea).toHaveValue('Root User ')
     expect(screen.getByText('Root User', { selector: 'strong.mention-draft-name' })).toBeInTheDocument()
+    expect(screen.queryByText('replyingTo')).not.toBeInTheDocument()
+    expect(screen.getByText('replyingToComment').closest('.reply-draft-node')).toBeInTheDocument()
+    expect(rootNode).toHaveClass('has-children')
+    expect(replyButton).toHaveAttribute('aria-pressed', 'true')
+    expect(container.querySelector('.comment-compose-avatar-stack')).toHaveClass('replying')
+    expect(container.querySelector('.comment-compose-reply-target .avatar')).toHaveStyle({ width: '18px', height: '18px' })
+
+    fireEvent.click(replyButton)
+    expect(screen.queryByText('replyingToComment')).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText('commentAs')).toHaveValue('')
+    expect(replyButton).toHaveAttribute('aria-pressed', 'false')
+    expect(container.querySelector('.comment-compose-reply-target')).not.toBeInTheDocument()
+
+    fireEvent.click(replyButton)
+    fireEvent.click(container.querySelector('.comment-compose-reply-cancel-zone')!)
+    expect(screen.queryByText('replyingToComment')).not.toBeInTheDocument()
+    expect(replyButton).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(replyButton)
     fireEvent.change(textarea, { target: { value: 'Root User thanks' } })
     fireEvent.click(screen.getByRole('button', { name: 'sendComment' }))
     await waitFor(() => expect(socialMocks.createComment).toHaveBeenCalledWith('1', '401', '[[mention:3]] thanks', null))
     await waitFor(() => expect(container.querySelector('.thread-post-engagement .content-comment-summary')).toHaveTextContent('2 comments'))
+  })
+
+  it('uses the own-comment reply copy when the viewer replies to themself', async () => {
+    socialMocks.getComments.mockResolvedValue({
+      items: [{
+        id: 'self-comment', content: 'My own comment', createdAt: '2026-07-20T01:00:00Z',
+        author: { id: '1', username: 'viewer', displayName: 'Viewer Name', avatarUrl: null, isVerified: false },
+        likeCount: 0, replyCount: 0, viewerHasLiked: false, canFollowAuthor: false, isFollowingAuthor: false, mentions: [], media: null,
+      }],
+      endCursor: null,
+      hasNextPage: false,
+    })
+    const { container } = render(<ContentActions viewerId="1" contentId="90" post={post} />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+    const commentNode = (await screen.findByText('My own comment')).closest('.thread-comment-node')!
+    fireEvent.click(within(commentNode.querySelector<HTMLElement>(':scope > .thread-comment')!).getByRole('button', { name: 'reply' }))
+
+    expect(screen.getByText('replyingToOwnComment')).toBeInTheDocument()
+    expect(screen.queryByText('replyingToComment')).not.toBeInTheDocument()
+    expect(container.querySelector('.comment-compose-reply-target .avatar')).toHaveAttribute('aria-label', 'Viewer Name')
   })
 
   it('grows the comment composer to eight lines and expands long rendered comments on demand', async () => {
