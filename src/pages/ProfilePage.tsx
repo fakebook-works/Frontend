@@ -839,7 +839,7 @@ function ProfileMediaTab({ profile, canEdit, friends, onNavigate, onPostCreated 
 
   const filteredItems = items.filter((item) => filter === 'all' || (filter === 'photos' ? item.type === 0 : item.type === 1))
 
-  async function useAsProfileImage(item: ProfileMediaItem, kind: 'avatar' | 'cover') {
+  async function setAsProfileImage(item: ProfileMediaItem, kind: 'avatar' | 'cover') {
     setBusyId(item.id)
     try {
       const updated = kind === 'avatar'
@@ -871,7 +871,7 @@ function ProfileMediaTab({ profile, canEdit, friends, onNavigate, onPostCreated 
     </nav>
     {loading ? <div className="self-profile-collection-state"><span className="spinner" /></div> : error ? <div className="self-profile-collection-state muted">{t('profileMediaLoadError')}</div> : filteredItems.length === 0 ? <div className="self-profile-collection-state muted">{t('photosEmpty')}</div> : <div className="self-profile-media-grid">{filteredItems.map((item) => <article key={item.id}>
       <button type="button" className="self-profile-media-open" onClick={() => onNavigate(`/content/${item.contentId}`)}>{item.type === 1 ? <><video src={item.url} muted playsInline preload="metadata" /><span className="self-profile-media-play"><Icon name="play" size={20} /></span></> : <img src={item.url} alt="" loading="lazy" />}</button>
-      {canEdit && item.type === 0 && <div className="self-profile-media-edit" data-profile-media-menu={item.id}><button type="button" aria-label={t('edit')} onClick={() => setMenuId((current) => current === item.id ? null : item.id)}><Icon name="edit" size={16} /></button>{menuId === item.id && <div role="menu"><button type="button" role="menuitem" disabled={busyId === item.id} onClick={() => void useAsProfileImage(item, 'avatar')}><Icon name="user" size={18} />{t('profileSetAsAvatar')}</button><button type="button" role="menuitem" disabled={busyId === item.id} onClick={() => void useAsProfileImage(item, 'cover')}><Icon name="photo" size={18} />{t('profileSetAsCover')}</button></div>}</div>}
+      {canEdit && item.type === 0 && <div className="self-profile-media-edit" data-profile-media-menu={item.id}><button type="button" aria-label={t('edit')} onClick={() => setMenuId((current) => current === item.id ? null : item.id)}><Icon name="edit" size={16} /></button>{menuId === item.id && <div role="menu"><button type="button" role="menuitem" disabled={busyId === item.id} onClick={() => void setAsProfileImage(item, 'avatar')}><Icon name="user" size={18} />{t('profileSetAsAvatar')}</button><button type="button" role="menuitem" disabled={busyId === item.id} onClick={() => void setAsProfileImage(item, 'cover')}><Icon name="photo" size={18} />{t('profileSetAsCover')}</button></div>}</div>}
     </article>)}</div>}
     {canEdit && <PostComposer triggerOnly externalOpenRequest={composerRequest} variant="profile" userId={profile.id} displayName={profile.displayName} avatarUrl={profile.avatarUrl} isVerified={profile.isVerified} friends={friends} onReel={() => onNavigate('/reels')} onCreated={handleCreated} />}
   </section>

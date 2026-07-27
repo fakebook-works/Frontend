@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type { UserSummary } from '../api/types'
 import { Avatar } from './Avatar'
@@ -36,9 +36,11 @@ export function MentionSuggestions({
   const [measuredWidth, setMeasuredWidth] = useState<number | null>(null)
   const popupRef = useRef<HTMLDivElement>(null)
   const { people: friendMatches, loading } = useFriendSearch(people, mention?.query ?? '', Boolean(mention))
-  const matches = friendMatches.slice(0, Math.max(1, limit))
+  const matches = useMemo(
+    () => friendMatches.slice(0, Math.max(1, limit)),
+    [friendMatches, limit],
+  )
   const visibleRows = Math.max(1, matches.length)
-  const matchSignature = matches.map((person) => `${person.id}:${person.displayName}:${person.isVerified ? 1 : 0}`).join('|')
 
   useLayoutEffect(() => {
     if (!fitToNames || !mention) {
@@ -53,7 +55,7 @@ export function MentionSuggestions({
     ), 0)
     const nextWidth = Math.max(150, Math.min(320, Math.ceil(Math.max(renderedNameWidth, estimatedNameWidth) + 68)))
     setMeasuredWidth((current) => current === nextWidth ? current : nextWidth)
-  }, [fitToNames, matchSignature, mention])
+  }, [fitToNames, matches, mention])
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current

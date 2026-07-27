@@ -18,7 +18,12 @@ export default tseslint.config(
       'react-refresh': reactRefresh,
     },
     rules: {
-      ...reactHooks.configs.recommended.rules,
+      // Keep the established Hooks lint contract while using the patched ESLint
+      // toolchain. react-hooks 7 adds React Compiler migration rules to its
+      // recommended preset; adopting those requires a separate UI refactor and is
+      // intentionally outside this security-only change.
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },
