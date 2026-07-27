@@ -554,10 +554,24 @@ export function subscribeInbox(onEvent: (event: MessengerRealtimeEvent) => void,
   })
 }
 
-export function subscribeConversation(conversationId: string, onEvent: (event: MessengerRealtimeEvent) => void, onError?: (error: Error) => void): () => void {
+/**
+ * Watches several conversations over a single stream.
+ *
+ * Every server-sent events stream holds a connection open for as long as the chat is on
+ * screen, and browsers cap concurrent connections per origin. Subscribing per conversation
+ * meant a few open windows, plus inbox, presence and notifications, exhausted that budget
+ * and left every other request queued. The event carries `conversationId`, so one stream
+ * can serve them all.
+ */
+export function subscribeConversations(conversationIds: string[], onEvent: (event: MessengerRealtimeEvent) => void, onError?: (error: Error) => void): () => void {
+  const ids = [...new Set(conversationIds)].filter((id) => id.length > 0)
+  // Nothing open: do not hold a connection for an empty subscription.
+  if (ids.length === 0) return () => undefined
   return subscribeGatewayGraphQl<{ conversationEvents: MessengerRealtimeEvent }>({
-    query: `subscription ConversationEvents($id: UUID!) { conversationEvents(conversationId: $id) { ${REALTIME_EVENT_FIELDS} } }`,
-    variables: { id: conversationId },
+    // Passed as a variable rather than inlined: these are UUID strings, so unlike the Long
+    // ids in subscribePresence there is no precision problem to work around.
+    query: `subscription ConversationEvents($ids: [UUID!]!) { conversationEvents(conversationIds: $ids) { ${REALTIME_EVENT_FIELDS} } }`,
+    variables: { ids },
     onData: (data) => onEvent(data.conversationEvents),
     onError,
   })
@@ -594,6 +608,6 @@ export const messengerApi = {
   heartbeatPresence,
   setTyping,
   subscribeInbox,
-  subscribeConversation,
+  subscribeConversations,
   subscribePresence,
 }

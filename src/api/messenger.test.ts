@@ -15,7 +15,7 @@ vi.mock('./client', () => ({
 vi.mock('./realtime', () => ({ subscribeGatewayGraphQl }))
 vi.mock('./social', () => ({ socialApi: { getProfiles } }))
 
-import { conversationImages, createGroupConversation, deleteMessage, directConversations, heartbeatPresence, markRead, message, messages, presence, sendMessage, setMessageReaction, setTyping, subscribePresence } from './messenger'
+import { conversationImages, createGroupConversation, deleteMessage, directConversations, heartbeatPresence, markRead, message, messages, presence, sendMessage, setMessageReaction, setTyping, subscribeConversations, subscribePresence } from './messenger'
 
 describe('messenger GraphQL adapter', () => {
   beforeEach(() => {
@@ -363,5 +363,26 @@ describe('messenger GraphQL adapter', () => {
     expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ conversationId: 'conversation-1', isTyping: true })
     expect(subscribeGatewayGraphQl.mock.calls[0][0].query).toContain('presenceEvents(userIds: [9007199254740993124])')
     expect(subscribeGatewayGraphQl.mock.calls[0][0].query).toContain('occurredAt expiresAt')
+  })
+
+  it('watches every open conversation over a single stream', () => {
+    // One connection instead of one per chat: browsers cap concurrent connections per
+    // origin, and each stream holds one open for as long as the chat is on screen.
+    subscribeConversations(['conversation-1', 'conversation-2', 'conversation-1'], () => undefined)
+
+    expect(subscribeGatewayGraphQl).toHaveBeenCalledTimes(1)
+    const request = subscribeGatewayGraphQl.mock.calls[0][0]
+    expect(request.query).toContain('conversationEvents(conversationIds: $ids)')
+    expect(request.query).toContain('$ids: [UUID!]!')
+    // Ids are deduplicated, and passed as a variable rather than inlined.
+    expect(request.variables).toEqual({ ids: ['conversation-1', 'conversation-2'] })
+    expect(request.query).toContain('conversationId')
+  })
+
+  it('does not open a stream when nothing is being watched', () => {
+    const unsubscribe = subscribeConversations([], () => undefined)
+
+    expect(subscribeGatewayGraphQl).not.toHaveBeenCalled()
+    expect(() => unsubscribe()).not.toThrow()
   })
 })

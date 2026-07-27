@@ -161,6 +161,9 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   }, () => setApiState('unavailable')), [loadConversations, me.id])
 
   const selected = conversations.find((conversation) => conversation.id === selectedId) ?? conversations[0] ?? null
+  // selectedId is the explicit choice and can be null while `selected` has fallen back to
+  // the first conversation, so the stream keys on what is actually being shown.
+  const shownConversationId = selected?.id ?? null
   const selectedOther = selected?.type === 'DIRECT'
     ? selected.participants.find((participant) => participant.id !== me.id)
     : undefined
@@ -223,8 +226,13 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   }, [me.id, messages, selected])
 
   useEffect(() => {
-    if (!selected) return
-    return messengerApi.subscribeConversation(selected.id, (event) => {
+    if (!shownConversationId) return
+    // One conversation here, but through the same list-taking subscription the dock uses.
+    // Keyed on the id rather than the conversation object: loadConversations runs on every
+    // inbox event and hands back a new object each time, which used to tear this stream
+    // down and reconnect it constantly.
+    return messengerApi.subscribeConversations([shownConversationId], (event) => {
+      if (event.conversationId !== shownConversationId) return
       if (seenEventIds.current.has(event.eventId)) return
       seenEventIds.current.add(event.eventId)
       if (event.kind === 'TYPING_CHANGED') {
@@ -232,11 +240,11 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
         return
       }
       if (event.kind === 'MESSAGE_ADDED' && event.userId) {
-        if (event.userId !== me.id && event.sequence) latestIncomingSequence.current.set(selected.id, event.sequence)
+        if (event.userId !== me.id && event.sequence) latestIncomingSequence.current.set(shownConversationId, event.sequence)
         setTypingByConversationId((current) => {
-          if (current[selected.id] !== event.userId) return current
+          if (current[shownConversationId] !== event.userId) return current
           const next = { ...current }
-          delete next[selected.id]
+          delete next[shownConversationId]
           return next
         })
       }
@@ -244,18 +252,18 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
         void messengerApi.message(event.messageId, me.id).then((incoming) => {
           setMessages((current) => ({
             ...current,
-            [selected.id]: upsertMessage(current[selected.id] ?? [], incoming),
+            [shownConversationId]: upsertMessage(current[shownConversationId] ?? [], incoming),
           }))
           setApiState('gateway')
         }).catch(() => setApiState('unavailable'))
         return
       }
-      messengerApi.messages(selected.id, me.id).then((items) => {
-        setMessages((current) => ({ ...current, [selected.id]: items }))
+      messengerApi.messages(shownConversationId, me.id).then((items) => {
+        setMessages((current) => ({ ...current, [shownConversationId]: items }))
         setApiState('gateway')
       }).catch(() => setApiState('unavailable'))
     }, () => setApiState('unavailable'))
-  }, [applyTypingEvent, me.id, selected])
+  }, [applyTypingEvent, me.id, shownConversationId])
 
   useEffect(() => () => {
     outgoingTypingTimers.current.forEach((timer) => window.clearTimeout(timer))

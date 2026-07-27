@@ -17,7 +17,7 @@ const messengerMocks = vi.hoisted(() => ({
   markRead: vi.fn(),
   setTyping: vi.fn(),
   subscribeInbox: vi.fn(),
-  subscribeConversation: vi.fn(),
+  subscribeConversations: vi.fn(),
   subscribePresence: vi.fn(),
 }))
 const socialMocks = vi.hoisted(() => ({ getProfileRelationshipState: vi.fn() }))
@@ -121,9 +121,11 @@ describe('MessengerDock overflow windows', () => {
       inboxListener = listener
       return () => undefined
     })
-    messengerMocks.subscribeConversation.mockReset().mockImplementation((conversationId, listener) => {
-      conversationListeners.set(conversationId, listener)
-      return () => conversationListeners.delete(conversationId)
+    // One stream now carries every open chat, so the mock fans the single listener out
+    // to each id the component asked for.
+    messengerMocks.subscribeConversations.mockReset().mockImplementation((conversationIds, listener) => {
+      conversationIds.forEach((conversationId: string) => conversationListeners.set(conversationId, listener))
+      return () => conversationIds.forEach((conversationId: string) => conversationListeners.delete(conversationId))
     })
     messengerMocks.subscribePresence.mockReset().mockImplementation((_ids, listener) => {
       presenceListener = listener

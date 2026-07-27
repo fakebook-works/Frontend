@@ -139,6 +139,9 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const [forwardingMessage, setForwardingMessage] = useState<MessengerMessageDto | null>(null)
   const seenEventIds = useRef(new Set<string>())
   const conversationsRef = useRef<MessengerConversationDto[]>([])
+  // Read through a ref so the inbox stream does not tear down and reconnect every time a
+  // chat window is opened, closed or minimised.
+  const fullOpenIdsRef = useRef<string[]>([])
   const messagesRef = useRef<Record<string, MessengerMessageDto[]>>({})
   const outgoingTypingTimers = useRef(new Map<string, number>())
   const outgoingTypingSentAt = useRef(new Map<string, number>())
@@ -158,6 +161,8 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     () => expandedOpenIds.slice(-fullChatLimit),
     [expandedOpenIds, fullChatLimit],
   )
+  const fullOpenIdKey = fullOpenIds.join(',')
+  fullOpenIdsRef.current = fullOpenIds
   const collapsedOpenIds = useMemo(
     () => openIds.filter((id) => !fullOpenIds.includes(id)),
     [fullOpenIds, openIds],
@@ -525,7 +530,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
           return
         }
 
-        if (fullOpenIds.includes(event.conversationId)) {
+        if (fullOpenIdsRef.current.includes(event.conversationId)) {
           const loadMessageChange = event.messageId && ['MESSAGE_ADDED', 'MESSAGE_DELETED', 'REACTION_CHANGED'].includes(event.kind)
             ? messengerApi.message(event.messageId, me.id).then((incoming) => {
               setMessages((current) => ({
@@ -540,10 +545,15 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         }
       })()
     }, () => setError(t('messengerUnavailableDesc')))
-  }, [clearIncomingTyping, fullOpenIds, loadConversations, markConversationAttention, me.id, onPanelClose, t])
+  }, [clearIncomingTyping, loadConversations, markConversationAttention, me.id, onPanelClose, t])
 
   useEffect(() => {
-    const unsubscribers = fullOpenIds.map((conversationId) => messengerApi.subscribeConversation(conversationId, (event) => {
+    // One stream for every open chat instead of one per chat. Each event names its own
+    // conversation, which is what the per-conversation closure used to provide.
+    const watched = fullOpenIdKey.split(',').filter((id) => id.length > 0)
+    return messengerApi.subscribeConversations(watched, (event) => {
+      const conversationId = event.conversationId
+      if (!conversationId || !watched.includes(conversationId)) return
       if (seenEventIds.current.has(event.eventId)) return
       seenEventIds.current.add(event.eventId)
       if (event.kind === 'TYPING_CHANGED') {
@@ -566,9 +576,11 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
           setMessages((current) => ({ ...current, [conversationId]: items }))
         })
       void loadMessages.then(() => setError(null)).catch(() => setError(t('messengerUnavailableDesc')))
-    }, () => setError(t('messengerUnavailableDesc'))))
-    return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
-  }, [applyTypingEvent, clearIncomingTyping, fullOpenIds, markConversationAttention, me.id, t])
+    }, () => setError(t('messengerUnavailableDesc')))
+    // Keyed on the scalar rather than the array, so the stream is not rebuilt merely because
+    // a new array instance was produced. `watched` is derived from that same key, which keeps
+    // the dependency list honest.
+  }, [applyTypingEvent, clearIncomingTyping, fullOpenIdKey, markConversationAttention, me.id, t])
 
   const openConversation = useCallback((conversation: MessengerConversationDto) => {
     setConversations((current) => [

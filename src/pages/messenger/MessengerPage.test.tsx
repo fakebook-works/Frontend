@@ -33,7 +33,7 @@ vi.mock('../../api/messenger', () => ({ messengerApi: {
   presence: vi.fn().mockResolvedValue([]),
   setTyping: vi.fn().mockResolvedValue(undefined),
   subscribeInbox: vi.fn(() => vi.fn()),
-  subscribeConversation: vi.fn(() => vi.fn()),
+  subscribeConversations: vi.fn(() => vi.fn()),
   subscribePresence: vi.fn(() => vi.fn()),
 } }))
 vi.mock('../../api/search', () => ({ searchApi: { searchFriends } }))
