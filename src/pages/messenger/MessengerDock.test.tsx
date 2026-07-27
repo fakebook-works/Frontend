@@ -70,7 +70,7 @@ function directConversation(friendId: string): MessengerConversationDto {
   }
 }
 
-function Harness({ onOpenProfile = () => undefined }: { onOpenProfile?: (id: string) => void } = {}) {
+function Harness({ onOpenProfile = () => undefined, hidden = false }: { onOpenProfile?: (id: string) => void; hidden?: boolean } = {}) {
   const dock = useRef<MessengerDockHandle>(null)
   return <>
     {['2', '3', '4', '5'].map((id) => <button key={id} type="button" onClick={() => void dock.current?.openDirect(id)}>open-{id}</button>)}
@@ -79,6 +79,7 @@ function Harness({ onOpenProfile = () => undefined }: { onOpenProfile?: (id: str
       me={me}
       friends={[]}
       panelOpen={false}
+      hidden={hidden}
       onPanelClose={() => undefined}
       onOpenAll={() => undefined}
       onOpenProfile={onOpenProfile}
@@ -148,6 +149,20 @@ describe('MessengerDock overflow windows', () => {
   afterEach(() => {
     cleanup()
     vi.unstubAllGlobals()
+  })
+
+  it('holds no realtime connections while hidden', async () => {
+    // On /messenger the dock renders null and MessengerPage is mounted with its own
+    // streams. Browsers cap connections per origin, so keeping these open would spend the
+    // budget on something that cannot be displayed.
+    render(<Harness hidden />)
+
+    // The harness buttons render regardless of the dock, so finding one proves React has
+    // committed and effects have run.
+    await screen.findByRole('button', { name: 'open-2' })
+    expect(messengerMocks.subscribeInbox).not.toHaveBeenCalled()
+    expect(messengerMocks.subscribeConversations).not.toHaveBeenCalled()
+    expect(messengerMocks.subscribePresence).not.toHaveBeenCalled()
   })
 
   it('keeps three full windows and moves the least-recent chat into an avatar bubble', async () => {

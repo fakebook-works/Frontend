@@ -323,7 +323,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   }, [directOtherIdKey, friendIdKey, me.id])
 
   useEffect(() => {
-    if (presenceUserIds.length === 0) return
+    if (hidden || presenceUserIds.length === 0) return
     let active = true
     const refreshPresence = () => {
       void messengerApi.presence(presenceUserIds).then((statuses) => {
@@ -358,7 +358,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     }
     // Stable scalar key prevents reconnecting only because array identity changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presenceUserIdKey])
+  }, [hidden, presenceUserIdKey])
 
   const clearIncomingTyping = useCallback((conversationId: string, userId: string) => {
     const timerKey = `${conversationId}:${userId}`
@@ -487,6 +487,9 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   }, [onPanelClose, panelMenuOpen, panelOpen])
 
   useEffect(() => {
+    // Rendered as null while hidden, and MessengerPage is mounted on that route with its
+    // own streams. Holding these open would spend connections nothing can display.
+    if (hidden) return
     return messengerApi.subscribeInbox((event) => {
       if (seenEventIds.current.has(event.eventId)) return
       seenEventIds.current.add(event.eventId)
@@ -545,9 +548,10 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         }
       })()
     }, () => setError(t('messengerUnavailableDesc')))
-  }, [clearIncomingTyping, loadConversations, markConversationAttention, me.id, onPanelClose, t])
+  }, [clearIncomingTyping, hidden, loadConversations, markConversationAttention, me.id, onPanelClose, t])
 
   useEffect(() => {
+    if (hidden) return
     // One stream for every open chat instead of one per chat. Each event names its own
     // conversation, which is what the per-conversation closure used to provide.
     const watched = fullOpenIdKey.split(',').filter((id) => id.length > 0)
@@ -580,7 +584,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     // Keyed on the scalar rather than the array, so the stream is not rebuilt merely because
     // a new array instance was produced. `watched` is derived from that same key, which keeps
     // the dependency list honest.
-  }, [applyTypingEvent, clearIncomingTyping, fullOpenIdKey, markConversationAttention, me.id, t])
+  }, [applyTypingEvent, clearIncomingTyping, fullOpenIdKey, hidden, markConversationAttention, me.id, t])
 
   const openConversation = useCallback((conversation: MessengerConversationDto) => {
     setConversations((current) => [

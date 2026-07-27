@@ -11,6 +11,7 @@ import { ConversationList } from './ConversationList'
 import { ForwardMessageDialog } from './ForwardMessageDialog'
 import { MessageThread } from './MessageThread'
 import { NewConversationModal } from './NewConversationModal'
+import { playIncomingMessageSound } from '../../lib/sounds'
 import { encodeMessengerLike } from './helpers'
 import type { MessengerLikeLevel } from './helpers'
 import './MessengerPage.css'
@@ -144,8 +145,12 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   useEffect(() => messengerApi.subscribeInbox((event) => {
     if (seenEventIds.current.has(event.eventId)) return
     seenEventIds.current.add(event.eventId)
-    if (event.kind === 'MESSAGE_ADDED' && event.conversationId && event.sequence && event.userId !== me.id) {
-      latestIncomingSequence.current.set(event.conversationId, event.sequence)
+    if (event.kind === 'MESSAGE_ADDED' && event.userId && event.userId !== me.id) {
+      if (event.conversationId && event.sequence) {
+        latestIncomingSequence.current.set(event.conversationId, event.sequence)
+      }
+      // The dock played this before; it no longer holds streams open on this route.
+      playIncomingMessageSound()
     }
     void loadConversations()
     if (['MESSAGE_ADDED', 'MESSAGE_DELETED', 'REACTION_CHANGED'].includes(event.kind) && event.conversationId && event.messageId) {
