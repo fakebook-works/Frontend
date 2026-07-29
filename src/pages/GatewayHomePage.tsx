@@ -6,7 +6,7 @@ import type { GatewayPost, GatewayStory, GatewayTaggedUser, SharedStory, StoryBu
 import { messengerApi, type MessengerPresenceDto } from '../api/messenger'
 import { searchApi } from '../api/search'
 import { socialApi, type ContentEngagement, type SocialProfile } from '../api/social'
-import type { MediaUpload, UserProfile, UserSummary } from '../api/types'
+import type { MediaUpload, MessengerConversationDto, UserProfile, UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { GroupPostAvatar } from '../components/GroupPostAvatar'
 import { HoverTooltip } from '../components/HoverTooltip'
@@ -34,21 +34,26 @@ import { readDefaultPostPrivacy } from '../lib/privacy'
 import { formatPostTimestamp } from '../lib/postTime'
 import { decodeStoryContent } from '../lib/storyContent'
 import { forgetOwnUnseenStory, reconcileOwnUnseenStories, rememberOwnUnseenStory } from '../lib/ownStoryUnseen'
-import { useFriendSearch } from '../lib/useFriendSearch'
 import { applyMentionSelection, extractMentionUserIds, reconcileMentionEntities, serializeMentionContent, type MentionEntity } from '../lib/mentions'
-import { formatPresence } from './messenger/helpers'
+import { formatPresence, groupPresenceSummary } from './messenger/helpers'
 
 const FEED_PAGE_SIZE = 12
 const MAX_POST_STANDARD_MEDIA_BYTES = 25 * 1024 * 1024
-const MAX_POST_VIDEO_BYTES = 100 * 1024 * 1024
-const TagPeoplePicker = lazy(() => import('../components/TagPeoplePicker'))
-const ComposerMediaPreview = lazy(() => import('../components/ComposerMediaPreview'))
-const StoryCreatorModal = lazy(() => import('../components/StoryCreatorModal'))
+const MAX_POST_VIDEO_BYTES = 500 * 1024 * 1024
+const loadTagPeoplePicker = () => import('../components/TagPeoplePicker')
+const TagPeoplePicker = lazy(loadTagPeoplePicker)
+const loadComposerMediaPreview = () => import('../components/ComposerMediaPreview')
+const ComposerMediaPreview = lazy(loadComposerMediaPreview)
+const loadStoryCreatorModal = () => import('../components/StoryCreatorModal')
+const StoryCreatorModal = lazy(loadStoryCreatorModal)
+const loadCreateReelModal = () => import('../components/CreateReelModal')
+const CreateReelModal = lazy(loadCreateReelModal)
 const loadStoryViewerPage = () => import('../components/StoryViewerPage')
 const StoryViewerPage = lazy(() => loadStoryViewerPage().then((module) => ({ default: module.StoryViewerPage })))
 const ContentActions = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentActions })))
 const ContentDetailOverlay = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentDetailOverlay })))
-const PostPhotoViewer = lazy(() => import('../components/PostPhotoViewer').then((module) => ({ default: module.PostPhotoViewer })))
+const loadPostPhotoViewer = () => import('../components/PostPhotoViewer')
+const PostPhotoViewer = lazy(() => loadPostPhotoViewer().then((module) => ({ default: module.PostPhotoViewer })))
 
 function mediaType(type: MediaUpload['type']) {
   if (type === 'audio') throw new Error('Audio is not supported in feed posts.')
@@ -60,12 +65,15 @@ function removeStoryFromBucket(bucket: StoryBucket, storyId: string): StoryBucke
   return stories.length > 0 ? { ...bucket, latestCreate: stories[0].create, stories } : null
 }
 
-export function GatewayHomePage({ profile = null, detailPostId = null, onDetailClose, onNavigate, onMessage }: {
+export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId = null, onDetailClose, onNavigate, onMessage, onNewConversation, onConversation }: {
   profile?: UserProfile | null
+  refreshToken?: number
   detailPostId?: string | null
   onDetailClose?: () => void
   onNavigate?: (path: string) => void
   onMessage?: (profileId: string) => Promise<void>
+  onNewConversation?: () => void
+  onConversation?: (conversation: MessengerConversationDto) => void
 }) {
   const { user } = useAuth()
   const { t, locale } = useI18n()
@@ -83,22 +91,37 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
   const [groupsLoading, setGroupsLoading] = useState(true)
   const [groupsError, setGroupsError] = useState<string | null>(null)
   const [friends, setFriends] = useState<SocialProfile[]>([])
-  const [friendsLoading, setFriendsLoading] = useState(true)
   const [contacts, setContacts] = useState<UserSummary[]>([])
   const [contactResults, setContactResults] = useState<UserSummary[]>([])
   const [contactsLoading, setContactsLoading] = useState(true)
   const [contactsSearching, setContactsSearching] = useState(false)
-  const [contactMode, setContactMode] = useState<'contacts' | 'contactSearch' | 'friendPicker'>('contacts')
+  const [contactMode, setContactMode] = useState<'contacts' | 'contactSearch'>('contacts')
   const [contactQuery, setContactQuery] = useState('')
-  const [contactActionError, setContactActionError] = useState<string | null>(null)
+  const [groupConversations, setGroupConversations] = useState<MessengerConversationDto[]>([])
+  const [groupConversationsLoading, setGroupConversationsLoading] = useState(true)
   const [presenceByUserId, setPresenceByUserId] = useState<Record<string, MessengerPresenceDto>>({})
   const [presenceNow, setPresenceNow] = useState(() => Date.now())
+  const [detailPhotoViewer, setDetailPhotoViewer] = useState<{ contentId: string; mediaId: string; mediaUrl: string; initialPost?: GatewayPost; initialPlaybackTime?: number } | null>(null)
   const contactSearchSequence = useRef(0)
   const locallyCreatedPostIds = useRef(new Set<string>())
   const feedMoreRequestRef = useRef(false)
   const feedSentinelRef = useRef<HTMLDivElement>(null)
   const leftRailRef = useRef<HTMLElement>(null)
   const rightRailRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const preloadInteractionChunks = () => {
+      void loadStoryCreatorModal()
+      void loadStoryViewerPage()
+      void loadPostPhotoViewer()
+    }
+    if (typeof window.requestIdleCallback === 'function') {
+      const idleId = window.requestIdleCallback(preloadInteractionChunks, { timeout: 1200 })
+      return () => window.cancelIdleCallback(idleId)
+    }
+    const timeoutId = window.setTimeout(preloadInteractionChunks, 700)
+    return () => window.clearTimeout(timeoutId)
+  }, [])
 
   const loadFeed = useCallback(async (reset = false) => {
     if (!user) return
@@ -215,27 +238,52 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
     }
   }, [user])
 
-  const loadFriends = useCallback(async () => {
+  const loadGroupConversations = useCallback(async () => {
     if (!user) return
-    setFriendsLoading(true)
-    try { setFriends(await socialApi.getRelationProfiles(user.userId, 0, 100)) } catch { setFriends([]) } finally { setFriendsLoading(false) }
+    setGroupConversationsLoading(true)
+    try {
+      const conversations = await messengerApi.conversations(user.userId, 100)
+      setGroupConversations(conversations.filter((conversation) => conversation.type === 'GROUP' && conversation.participants.some((participant) => participant.id === user.userId && !participant.leftAt)))
+    } catch {
+      setGroupConversations([])
+    } finally {
+      setGroupConversationsLoading(false)
+    }
   }, [user])
 
-  const { people: friendPickerPeople, loading: friendsSearching } = useFriendSearch(
-    friends,
-    contactQuery,
-    contactMode === 'friendPicker',
-  )
+  const loadFriends = useCallback(async () => {
+    if (!user) return
+    try { setFriends(await socialApi.getRelationProfiles(user.userId, 0, 100)) } catch { setFriends([]) }
+  }, [user])
 
   useEffect(() => {
+    if (refreshToken > 0) {
+      document.documentElement.scrollTop = 0
+      document.body.scrollTop = 0
+      if (leftRailRef.current) leftRailRef.current.scrollTop = 0
+      if (rightRailRef.current) rightRailRef.current.scrollTop = 0
+      setContactMode('contacts')
+      setContactQuery('')
+    }
     void loadFeed(true)
     void loadStories()
     void loadGroups()
     void loadContacts()
+    void loadGroupConversations()
     void loadFriends()
-    // Initial load is tied to the authenticated identity; pagination invokes loadFeed directly.
+    // Initial load is tied to the authenticated identity; clicking active Home increments refreshToken.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.userId])
+  }, [refreshToken, user?.userId])
+
+  useEffect(() => {
+    const upsertConversation = (event: Event) => {
+      const conversation = (event as CustomEvent<MessengerConversationDto>).detail
+      if (!conversation || conversation.type !== 'GROUP') return
+      setGroupConversations((current) => [conversation, ...current.filter((item) => item.id !== conversation.id)])
+    }
+    window.addEventListener('fakebook:conversation-upserted', upsertConversation)
+    return () => window.removeEventListener('fakebook:conversation-upserted', upsertConversation)
+  }, [])
 
   useEffect(() => {
     const sentinel = feedSentinelRef.current
@@ -275,13 +323,16 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
   }, [contactMode, contactQuery, contacts])
 
   const visibleContacts = contactQuery.trim() ? contactResults : contacts
-  const visibleContactPeople = contactMode === 'friendPicker' ? friendPickerPeople : visibleContacts
-  const contactListPending = visibleContactPeople.length === 0 && (contactMode === 'friendPicker'
-    ? friendsLoading || (contactQuery.trim().length > 0 && friendsSearching)
-    : contactsLoading || (contactMode === 'contactSearch' && contactQuery.trim().length > 0 && contactsSearching))
+  const visibleContactPeople = visibleContacts
+  const contactListPending = visibleContactPeople.length === 0 && (contactsLoading || (contactMode === 'contactSearch' && contactQuery.trim().length > 0 && contactsSearching))
   const presenceIds = useMemo(
-    () => [...new Set(visibleContactPeople.map((person) => person.id))].slice(0, 100),
-    [visibleContactPeople],
+    () => [...new Set([
+      ...visibleContactPeople.map((person) => person.id),
+      ...groupConversations.flatMap((conversation) => conversation.participants
+        .filter((participant) => participant.id !== user?.userId && !participant.leftAt)
+        .map((participant) => participant.id)),
+    ])].slice(0, 250),
+    [groupConversations, user?.userId, visibleContactPeople],
   )
   const presenceKey = presenceIds.join(',')
 
@@ -364,24 +415,6 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
     }
   }
 
-  async function startContactConversation(person: UserSummary) {
-    if (!user) return
-    setContactActionError(null)
-    try {
-      if (onMessage) {
-        await onMessage(person.id)
-      } else {
-        const conversation = await messengerApi.createDirectConversation(person.id, user.userId)
-        onNavigate?.(`/messenger?conversation=${encodeURIComponent(conversation.id)}`)
-      }
-      setContactMode('contacts')
-      setContactQuery('')
-      await loadContacts()
-    } catch {
-      setContactActionError(t('messageActionError'))
-    }
-  }
-
   return <>
     <main className="gateway-home">
       <aside ref={leftRailRef} className="gateway-left-rail" aria-label={t('visitedGroups')}>
@@ -420,7 +453,6 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
           avatarUrl={profile?.avatarUrl || null}
           isVerified={profile?.isVerified}
           friends={friends}
-          onReel={() => onNavigate?.('/reels')}
           onCreated={(post) => {
             locallyCreatedPostIds.current.add(post.id)
             setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])
@@ -477,20 +509,26 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
       </div>
 
       <aside ref={rightRailRef} className="gateway-right-rail" aria-label={t('contacts')}>
-        <section className={`right-rail-module contacts-module${contactMode === 'friendPicker' ? ' friend-picker-mode' : ''}`}>
-          <header><h2>{t('contacts')}</h2><div><button type="button" className={contactMode === 'friendPicker' ? 'active' : ''} aria-label={t('newMessage')} aria-pressed={contactMode === 'friendPicker'} onClick={() => { setContactMode((mode) => mode === 'friendPicker' ? 'contacts' : 'friendPicker'); setContactQuery(''); setContactActionError(null) }}><Icon name="plus" size={18} /></button><button type="button" className={contactMode === 'contactSearch' ? 'active' : ''} aria-label={t('search')} aria-pressed={contactMode === 'contactSearch'} onClick={() => { setContactMode((mode) => mode === 'contactSearch' ? 'contacts' : 'contactSearch'); setContactQuery(''); setContactActionError(null) }}><ContactSearchIcon /></button><button type="button" aria-label={t('more')} onClick={() => onNavigate?.('/messenger')}><Icon name="more" size={17} /></button></div></header>
-          {contactMode !== 'contacts' && <label className="contact-search-wrap"><ContactSearchIcon /><input key={contactMode} className="contact-search" autoFocus value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} placeholder={contactMode === 'friendPicker' ? t('searchFriends') : t('searchContacts')} /></label>}
-          {contactActionError && <p className="form-error contact-action-error">{contactActionError}</p>}
+        <section className="right-rail-module contacts-module">
+          <header><h2>{t('contacts')}</h2><div><button type="button" aria-label={t('newMessage')} onClick={() => { setContactMode('contacts'); setContactQuery(''); onNewConversation?.() }}><Icon name="plus" size={18} /></button><button type="button" className={contactMode === 'contactSearch' ? 'active' : ''} aria-label={t('search')} aria-pressed={contactMode === 'contactSearch'} onClick={() => { setContactMode((mode) => mode === 'contactSearch' ? 'contacts' : 'contactSearch'); setContactQuery('') }}><ContactSearchIcon /></button><button type="button" aria-label={t('more')} onClick={() => onNavigate?.('/messenger')}><Icon name="more" size={17} /></button></div></header>
+          {contactMode === 'contactSearch' && <label className="contact-search-wrap"><ContactSearchIcon /><input className="contact-search" autoFocus value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} placeholder={t('searchContacts')} /></label>}
           {!contactListPending && (visibleContactPeople.length === 0
-              ? <p>{contactMode === 'friendPicker' ? t('noFriendsFound') : contactQuery ? t('noContactsFound') : t('noContactsYet')}</p>
+              ? <p>{contactQuery ? t('noContactsFound') : t('noContactsYet')}</p>
               : <div className="contact-list">{visibleContactPeople.map((person) => {
                 const presence = presenceByUserId[person.id]
                 const online = Boolean(presence?.isOnline)
-                const statusLabel = contactMode === 'friendPicker'
-                  ? online ? t('activeNow') : t('friends')
-                  : presence ? formatPresence(presence, t, presenceNow) : null
-                return <button type="button" key={person.id} onClick={() => contactMode === 'friendPicker' ? void startContactConversation(person) : onMessage ? void onMessage(person.id) : onNavigate?.(`/profile/${person.id}`)}><span className="contact-avatar"><Avatar name={person.displayName} src={person.avatarUrl} size={36} online={online} /></span><span className="contact-copy"><strong>{person.displayName}<VerifiedBadge verified={person.isVerified} size={12} /></strong>{statusLabel && <small>{statusLabel}</small>}</span></button>
+                const statusLabel = presence ? formatPresence(presence, t, presenceNow) : null
+                return <button type="button" key={person.id} onClick={() => onMessage ? void onMessage(person.id) : onNavigate?.(`/profile/${person.id}`)}><span className="contact-avatar"><Avatar name={person.displayName} src={person.avatarUrl} size={36} online={online} /></span><span className="contact-copy"><strong>{person.displayName}<VerifiedBadge verified={person.isVerified} size={12} /></strong>{statusLabel && <small>{statusLabel}</small>}</span></button>
               })}</div>)}
+        </section>
+        <section className="right-rail-module group-conversations-module" aria-labelledby="group-conversations-title">
+          <h2 id="group-conversations-title">{t('groupChats')}</h2>
+          {groupConversationsLoading ? <span className="spinner compact" aria-label={t('loadingMore')} /> : groupConversations.length === 0 ? <p>{t('noGroupChatsYet')}</p> : <div className="contact-list group-conversation-list">{groupConversations.map((conversation) => {
+            const name = conversation.title?.trim() || t('groupConversation')
+            const avatar = conversation.avatarUrl || conversation.participants.find((participant) => participant.id !== user.userId)?.avatarUrl || null
+            const groupPresence = groupPresenceSummary(conversation, user.userId, presenceByUserId, t, presenceNow)
+            return <button type="button" key={conversation.id} onClick={() => onConversation ? onConversation(conversation) : onNavigate?.(`/messenger?conversation=${encodeURIComponent(conversation.id)}`)}><span className="contact-avatar"><Avatar name={name} src={avatar} size={36} online={groupPresence.onlineCount > 0} /></span><span className="contact-copy"><strong>{name}</strong><small>{groupPresence.label}</small></span></button>
+          })}</div>}
         </section>
       </aside>
     </main>
@@ -501,7 +539,9 @@ export function GatewayHomePage({ profile = null, detailPostId = null, onDetailC
       onNavigate={onNavigate}
       onMessage={onMessage}
       onStoryCreated={applyCreatedStory}
+      onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setDetailPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })}
     /></Suspense>}
+    {user && detailPhotoViewer && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><PostPhotoViewer viewerId={user.userId} contentId={detailPhotoViewer.contentId} initialMediaId={detailPhotoViewer.mediaId} initialMediaUrl={detailPhotoViewer.mediaUrl} initialPlaybackTime={detailPhotoViewer.initialPlaybackTime} initialPost={detailPhotoViewer.initialPost} onClose={() => setDetailPhotoViewer(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={applyCreatedStory} /></Suspense>}
   </>
 }
 
@@ -568,6 +608,7 @@ function PrivacyCaretIcon() {
 export function PostComposer({ variant = 'home', userId, displayName, avatarUrl, isVerified, friends, onReel, onCreated, triggerOnly = false, externalOpenRequest = 0 }: { variant?: 'home' | 'profile'; userId: string; displayName: string; avatarUrl: string | null; isVerified?: boolean; friends: UserSummary[]; onReel?: () => void; onCreated: (post: GatewayPost) => void; triggerOnly?: boolean; externalOpenRequest?: number }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
+  const [reelOpen, setReelOpen] = useState(false)
   const [content, setContent] = useState('')
   const [privacy, setPrivacy] = useState<PostPrivacy>(() => readDefaultPostPrivacy(userId))
   const [backgroundId, setBackgroundId] = useState<PostBackgroundId | null>(null)
@@ -598,6 +639,10 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
     setMessage(null)
     setOpen(true)
   }, [externalOpenRequest])
+
+  useEffect(() => {
+    if (variant === 'home' && !onReel) void loadCreateReelModal()
+  }, [onReel, variant])
 
   useEffect(() => {
     if (!activePicker) return
@@ -684,8 +729,19 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   }, [content, selectedBackground])
 
   function showComposer() {
+    void loadComposerMediaPreview()
+    void loadTagPeoplePicker()
     setMessage(null)
     setOpen(true)
+  }
+
+  function showReelComposer() {
+    if (onReel) {
+      onReel()
+      return
+    }
+    void loadCreateReelModal()
+    setReelOpen(true)
   }
 
   function clearFiles() {
@@ -913,10 +969,10 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
             <span>{t('photoVideo')}</span>
             <input key={`quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} />
           </label>
-          <button type="button" className="home-composer-quick-action reel" aria-label={t('createReel')} title={t('createReel')} onClick={() => onReel?.()}><ReelIcon size={26} filled /></button>
+          <button type="button" className="home-composer-quick-action reel" aria-label={t('createReel')} title={t('createReel')} onPointerEnter={() => void loadCreateReelModal()} onFocus={() => void loadCreateReelModal()} onClick={showReelComposer}><ReelIcon size={26} filled /></button>
         </div>}
       </div>
-      {variant === 'profile' && <div className="profile-composer-actions"><button type="button" className="live" onClick={showComposer}><LiveVideoIcon size={29} /><span className="profile-composer-action-label">{t('profileLiveVideo')}</span></button><label className="media"><Icon name="photo" size={26} /><span className="profile-composer-action-label">{t('photoVideo')}</span><input key={`profile-quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} /></label><button type="button" className="reel" onClick={() => onReel?.()}><ReelIcon size={26} filled /><span className="profile-composer-action-label">{t('profileTabReels')}</span></button></div>}
+      {variant === 'profile' && <div className="profile-composer-actions"><button type="button" className="live" onClick={showComposer}><LiveVideoIcon size={29} /><span className="profile-composer-action-label">{t('profileLiveVideo')}</span></button><label className="media"><Icon name="photo" size={26} /><span className="profile-composer-action-label">{t('photoVideo')}</span><input key={`profile-quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} /></label><button type="button" className="reel" onClick={showReelComposer}><ReelIcon size={26} filled /><span className="profile-composer-action-label">{t('profileTabReels')}</span></button></div>}
       {message && !open && <p className="form-error home-composer-message">{message}</p>}
     </section>}
 
@@ -941,6 +997,17 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
       </form>
     </div>}
     {open && tagPickerOpen && <Suspense fallback={<div className="modal-backdrop home-tag-picker-backdrop"><span className="spinner" /></div>}><TagPeoplePicker people={friends} selected={taggedPeople} onToggle={toggleTaggedPerson} onDone={() => setTagPickerOpen(false)} onCancel={() => setTagPickerOpen(false)} /></Suspense>}
+    {reelOpen && <Suspense fallback={<div className="modal-backdrop reel-composer-backdrop" role="presentation"><span className="spinner" /></div>}><CreateReelModal
+      userId={userId}
+      displayName={displayName}
+      avatarUrl={avatarUrl}
+      isVerified={isVerified}
+      onClose={() => setReelOpen(false)}
+      onCreated={(post) => {
+        onCreated(post)
+        setReelOpen(false)
+      }}
+    /></Suspense>}
   </>
 }
 
@@ -1175,7 +1242,7 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
   const [privacyBusy, setPrivacyBusy] = useState(false)
   const [privacyError, setPrivacyError] = useState<string | null>(null)
   const [sharedDetailId, setSharedDetailId] = useState<string | null>(null)
-  const [photoViewer, setPhotoViewer] = useState<{ contentId: string; mediaId: string; mediaUrl: string; initialPost?: GatewayPost } | null>(null)
+  const [photoViewer, setPhotoViewer] = useState<{ contentId: string; mediaId: string; mediaUrl: string; initialPost?: GatewayPost; initialPlaybackTime?: number } | null>(null)
   useEffect(() => {
     setCurrent(post)
     setFollowingFromCard(false)
@@ -1290,13 +1357,13 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
       </header>
       {(relationshipError || privacyError) && <p className="form-error post-relationship-error">{relationshipError || privacyError}</p>}
       {decodedContent.text && <p className={postBackground ? 'gateway-post-content has-background' : 'gateway-post-content'} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={current.mentions} onNavigate={onNavigate} /></p>}
-      <PostMediaGallery media={current.media} onOpenImage={viewerId && current.__typename !== 'ReelDetail' ? (media) => setPhotoViewer({ contentId: current.id, mediaId: media.id, mediaUrl: media.url, initialPost: current }) : undefined} />
-      {current.__typename === 'FeedPostDetail' && current.sharedSource && <SharedPostSourceCard source={current.sharedSource} locale={locale} onNavigate={onNavigate} onOpenSource={(sourceId) => setSharedDetailId(sourceId)} onOpenImage={viewerId && current.sharedSource.type !== 4 ? (source, media) => setPhotoViewer({ contentId: source.id, mediaId: media.id, mediaUrl: media.url }) : undefined} />}
-      {viewerId && <Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={current.id} post={current} canShare={current.__typename === 'GroupPostDetail' || current.privacy === 0} canReshare={canReshare} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
+      <PostMediaGallery media={current.media} preferredAspectRatio={current.__typename === 'ReelDetail' ? current.aspectRatio : null} focalPointX={current.__typename === 'ReelDetail' ? current.focalPointX : null} focalPointY={current.__typename === 'ReelDetail' ? current.focalPointY : null} onOpenImage={viewerId && current.__typename !== 'ReelDetail' ? (media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: current.id, mediaId: media.id, mediaUrl: media.url, initialPost: current, initialPlaybackTime }) : undefined} />
+      {current.__typename === 'FeedPostDetail' && current.sharedSource && <SharedPostSourceCard source={current.sharedSource} locale={locale} onNavigate={onNavigate} onOpenSource={(sourceId) => setSharedDetailId(sourceId)} onOpenImage={viewerId && current.sharedSource.type !== 4 ? (source, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: source.id, mediaId: media.id, mediaUrl: media.url, initialPlaybackTime }) : undefined} />}
+      {viewerId && <Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={current.id} post={current} canShare={current.__typename === 'GroupPostDetail' || current.privacy === 0} canReshare={canReshare} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} /></Suspense>}
       {deleting && <DeletePostModal postId={current.id} onClose={() => setDeleting(false)} onDeleted={() => setRemoved(true)} />}
     </article>
-    {viewerId && sharedDetailId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={sharedDetailId} onClose={() => setSharedDetailId(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
-    {viewerId && photoViewer && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={photoViewer.contentId} initialMediaId={photoViewer.mediaId} initialMediaUrl={photoViewer.mediaUrl} initialPost={photoViewer.initialPost} onClose={() => setPhotoViewer(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
+    {viewerId && sharedDetailId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={sharedDetailId} onClose={() => setSharedDetailId(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} /></Suspense>}
+    {viewerId && photoViewer && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={photoViewer.contentId} initialMediaId={photoViewer.mediaId} initialMediaUrl={photoViewer.mediaUrl} initialPlaybackTime={photoViewer.initialPlaybackTime} initialPost={photoViewer.initialPost} onClose={() => setPhotoViewer(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
   </>
 }
 

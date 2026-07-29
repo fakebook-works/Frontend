@@ -69,6 +69,19 @@ describe('Messenger message interactions', () => {
     expect(screen.queryByText('Ghim')).toBeNull()
   })
 
+  it('exposes edit only when the parent authorizes it', () => {
+    const onEdit = vi.fn()
+    const { rerender } = render(<MessageActionRail message={makeMessage()} viewerId="1" mine onReact={() => undefined} onReply={() => undefined} onRecall={() => undefined} onForward={() => undefined} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Tùy chọn khác' }))
+    expect(screen.queryByRole('menuitem', { name: 'Chỉnh sửa' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Tùy chọn khác' }))
+
+    rerender(<MessageActionRail message={makeMessage()} viewerId="1" mine canEdit onEdit={onEdit} onReact={() => undefined} onReply={() => undefined} onRecall={() => undefined} onForward={() => undefined} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Tùy chọn khác' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Chỉnh sửa' }))
+    expect(onEdit).toHaveBeenCalledOnce()
+  })
+
   it('shows the timestamp only while the message content itself is hovered', () => {
     const { container } = render(<div><MessageHoverTimestamp createdAt={new Date().toISOString()} mine /></div>)
     const content = container.firstElementChild as HTMLElement

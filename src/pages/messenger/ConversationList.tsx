@@ -106,7 +106,7 @@ export function ConversationList({
                 <span className="messenger-row-copy">
                   <strong>{name}</strong>
                   <span>
-                    {conversation.lastMessage?.sender.id === me.id ? `${t('you')}: ` : ''}
+                    {conversation.lastMessage?.kind !== 'SYSTEM' && conversation.lastMessage?.sender.id === me.id ? `${t('you')}: ` : ''}
                     {messengerConversationPreview(conversation.lastMessage, t) || t('startConversation')}
                   </span>
                 </span>

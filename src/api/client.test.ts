@@ -20,6 +20,7 @@ describe('Gateway contract helpers', () => {
   afterEach(() => {
     clearAuth()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('preserves Snowflake identifiers before JSON parsing can round them', () => {
@@ -152,5 +153,81 @@ describe('Gateway contract helpers', () => {
       { markAllNotificationsRead: 2 },
     ])
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('refreshes an expired access token once and retries with the rotated token', async () => {
+    persistAuth({
+      accessToken: 'expired-token',
+      refreshTokenExpiresAt: null,
+      user: { userId: '1', email: 'test@example.com', validDate: null, status: 1 },
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{"errors":[{"extensions":{"code":"UNAUTHENTICATED"}}]}', { status: 401 }))
+      .mockResolvedValueOnce(new Response('{"data":{"refreshToken":{"accessToken":"rotated-token","refreshTokenExpiresAt":"2026-08-27T00:00:00Z","user":{"userId":1,"email":"test@example.com","validDate":null,"status":1}}}}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"data":{"me":{"userId":1}}}', { status: 200 }))
+
+    await expect(gatewayGraphQl<{ me: { userId: string } }>('query CurrentViewer { me { userId } }'))
+      .resolves.toEqual({ me: { userId: 1 } })
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(((fetchMock.mock.calls[2][1]?.headers as Headers).get('Authorization'))).toBe('Bearer rotated-token')
+    expect(localStorage.getItem('fb.auth')).toContain('rotated-token')
+  })
+
+  it('preserves the signed-in user when refresh fails only because the gateway is unavailable', async () => {
+    persistAuth({
+      accessToken: 'expired-token',
+      refreshTokenExpiresAt: null,
+      user: { userId: '1', email: 'test@example.com', validDate: null, status: 1 },
+    })
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{"errors":[{"extensions":{"code":"UNAUTHENTICATED"}}]}', { status: 401 }))
+      .mockResolvedValueOnce(new Response('', { status: 503 }))
+
+    await expect(gatewayGraphQl('query CurrentViewer { me { userId } }'))
+      .rejects.toMatchObject({ status: 503 })
+    expect(localStorage.getItem('fb.auth')).toContain('expired-token')
+  })
+
+  it('clears the user only when Auth definitively rejects the refresh credential', async () => {
+    persistAuth({
+      accessToken: 'expired-token',
+      refreshTokenExpiresAt: null,
+      user: { userId: '1', email: 'test@example.com', validDate: null, status: 1 },
+    })
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{"errors":[{"extensions":{"code":"UNAUTHENTICATED"}}]}', { status: 401 }))
+      .mockResolvedValueOnce(new Response('{"errors":[{"message":"expired","extensions":{"code":"INVALID_REFRESH_TOKEN"}}]}', { status: 200 }))
+
+    await expect(gatewayGraphQl('query CurrentViewer { me { userId } }'))
+      .rejects.toMatchObject({ status: 401 })
+    expect(localStorage.getItem('fb.auth')).toBeNull()
+  })
+
+  it('does not rotate twice when another browser tab refreshed while this tab waited', async () => {
+    persistAuth({
+      accessToken: 'expired-token',
+      refreshTokenExpiresAt: null,
+      user: { userId: '1', email: 'test@example.com', validDate: null, status: 1 },
+    })
+    const lockRequest = vi.fn(async (_name: string, _options: unknown, callback: () => Promise<unknown>) => {
+      persistAuth({
+        accessToken: 'token-from-other-tab',
+        refreshTokenExpiresAt: null,
+        user: { userId: '1', email: 'test@example.com', validDate: null, status: 1 },
+      })
+      return callback()
+    })
+    vi.stubGlobal('navigator', { ...window.navigator, locks: { request: lockRequest } })
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{"errors":[{"extensions":{"code":"UNAUTHENTICATED"}}]}', { status: 401 }))
+      .mockResolvedValueOnce(new Response('{"data":{"me":{"userId":1}}}', { status: 200 }))
+
+    await expect(gatewayGraphQl('query CurrentViewer { me { userId } }')).resolves.toEqual({ me: { userId: 1 } })
+
+    expect(lockRequest).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.some(([, init]) => String(init?.body).includes('RefreshSession'))).toBe(false)
+    expect((fetchMock.mock.calls[1][1]?.headers as Headers).get('Authorization')).toBe('Bearer token-from-other-tab')
   })
 })

@@ -12,19 +12,26 @@ import { useI18n } from '../../i18n'
 import { relativeTime } from '../../lib/format'
 import { playIncomingMessageSound } from '../../lib/sounds'
 import { MESSENGER_ATTACHMENT_ACCEPT } from './attachmentPolicy'
-import { conversationAvatar, conversationName, encodeMessengerLike, formatPresence, formatTime, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, shouldShowAvatar, shouldShowTimestamp } from './helpers'
+import { conversationAvatar, conversationName, encodeMessengerLike, formatPresence, formatTime, groupPresenceSummary, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, shouldShowAvatar, shouldShowTimestamp } from './helpers'
+import type { MessageVisualBreaks } from './helpers'
 import { EmojiButton } from './EmojiButton'
 import { HoldLikeButton } from './HoldLikeButton'
 import { ForwardMessageDialog } from './ForwardMessageDialog'
+import { GroupConversationManager } from './GroupConversationManager'
 import { MessageActionRail, MessageHoverTimestamp, MessageReactionSummary, MessageReplyPreview } from './MessageInteractions'
+import { MessageSenderAvatar } from './MessageSenderAvatar'
+import { MessageEditHistory, MessageEditingBar, MessageEditMarker } from './MessageEditState'
+import { SystemMessageLine } from './SystemMessageLine'
 import { MessengerLikeIcon } from './MessengerLikeIcon'
 import { MediaAttachmentPreview, MediaGallery } from './MediaGallery'
-import { NewConversationModal } from './NewConversationModal'
+import { NewConversationPanel } from './NewConversationPanel'
 import { StickerButton } from './StickerButton'
 import './MessengerPage.css'
 
 export interface MessengerDockHandle {
   openDirect: (profileId: string) => Promise<void>
+  openConversation: (conversation: MessengerConversationDto) => void
+  openComposer: () => void
 }
 
 interface MessengerDockProps {
@@ -32,6 +39,7 @@ interface MessengerDockProps {
   friends: UserSummary[]
   panelOpen: boolean
   hidden?: boolean
+  showComposeRail?: boolean
   onPanelClose: () => void
   onOpenAll: (conversationId?: string) => void
   onOpenProfile: (profileId: string) => void
@@ -83,11 +91,13 @@ function isNewerDockSequence(next: string, previous?: string): boolean {
 function MiniChatMessages({
   activityKey,
   conversationId,
+  editFocusId,
   onContainerChange,
   children,
 }: {
   activityKey: string
   conversationId: string
+  editFocusId?: string | null
   onContainerChange: (conversationId: string, element: HTMLDivElement | null) => void
   children: ReactNode
 }) {
@@ -100,7 +110,7 @@ function MiniChatMessages({
     const element = ref.current
     if (element) element.scrollTop = element.scrollHeight
   }, [activityKey])
-  return <div className="mini-chat-messages" ref={setContainerRef}>{children}</div>
+  return <div className={`mini-chat-messages${editFocusId ? ' has-edit-focus' : ''}`} ref={setContainerRef}>{children}</div>
 }
 
 export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>(function MessengerDock({
@@ -108,6 +118,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   friends,
   panelOpen,
   hidden = false,
+  showComposeRail = false,
   onPanelClose,
   onOpenAll,
   onOpenProfile,
@@ -130,6 +141,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const [panelFilter, setPanelFilter] = useState<PanelFilter>('all')
   const [panelMenuOpen, setPanelMenuOpen] = useState(false)
   const [fullChatLimit, setFullChatLimit] = useState(() => visibleChatLimit(window.innerWidth))
+  const [photoViewerOpen, setPhotoViewerOpen] = useState(() => document.body.classList.contains('post-photo-viewer-open'))
   const [friendshipByUserId, setFriendshipByUserId] = useState<Record<string, boolean>>({})
   const [presenceByUserId, setPresenceByUserId] = useState<Record<string, MessengerPresenceDto>>({})
   const [presenceNow, setPresenceNow] = useState(() => Date.now())
@@ -137,6 +149,11 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const [replyToByConversationId, setReplyToByConversationId] = useState<Record<string, string | null>>({})
   const [attentionConversationIds, setAttentionConversationIds] = useState<Set<string>>(() => new Set())
   const [forwardingMessage, setForwardingMessage] = useState<MessengerMessageDto | null>(null)
+  const [managedGroupId, setManagedGroupId] = useState<string | null>(null)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [editBusy, setEditBusy] = useState(false)
+  const [expandedEditHistoryIds, setExpandedEditHistoryIds] = useState<Set<string>>(() => new Set())
   const seenEventIds = useRef(new Set<string>())
   const conversationsRef = useRef<MessengerConversationDto[]>([])
   // Read through a ref so the inbox stream does not tear down and reconnect every time a
@@ -157,9 +174,12 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     () => openIds.filter((id) => !minimizedIds.has(id)),
     [minimizedIds, openIds],
   )
+  const visibleConversationLimit = showNewModal
+    ? Math.max(0, (photoViewerOpen ? 1 : fullChatLimit) - 1)
+    : photoViewerOpen ? 1 : fullChatLimit
   const fullOpenIds = useMemo(
-    () => expandedOpenIds.slice(-fullChatLimit),
-    [expandedOpenIds, fullChatLimit],
+    () => visibleConversationLimit > 0 ? expandedOpenIds.slice(-visibleConversationLimit) : [],
+    [expandedOpenIds, visibleConversationLimit],
   )
   const fullOpenIdKey = fullOpenIds.join(',')
   fullOpenIdsRef.current = fullOpenIds
@@ -177,10 +197,15 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   }))], [conversations, me.id, openIds])
   const directOtherIdKey = directOtherIds.join(',')
   const presenceUserIds = useMemo(() => [...new Set(conversations.flatMap((conversation) => {
-    if (conversation.type !== 'DIRECT') return []
-    const other = conversation.participants.find((person) => person.id !== me.id)
-    return other ? [other.id] : []
-  }))], [conversations, me.id])
+    if (conversation.type === 'DIRECT') {
+      const other = conversation.participants.find((person) => person.id !== me.id)
+      return other ? [other.id] : []
+    }
+    if (!openIds.includes(conversation.id)) return []
+    return conversation.participants
+      .filter((person) => person.id !== me.id && !person.leftAt)
+      .map((person) => person.id)
+  }))].slice(0, 250), [conversations, me.id, openIds])
   const presenceUserIdKey = presenceUserIds.join(',')
 
   useEffect(() => {
@@ -293,6 +318,14 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     const updateLimit = () => setFullChatLimit(visibleChatLimit(window.innerWidth))
     window.addEventListener('resize', updateLimit)
     return () => window.removeEventListener('resize', updateLimit)
+  }, [])
+
+  useEffect(() => {
+    const syncPhotoViewerState = () => setPhotoViewerOpen(document.body.classList.contains('post-photo-viewer-open'))
+    syncPhotoViewerState()
+    const observer = new MutationObserver(syncPhotoViewerState)
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
   }, [])
 
   useEffect(() => {
@@ -493,8 +526,39 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     return messengerApi.subscribeInbox((event) => {
       if (seenEventIds.current.has(event.eventId)) return
       seenEventIds.current.add(event.eventId)
+      if (event.kind === 'CONVERSATION_DELETED' && event.conversationId) {
+        const deletedId = event.conversationId
+        setManagedGroupId((current) => current === deletedId ? null : current)
+        setConversations((current) => current.filter((conversation) => conversation.id !== deletedId))
+        conversationsRef.current = conversationsRef.current.filter((conversation) => conversation.id !== deletedId)
+        setOpenIds((current) => current.filter((id) => id !== deletedId))
+        setMinimizedIds((current) => {
+          const next = new Set(current)
+          next.delete(deletedId)
+          return next
+        })
+        setMessages((current) => {
+          const next = { ...current }
+          delete next[deletedId]
+          return next
+        })
+        setPendingAttachments((current) => {
+          const next = { ...current }
+          delete next[deletedId]
+          return next
+        })
+        setDrafts((current) => {
+          const next = { ...current }
+          delete next[deletedId]
+          return next
+        })
+        return
+      }
       if (event.kind === 'MESSAGE_ADDED' && event.userId && event.userId !== me.id) {
-        if (event.conversationId && event.sequence) latestIncomingSequence.current.set(event.conversationId, event.sequence)
+        if (event.conversationId && event.sequence) {
+          latestIncomingSequence.current.set(event.conversationId, event.sequence)
+          void messengerApi.markDelivered(event.conversationId, event.sequence).catch(() => setError(t('messengerUnavailableDesc')))
+        }
         playIncomingMessageSound()
       }
       void (async () => {
@@ -534,7 +598,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         }
 
         if (fullOpenIdsRef.current.includes(event.conversationId)) {
-          const loadMessageChange = event.messageId && ['MESSAGE_ADDED', 'MESSAGE_DELETED', 'REACTION_CHANGED'].includes(event.kind)
+          const loadMessageChange = event.messageId && ['MESSAGE_ADDED', 'MESSAGE_EDITED', 'MESSAGE_DELETED', 'REACTION_CHANGED'].includes(event.kind)
             ? messengerApi.message(event.messageId, me.id).then((incoming) => {
               setMessages((current) => ({
                 ...current,
@@ -565,11 +629,14 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         return
       }
       if (event.kind === 'MESSAGE_ADDED' && event.userId && event.userId !== me.id) {
-        if (event.sequence) latestIncomingSequence.current.set(conversationId, event.sequence)
+        if (event.sequence) {
+          latestIncomingSequence.current.set(conversationId, event.sequence)
+          void messengerApi.markDelivered(conversationId, event.sequence).catch(() => setError(t('messengerUnavailableDesc')))
+        }
         markConversationAttention(conversationId)
       }
       if (event.kind === 'MESSAGE_ADDED' && event.userId) clearIncomingTyping(conversationId, event.userId)
-      const loadMessages = ['MESSAGE_ADDED', 'MESSAGE_DELETED', 'REACTION_CHANGED'].includes(event.kind) && event.messageId
+      const loadMessages = ['MESSAGE_ADDED', 'MESSAGE_EDITED', 'MESSAGE_DELETED', 'REACTION_CHANGED'].includes(event.kind) && event.messageId
         ? messengerApi.message(event.messageId, me.id).then((incoming) => {
           setMessages((current) => ({
             ...current,
@@ -615,22 +682,27 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     openConversation(conversation)
   }, [me.id, openConversation])
 
-  useImperativeHandle(ref, () => ({ openDirect }), [openDirect])
+  useImperativeHandle(ref, () => ({
+    openDirect,
+    openConversation,
+    openComposer: () => setShowNewModal(true),
+  }), [openConversation, openDirect])
 
   async function startConversation(person: UserSummary) {
-    setShowNewModal(false)
     try {
       await openDirect(person.id)
+      setShowNewModal(false)
     } catch {
       setError(t('messageActionError'))
     }
   }
 
   async function startGroupConversation(title: string, people: UserSummary[]) {
-    setShowNewModal(false)
     try {
       const conversation = await messengerApi.createGroupConversation(title, people.map((person) => person.id), me.id)
       openConversation(conversation)
+      window.dispatchEvent(new CustomEvent<MessengerConversationDto>('fakebook:conversation-upserted', { detail: conversation }))
+      setShowNewModal(false)
     } catch {
       setError(t('messageActionError'))
     }
@@ -711,6 +783,59 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     }
   }
 
+  function beginDockMessageEdit(message: MessengerMessageDto) {
+    setReplyToByConversationId((current) => ({ ...current, [message.conversationId]: null }))
+    setExpandedEditHistoryIds((current) => {
+      if (!current.has(message.id)) return current
+      const next = new Set(current)
+      next.delete(message.id)
+      return next
+    })
+    setEditingMessageId(message.id)
+    setEditDraft(message.body)
+    window.requestAnimationFrame(() => {
+      miniMessageContainers.current.get(message.conversationId)?.parentElement
+        ?.querySelector<HTMLInputElement>('.mini-compose-input input')?.focus()
+    })
+  }
+
+  function cancelDockMessageEdit(conversationId?: string) {
+    setEditingMessageId(null)
+    setEditDraft('')
+    if (conversationId) {
+      window.requestAnimationFrame(() => {
+        miniMessageContainers.current.get(conversationId)?.parentElement
+          ?.querySelector<HTMLInputElement>('.mini-compose-input input')?.focus()
+      })
+    }
+  }
+
+  function toggleDockEditHistory(messageId: string) {
+    setExpandedEditHistoryIds((current) => {
+      const next = new Set(current)
+      if (next.has(messageId)) next.delete(messageId)
+      else next.add(messageId)
+      return next
+    })
+  }
+
+  async function editDockMessage(event: FormEvent, message: MessengerMessageDto) {
+    event.preventDefault()
+    const text = editDraft.trim()
+    if (!text || editBusy) return
+    setEditBusy(true)
+    try {
+      const updated = await messengerApi.editMessage(message.id, text, me.id)
+      applyDockMessageUpdate(updated)
+      cancelDockMessageEdit(message.conversationId)
+      setError(null)
+    } catch {
+      setError(t('messengerUnavailableDesc'))
+    } finally {
+      setEditBusy(false)
+    }
+  }
+
   async function forwardDockMessage(target: MessengerConversationDto) {
     if (!forwardingMessage) return
     try {
@@ -733,6 +858,13 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
 
   async function send(event: FormEvent, conversation: MessengerConversationDto) {
     event.preventDefault()
+    const editingMessage = editingMessageId
+      ? (messages[conversation.id] ?? []).find((message) => message.id === editingMessageId)
+      : undefined
+    if (editingMessage) {
+      await editDockMessage(event, editingMessage)
+      return
+    }
     await sendPayload(
       conversation,
       (drafts[conversation.id] ?? '').trim(),
@@ -865,6 +997,9 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
 
   function closeChat(conversationId: string) {
     if (activeVoiceRecording.current?.conversationId === conversationId) stopVoiceRecording(true)
+    if ((messagesRef.current[conversationId] ?? []).some((message) => message.id === editingMessageId)) {
+      cancelDockMessageEdit()
+    }
     stopTyping(conversationId)
     setOpenIds((current) => current.filter((id) => id !== conversationId))
     setMinimizedIds((current) => {
@@ -872,6 +1007,56 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       next.delete(conversationId)
       return next
     })
+  }
+
+  function updateManagedConversation(updated: MessengerConversationDto) {
+    setConversations((current) => current.map((conversation) => conversation.id === updated.id ? updated : conversation))
+    conversationsRef.current = conversationsRef.current.map((conversation) => conversation.id === updated.id ? updated : conversation)
+    if (updated.lastMessage) {
+      setMessages((current) => current[updated.id]
+        ? { ...current, [updated.id]: upsertDockMessage(current[updated.id], updated.lastMessage!) }
+        : current)
+    }
+    setError(null)
+    window.dispatchEvent(new CustomEvent<MessengerConversationDto>('fakebook:conversation-upserted', { detail: updated }))
+  }
+
+  function removeConversationLocally(conversationId: string) {
+    if (activeVoiceRecording.current?.conversationId === conversationId) stopVoiceRecording(true)
+    stopTyping(conversationId)
+    setManagedGroupId((current) => current === conversationId ? null : current)
+    setConversations((current) => current.filter((conversation) => conversation.id !== conversationId))
+    conversationsRef.current = conversationsRef.current.filter((conversation) => conversation.id !== conversationId)
+    setOpenIds((current) => current.filter((id) => id !== conversationId))
+    setMinimizedIds((current) => {
+      const next = new Set(current)
+      next.delete(conversationId)
+      return next
+    })
+    setMessages((current) => {
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+    const pending = pendingAttachments[conversationId] ?? []
+    void Promise.allSettled(pending.map((attachment) => api.cancelPendingMedia(attachment)))
+    setPendingAttachments((current) => {
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+    setDrafts((current) => {
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+    setReplyToByConversationId((current) => {
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+    clearConversationAttention(conversationId)
+    setError(null)
   }
 
   function minimizeConversation(conversationId: string) {
@@ -901,7 +1086,11 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     const conversation = conversations.find((item) => item.id === id)
     return conversation ? [conversation] : []
   })
-  const hasCollapsedRail = !hidden && collapsedConversations.length > 0
+  const managedGroup = managedGroupId
+    ? conversations.find((conversation) => conversation.id === managedGroupId && conversation.type === 'GROUP') ?? null
+    : null
+  const showPinnedComposeRail = showComposeRail && !photoViewerOpen
+  const hasCollapsedRail = !hidden && (showNewModal || showPinnedComposeRail || collapsedConversations.length > 0 || (photoViewerOpen && openConversations.length > 0))
 
   useEffect(() => {
     document.body.classList.toggle('mini-chat-bubble-rail-open', hasCollapsedRail)
@@ -934,11 +1123,11 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         const other = conversation.type === 'DIRECT'
           ? conversation.participants.find((person) => person.id !== me.id)
           : undefined
-        return <button type="button" className={conversation.unreadCount > 0 ? 'unread' : ''} key={conversation.id} onClick={() => openConversation(conversation)}><Avatar name={name} src={conversationAvatar(conversation, me)} size={48} online={Boolean(other && presenceByUserId[other.id]?.isOnline)} /><span><strong>{name}</strong><small>{conversation.lastMessage?.sender.id === me.id ? `${t('you')}: ` : ''}{messengerConversationPreview(conversation.lastMessage, t) || t('startConversation')} · {relativeTime(conversation.updatedAt, locale)}</small></span></button>
+        return <button type="button" className={conversation.unreadCount > 0 ? 'unread' : ''} key={conversation.id} onClick={() => openConversation(conversation)}><Avatar name={name} src={conversationAvatar(conversation, me)} size={48} online={Boolean(other && presenceByUserId[other.id]?.isOnline)} /><span><strong>{name}</strong><small>{conversation.lastMessage?.kind !== 'SYSTEM' && conversation.lastMessage?.sender.id === me.id ? `${t('you')}: ` : ''}{messengerConversationPreview(conversation.lastMessage, t) || t('startConversation')} · {relativeTime(conversation.updatedAt, locale)}</small></span></button>
       })}</div>
     </aside>}
 
-    <div className={`mini-chat-region${hasCollapsedRail ? ' has-bubble-rail' : ''}`}><div className="mini-chat-dock-layout">{openConversations.length > 0 && <div className="mini-chat-windows" aria-label={t('messages')}>{openConversations.map((conversation) => {
+    <div className={`mini-chat-region${hasCollapsedRail ? ' has-bubble-rail' : ''}${showPinnedComposeRail ? ' home-compose-rail' : ''}`}><div className="mini-chat-dock-layout">{(openConversations.length > 0 || showNewModal) && <div className="mini-chat-windows" aria-label={t('messages')}>{openConversations.map((conversation) => {
       const name = conversationName(conversation, me)
       const other = conversation.participants.find((person) => person.id !== me.id)
       const isFriend = other
@@ -950,13 +1139,28 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       const attachments = pendingAttachments[conversation.id] ?? []
       const draft = drafts[conversation.id] ?? ''
       const replyTarget = conversationMessages.find((message) => message.id === replyToByConversationId[conversation.id]) ?? null
+      const editingMessage = editingMessageId
+        ? conversationMessages.find((message) => message.id === editingMessageId) ?? null
+        : null
+      const visualBreaks: MessageVisualBreaks = {
+        beforeMessageIds: new Set(conversationMessages
+          .filter((message) => Boolean(message.editedAt) || message.id === editingMessageId)
+          .map((message) => message.id)),
+        afterMessageIds: new Set([
+          latestOwnPendingMessage?.id,
+          latestOwnReadMessage?.id,
+        ].filter((id): id is string => Boolean(id))),
+      }
       const presence = other ? presenceByUserId[other.id] : undefined
+      const groupPresence = conversation.type === 'GROUP'
+        ? groupPresenceSummary(conversation, me.id, presenceByUserId, t, presenceNow)
+        : null
       const typingUserIds = Object.entries(typingByConversationId[conversation.id] ?? {})
         .filter(([, expiresAt]) => expiresAt > Date.now())
         .map(([userId]) => userId)
       const typingPerson = conversation.participants.find((person) => typingUserIds.includes(person.id))
       const isTyping = Boolean(typingPerson)
-      const isOnline = Boolean(presence?.isOnline)
+      const isOnline = conversation.type === 'GROUP' ? Boolean(groupPresence?.onlineCount) : Boolean(presence?.isOnline)
       const needsAttention = attentionConversationIds.has(conversation.id)
       const readFromChatInteraction = (target: EventTarget) => {
         if (target instanceof Element && target.closest('[data-chat-read-ignore="true"]')) return
@@ -964,32 +1168,52 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       }
       return <section className={`mini-chat-window${needsAttention ? ' has-attention' : ''}`} key={conversation.id} aria-label={name} onPointerDownCapture={(event) => readFromChatInteraction(event.target)} onClickCapture={(event) => readFromChatInteraction(event.target)}>
         <header className="mini-chat-head">
-          <button type="button" className="mini-chat-id" onClick={() => conversation.type === 'DIRECT' && other && onOpenProfile(other.id)}><Avatar name={name} src={conversationAvatar(conversation, me)} size={29} online={isOnline} /></button>
-          <div className="mini-chat-name"><strong>{name}<VerifiedBadge verified={other?.isVerified} size={12} /></strong>{conversation.type === 'DIRECT' && <small className={isTyping ? 'typing' : isOnline ? 'online' : 'offline'}>{isTyping ? t('typingNow') : formatPresence(presence, t, presenceNow)}</small>}</div>
+          <button type="button" className="mini-chat-id" onClick={() => {
+            if (conversation.type === 'GROUP') setManagedGroupId(conversation.id)
+            else if (other) onOpenProfile(other.id)
+          }}><Avatar name={name} src={conversationAvatar(conversation, me)} size={29} online={isOnline} /></button>
+          <div className="mini-chat-name"><strong>{name}<VerifiedBadge verified={other?.isVerified} size={12} /></strong><small className={isTyping ? 'typing' : isOnline ? 'online' : 'offline'}>{isTyping ? t('typingNow') : conversation.type === 'GROUP' ? groupPresence?.label ?? t('offline') : formatPresence(presence, t, presenceNow)}</small></div>
           <div className="mini-chat-controls">
             <button type="button" className="mini-ctrl mini-minimize" data-chat-read-ignore="true" aria-label={t('minimize')} onClick={() => minimizeConversation(conversation.id)}>−</button>
             <button type="button" className="mini-ctrl" data-chat-read-ignore="true" aria-label={t('close')} onClick={() => closeChat(conversation.id)}><Icon name="close" size={20} className="mini-chat-close-icon" /></button>
           </div>
         </header>
         <>
-          <MiniChatMessages activityKey={`${conversationMessages[conversationMessages.length - 1]?.id ?? 'empty'}:${typingPerson?.id ?? ''}`} conversationId={conversation.id} onContainerChange={registerMiniMessageContainer}>
+          <MiniChatMessages activityKey={`${conversationMessages[conversationMessages.length - 1]?.id ?? 'empty'}:${typingPerson?.id ?? ''}`} conversationId={conversation.id} editFocusId={editingMessage?.id} onContainerChange={registerMiniMessageContainer}>
             <div className={`mini-chat-intro${conversationMessages.length > 0 ? ' has-history' : ''}`}><Avatar name={name} src={conversationAvatar(conversation, me)} size={60} online={isOnline} /><strong>{name}</strong>{conversation.type === 'DIRECT' ? <small>{isFriend === undefined ? t('relationshipLoading') : isFriend ? t('friendsOnFakebook') : t('notFriendsOnFakebook')}</small> : <small>{t('startConversation')}</small>}</div>
             {conversationMessages.map((message, index) => {
+              if (message.kind === 'SYSTEM') {
+                return <SystemMessageLine key={message.id} message={message} viewerId={me.id} compact />
+              }
               const mine = message.sender.id === me.id
-              const showAvatar = shouldShowAvatar(conversationMessages, index)
+              const showAvatar = shouldShowAvatar(conversationMessages, index, visualBreaks)
               const showTime = shouldShowTimestamp(conversationMessages, index)
-              const groupPosition = messageGroupPosition(conversationMessages, index)
+              const groupPosition = messageGroupPosition(conversationMessages, index, visualBreaks)
               const likeLevel = messengerLikeLevel(message.body)
               const repliedMessage = message.replyToMessageId
                 ? conversationMessages.find((candidate) => candidate.id === message.replyToMessageId)
                 : null
               const hasReactions = Boolean(message.reactions?.length)
               const actionable = !message.deleted && !message.id.startsWith('local-')
-              return <div className="mini-msg-entry" data-message-id={message.id} key={message.id}>
+              const canEdit = actionable && mine && Boolean(message.body.trim()) && !likeLevel &&
+                Date.now() - new Date(message.createdAt).getTime() <= 15 * 60_000
+              const senderIsAdmin = conversation.type === 'GROUP' &&
+                conversation.participants.some((participant) => participant.id === message.sender.id && participant.role === 'ADMIN')
+              const editing = editingMessageId === message.id
+              const historyExpanded = expandedEditHistoryIds.has(message.id)
+              return <div className={`mini-msg-entry${editing ? ' is-editing' : ''}`} data-message-id={message.id} inert={Boolean(editingMessage) && !editing} key={message.id}>
                 {showTime && <div className="mini-msg-time">{formatTime(message.createdAt)}</div>}
                 <div className={`mini-msg-line group-${groupPosition}${mine ? ' mine' : ''}`}>
-                  {!mine && <span className="mini-msg-avatar">{showAvatar && <Avatar name={message.sender.displayName} src={message.sender.avatarUrl} size={24} />}</span>}
+                  {!mine && <span className="mini-msg-avatar">{showAvatar && <MessageSenderAvatar person={message.sender} size={26} isAdmin={senderIsAdmin} />}</span>}
                   <div className={`mini-msg-stack message-interaction-host${hasReactions ? ' has-reactions' : ''}`}>
+                    {(editing || message.editedAt) && <MessageEditMarker
+                      active={editing}
+                      expanded={historyExpanded}
+                      onClick={() => editing
+                        ? cancelDockMessageEdit(conversation.id)
+                        : toggleDockEditHistory(message.id)}
+                    />}
+                    {historyExpanded && !editing && <MessageEditHistory revisions={message.editHistory ?? []} compact />}
                     {message.replyToMessageId && <MessageReplyPreview message={repliedMessage} missing={!repliedMessage} compact viewerId={me.id} replyingSender={message.sender} onNavigate={repliedMessage ? () => navigateToDockMessage(conversation.id, message.replyToMessageId!) : undefined} />}
                     <div className="message-primary-shell">
                       <div className="message-content-hover-target">
@@ -1002,7 +1226,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
                         <MessageHoverTimestamp createdAt={message.createdAt} mine={mine} />
                         <MessageReactionSummary reactions={message.reactions} viewerId={me.id} />
                       </div>
-                      {actionable && <MessageActionRail compact message={message} viewerId={me.id} mine={mine} onReact={(emoji) => reactToDockMessage(message, emoji)} onReply={() => replyToDockMessage(conversation.id, message.id)} onRecall={mine ? () => recallDockMessage(message) : undefined} onForward={() => setForwardingMessage(message)} />}
+                      {actionable && !editing && <MessageActionRail compact message={message} viewerId={me.id} mine={mine} canEdit={canEdit} onEdit={() => beginDockMessageEdit(message)} onReact={(emoji) => reactToDockMessage(message, emoji)} onReply={() => replyToDockMessage(conversation.id, message.id)} onRecall={mine ? () => recallDockMessage(message) : undefined} onForward={() => setForwardingMessage(message)} />}
                     </div>
                   </div>
                 </div>
@@ -1010,9 +1234,11 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
                 {mine && latestOwnReadMessage?.id === message.id && other && <div className="mini-message-delivery-state read" title={`${other.displayName} đã xem`}><Avatar name={other.displayName} src={other.avatarUrl} size={14} /></div>}
               </div>
             })}
-            {typingPerson && <div className="mini-typing-line" aria-label={`${typingPerson.displayName} ${t('typingNow')}`}><span className="mini-msg-avatar"><Avatar name={typingPerson.displayName} src={typingPerson.avatarUrl} size={24} /></span><span className="mini-typing-bubble"><i /><i /><i /></span></div>}
+            {typingPerson && <div className="mini-typing-line" aria-label={`${typingPerson.displayName} ${t('typingNow')}`}><span className="mini-msg-avatar"><MessageSenderAvatar person={typingPerson} size={26} isAdmin={conversation.type === 'GROUP' && typingPerson.role === 'ADMIN'} /></span><span className="mini-typing-bubble"><i /><i /><i /></span></div>}
           </MiniChatMessages>
-          {replyTarget && <div className="mini-replying-bar"><MessageReplyPreview message={replyTarget} viewerId={me.id} compact composer onCancel={() => setReplyToByConversationId((current) => ({ ...current, [conversation.id]: null }))} /></div>}
+          {editingMessage
+            ? <div className="mini-editing-bar"><MessageEditingBar message={editingMessage} compact onCancel={() => cancelDockMessageEdit(conversation.id)} /></div>
+            : replyTarget && <div className="mini-replying-bar"><MessageReplyPreview message={replyTarget} viewerId={me.id} compact composer onCancel={() => setReplyToByConversationId((current) => ({ ...current, [conversation.id]: null }))} /></div>}
           {recordingId === conversation.id ? (
             <div className="mini-chat-compose mini-chat-voice-compose">
               <button type="button" className="mini-voice-cancel" aria-label={t('cancel')} onClick={() => stopVoiceRecording(true)}>
@@ -1039,25 +1265,28 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
             </div>
           ) : (
             <form className={`mini-chat-compose${attachments.length > 0 ? ' has-attachments' : ''}`} onSubmit={(event) => void send(event, conversation)}>
-              <button type="button" className="mini-compose-btn voice" aria-label={t('recordVoice')} disabled={uploadingId === conversation.id || sendingId === conversation.id || recordingId !== null} onClick={() => void toggleVoiceRecording(conversation)}><Icon name="mic" size={21} /></button>
-              <label className="mini-compose-btn" aria-label={t('addAttachment')}><Icon name="photo" size={21} /><input className="messenger-file-input" type="file" multiple accept={MESSENGER_ATTACHMENT_ACCEPT} disabled={uploadingId === conversation.id} onChange={(event) => { void attachFiles(conversation.id, event.currentTarget.files); event.currentTarget.value = '' }} /></label>
-              <StickerButton disabled={sendingId === conversation.id} onPick={(sticker) => void sendPayload(conversation, sticker, [])} />
+              <button type="button" className="mini-compose-btn voice" aria-label={t('recordVoice')} disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingId === conversation.id || recordingId !== null} onClick={() => void toggleVoiceRecording(conversation)}><Icon name="mic" size={21} /></button>
+              <label className={`mini-compose-btn${editingMessage ? ' disabled' : ''}`} aria-label={t('addAttachment')}><Icon name="photo" size={21} /><input className="messenger-file-input" type="file" multiple accept={MESSENGER_ATTACHMENT_ACCEPT} disabled={Boolean(editingMessage) || uploadingId === conversation.id} onChange={(event) => { void attachFiles(conversation.id, event.currentTarget.files); event.currentTarget.value = '' }} /></label>
+              <StickerButton disabled={Boolean(editingMessage) || sendingId === conversation.id} onPick={(sticker) => void sendPayload(conversation, sticker, [])} />
               <div className="mini-compose-body">
                 {attachments.length > 0 && <div className="mini-compose-previews">{attachments.map((attachment) => <div className="mini-compose-preview" key={attachment.url}><MediaAttachmentPreview attachment={attachment} /><button type="button" aria-label={t('removeMedia')} onClick={() => removePendingAttachment(conversation.id, attachment)}><Icon name="close" size={14} /></button></div>)}</div>}
-                <label className="mini-compose-input"><input value={draft} onChange={(event) => updateDraft(conversation.id, event.target.value)} placeholder="Aa" /><EmojiButton onPick={(emoji) => updateDraft(conversation.id, `${draft}${emoji}`)} /></label>
+                <label className="mini-compose-input"><input value={editingMessage ? editDraft : draft} onChange={(event) => editingMessage ? setEditDraft(event.target.value) : updateDraft(conversation.id, event.target.value)} placeholder="Aa" /><EmojiButton onPick={(emoji) => editingMessage ? setEditDraft(`${editDraft}${emoji}`) : updateDraft(conversation.id, `${draft}${emoji}`)} /></label>
               </div>
-              {draft.trim() || attachments.length > 0 ? <button type="submit" className="mini-compose-btn send ready" aria-label={t('sendMessage')} disabled={sendingId === conversation.id || uploadingId === conversation.id}><Icon name="send" size={22} /></button> : <HoldLikeButton label={t('like')} disabled={sendingId === conversation.id} onSend={(level) => void sendPayload(conversation, encodeMessengerLike(level), [])} />}
+              {editingMessage || draft.trim() || attachments.length > 0 ? <button type="submit" className="mini-compose-btn send ready" aria-label={t('sendMessage')} disabled={editBusy || sendingId === conversation.id || uploadingId === conversation.id || (Boolean(editingMessage) && !editDraft.trim())}><Icon name="send" size={22} /></button> : <HoldLikeButton label={t('like')} disabled={sendingId === conversation.id} onSend={(level) => void sendPayload(conversation, encodeMessengerLike(level), [])} />}
             </form>
           )}
         </>
       </section>
-    })}</div>}
+    })}{showNewModal && <NewConversationPanel creatorName={me.displayName} friends={friends} onStart={startConversation} onCreateGroup={startGroupConversation} onClose={() => setShowNewModal(false)} />}</div>}
       {hasCollapsedRail && <aside className="mini-chat-bubble-rail" aria-label={t('messages')}>
         <div className="mini-chat-overflow-list">{collapsedConversations.map((conversation) => {
           const name = conversationName(conversation, me)
           const other = conversation.type === 'DIRECT'
             ? conversation.participants.find((person) => person.id !== me.id)
             : undefined
+          const groupPresence = conversation.type === 'GROUP'
+            ? groupPresenceSummary(conversation, me.id, presenceByUserId, t, presenceNow)
+            : null
           return <button
             type="button"
             className="mini-chat-overflow-avatar"
@@ -1066,15 +1295,14 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
             aria-label={`${t('messages')}: ${name}`}
             onClick={() => openConversation(conversation)}
           >
-            <Avatar name={name} src={conversationAvatar(conversation, me)} size={40} online={Boolean(other && presenceByUserId[other.id]?.isOnline)} />
-            {conversation.unreadCount > 0 && <b>{Math.min(99, conversation.unreadCount)}</b>}
+            <Avatar name={name} src={conversationAvatar(conversation, me)} size={40} online={conversation.type === 'GROUP' ? Boolean(groupPresence?.onlineCount) : Boolean(other && presenceByUserId[other.id]?.isOnline)} />
           </button>
         })}</div>
-        <button type="button" className="mini-chat-new-button" aria-label={t('newMessage')} title={t('newMessage')} onClick={() => setShowNewModal(true)}><Icon name="edit" size={23} /></button>
+        <button type="button" className="mini-chat-new-button" aria-label={t('newMessage')} title={t('newMessage')} aria-expanded={showNewModal} onClick={() => setShowNewModal(true)}><Icon name="compose" size={23} className="mini-chat-compose-icon" /></button>
       </aside>}
     </div></div>
 
-    {showNewModal && <NewConversationModal friends={friends} onStart={startConversation} onCreateGroup={startGroupConversation} onClose={() => setShowNewModal(false)} />}
     {forwardingMessage && <ForwardMessageDialog message={forwardingMessage} conversations={conversations} me={me} onForward={forwardDockMessage} onClose={() => setForwardingMessage(null)} />}
+    {managedGroup && <GroupConversationManager me={me} friends={friends} conversation={managedGroup} onClose={() => setManagedGroupId(null)} onUpdated={updateManagedConversation} onRemoved={removeConversationLocally} onOpenProfile={onOpenProfile} />}
   </>
 })

@@ -52,14 +52,24 @@ export interface MessengerMessageDto {
   id: string
   conversationId: string
   sequence?: string
+  kind?: 'USER' | 'SYSTEM'
+  systemEvent?: 'MEMBER_ADDED' | 'MEMBER_REMOVED' | 'MEMBER_LEFT' | 'ADMIN_GRANTED' | 'ADMIN_REVOKED' | 'GROUP_RENAMED' | 'GROUP_AVATAR_CHANGED' | null
+  systemSubject?: UserSummary | null
   sender: UserSummary
   body: string
   replyToMessageId?: string | null
   reactions?: MessengerMessageReactionDto[]
   deleted?: boolean
+  editedAt?: string | null
+  editHistory?: MessengerMessageEditRevisionDto[]
   createdAt: string
   status: 'sending' | 'sent' | 'delivered' | 'read'
   attachments: MediaUpload[]
+}
+
+export interface MessengerMessageEditRevisionDto {
+  text: string
+  versionAt: string
 }
 
 export interface MessengerMessageReactionDto {

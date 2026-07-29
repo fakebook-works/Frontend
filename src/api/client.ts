@@ -30,6 +30,13 @@ const DEFAULT_JSON_HEADERS = {
 const GATEWAY_ERROR_STATUSES = new Set([502, 503, 504])
 const GATEWAY_ERROR_MESSAGE = 'Server is temporarily unreachable.'
 const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please log in again.'
+const TERMINAL_REFRESH_ERROR_CODES = new Set([
+  'INVALID_REFRESH_TOKEN',
+  'REFRESH_TOKEN_REUSE_DETECTED',
+  'ACCOUNT_UNAVAILABLE',
+  'EMAIL_UNVERIFIED',
+  'UNAUTHENTICATED',
+])
 const configuredGraphQlTimeoutMs = Number(import.meta.env.VITE_GRAPHQL_TIMEOUT_MS ?? 20_000)
 const GRAPHQL_REQUEST_TIMEOUT_MS = Number.isFinite(configuredGraphQlTimeoutMs)
   ? Math.max(5_000, configuredGraphQlTimeoutMs)
@@ -273,6 +280,7 @@ async function executeGatewayGraphQl<T>(
   allowRetry = true,
 ): Promise<T> {
   const headers = jsonHeaders(undefined, true, authMode)
+  const attemptedAccessToken = authMode === 'protected' ? getAccessToken() : null
   let res: Response
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), GRAPHQL_REQUEST_TIMEOUT_MS)
@@ -307,7 +315,7 @@ async function executeGatewayGraphQl<T>(
   const code = firstError?.extensions?.code ?? null
   if ((res.status === 401 || code === 'UNAUTHENTICATED') && authMode === 'protected') {
     if (allowRetry) {
-      const refreshed = await ensureRefresh()
+      const refreshed = await ensureRefresh(attemptedAccessToken)
       if (refreshed) return gatewayGraphQl<T>(document, variables, authMode, false)
     }
     return expireSession()
@@ -375,19 +383,48 @@ async function refreshTokens(): Promise<StoredAuth | null> {
     )
     data.refreshToken.user = normalizeAuthUser(data.refreshToken.user)
     return persistAuth(data.refreshToken)
-  } catch {
-    clearAuth()
-    return null
+  } catch (error) {
+    // A timeout, gateway restart, 429 or 5xx does not prove that the long-lived session
+    // is invalid. Preserve the current identity and let the caller surface/retry that
+    // transient failure. Only an explicit Auth rejection is allowed to end the session.
+    if (error instanceof ApiError &&
+        (error.status === 401 || (error.code != null && TERMINAL_REFRESH_ERROR_CODES.has(error.code)))) {
+      return null
+    }
+    throw error
   }
 }
 
-function ensureRefresh(): Promise<StoredAuth | null> {
+async function coordinatedRefresh(attemptedAccessToken: string | null): Promise<StoredAuth | null> {
+  const refreshUnlessAnotherTabAlreadyDid = async () => {
+    const current = getAuth()
+    if (attemptedAccessToken && current?.accessToken && current.accessToken !== attemptedAccessToken) {
+      return current
+    }
+    return refreshTokens()
+  }
+
+  // Refresh tokens rotate on every use. Serialising across tabs prevents two tabs that
+  // expire together from presenting the same cookie and triggering the reuse detector.
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    return navigator.locks.request('fakebook-auth-refresh', { mode: 'exclusive' }, refreshUnlessAnotherTabAlreadyDid)
+  }
+  return refreshUnlessAnotherTabAlreadyDid()
+}
+
+function ensureRefresh(attemptedAccessToken: string | null = getAccessToken()): Promise<StoredAuth | null> {
   if (!refreshing) {
-    refreshing = refreshTokens().finally(() => {
+    refreshing = coordinatedRefresh(attemptedAccessToken).finally(() => {
       refreshing = null
     })
   }
   return refreshing
+}
+
+export async function refreshAuthSession(attemptedAccessToken: string | null = getAccessToken()): Promise<StoredAuth> {
+  const refreshed = await ensureRefresh(attemptedAccessToken)
+  if (!refreshed) return expireSession()
+  return refreshed
 }
 
 function expireSession(): never {
@@ -543,7 +580,7 @@ const HOME_POST_FIELDS = `
     }
   }
   ... on ReelDetail {
-    id type content privacy create
+    id type content privacy create aspectRatio focalPointX focalPointY
     mentions { userId name available }
     author { id name avatar isVerified canFollow }
     media { id type url }

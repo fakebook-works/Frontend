@@ -43,7 +43,7 @@ vi.mock('../i18n', () => ({
   useI18n: () => ({ locale: 'en', setLocale: vi.fn(), t: (key: string) => key }),
 }))
 
-vi.mock('./GatewayHomePage', () => ({ GatewayHomePage: () => <div>home-page</div>, GatewayPostCard: () => <div>post-card</div> }))
+vi.mock('./GatewayHomePage', () => ({ GatewayHomePage: ({ refreshToken = 0 }: { refreshToken?: number }) => <div data-testid="home-page" data-refresh-token={refreshToken}>home-page</div>, GatewayPostCard: () => <div>post-card</div> }))
 vi.mock('./SavedPage', () => ({ SavedPage: () => <div>saved-page</div> }))
 vi.mock('./SettingsPage', () => ({ SettingsPage: ({ initialSection }: { initialSection: string }) => <div>settings-{initialSection}</div> }))
 
@@ -68,7 +68,15 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(screen.getByRole('button', { name: 'friends' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'groups' })).toBeEnabled()
     expect(screen.getAllByRole('button', { name: 'home' }).every((button) => !button.hasAttribute('disabled'))).toBe(true)
-    expect(screen.getByRole('button', { name: 'test' }).querySelector('.avatar')).toHaveStyle({ width: '40px', height: '40px' })
+    expect(screen.getByRole('button', { name: 'test' }).querySelector('.avatar')).toHaveStyle({ width: '36px', height: '36px' })
+  })
+
+  it('keeps the Home-style new-conversation rail visible on profile routes with no open chats', () => {
+    window.history.replaceState({}, '', '/profile/2')
+    const { container } = render(<AuthenticatedApp />)
+
+    expect(container.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail', 'home-compose-rail')
+    expect(container.querySelector('.mini-chat-new-button')).toBeInTheDocument()
   })
 
   it('uses a filled icon for the active destination and outlines for the others', () => {
@@ -84,6 +92,18 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(friends.querySelector('svg')).toHaveAttribute('fill', 'none')
     expect(reels.querySelector('svg')).toHaveAttribute('fill', 'none')
     expect(groups.querySelector('svg')).toHaveAttribute('fill', 'none')
+  })
+
+  it('refreshes the current Home from either the active Home tab or the Fakebook logo', () => {
+    const { container } = render(<AuthenticatedApp />)
+    const homePage = screen.getByTestId('home-page')
+    const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
+
+    expect(homePage).toHaveAttribute('data-refresh-token', '0')
+    fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="home"]')!)
+    expect(homePage).toHaveAttribute('data-refresh-token', '1')
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.app-brand')!)
+    expect(homePage).toHaveAttribute('data-refresh-token', '2')
   })
 
   it('opens account destinations from the avatar menu', () => {

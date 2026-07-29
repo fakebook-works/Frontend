@@ -33,10 +33,94 @@ describe('SocialGraph Gateway adapter', () => {
     })
   })
 
+  it('loads another profile contact through the composed target-scoped query', async () => {
+    gatewayGraphQl.mockResolvedValue({
+      profile: {
+        id: '2', avatar: '', background: '', name: 'Visitor Target', bio: '', gender: 0,
+        birthdate: '', location: '', privacy: 0, create: '2026-01-01', verify: '', isVerified: false,
+        friendCount: 1, followerCount: 0, followingCount: 0,
+      },
+      profileContact: { email: 'target@example.com' },
+    })
+
+    const profile = await socialApi.getProfile('2')
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('profileContact(userId: 2)')
+    expect(profile?.email).toBe('target@example.com')
+  })
+
   it('batches profile hydration without converting IDs to JavaScript numbers', async () => {
     gatewayGraphQl.mockResolvedValue({ profiles: [] })
     await socialApi.getProfiles(['9007199254740993123', '9007199254740993124'])
     expect(gatewayGraphQl.mock.calls[0][0]).toContain('profiles(userIds: [9007199254740993123, 9007199254740993124])')
+  })
+
+  it('loads profile feed, Reel and shared-source metadata needed by the profile cards', async () => {
+    gatewayGraphQl.mockResolvedValue({
+      profilePosts: {
+        items: [{
+          __typename: 'FeedPostDetail', id: '10', type: 1, content: 'shared', privacy: 0, create: '2026-07-29T10:00:00Z',
+          author: { id: '2', name: 'Owner', avatar: '', isVerified: false, canFollow: false }, media: [], mentions: [], taggedUsers: [],
+          sharedSource: {
+            id: '11', isAvailable: true, type: 1, content: 'source', privacy: 2, create: '2026-07-28T10:00:00Z',
+            author: { id: '3', name: 'Source owner', avatar: '', isVerified: false }, media: [], mentions: [],
+          },
+        }, {
+          __typename: 'ReelDetail', id: '12', type: 2, content: 'reel', privacy: 1, create: '2026-07-27T10:00:00Z',
+          author: { id: '2', name: 'Owner', avatar: '', isVerified: false, canFollow: false }, media: [], mentions: [],
+          aspectRatio: 0.5625, focalPointX: 0.5, focalPointY: 0.5,
+        }],
+        endCursor: null,
+        hasNextPage: false,
+      },
+    })
+
+    const page = await socialApi.getProfilePosts('2', 20)
+
+    const query = gatewayGraphQl.mock.calls[0][0] as string
+    expect(query).toContain('profilePosts(userId: 2')
+    expect(query).toMatch(/sharedSource\s*\{[\s\S]*?privacy create/)
+    expect(page.items.map((item) => item.__typename)).toEqual(['FeedPostDetail', 'ReelDetail'])
+    expect(page.items[0].__typename === 'FeedPostDetail' ? page.items[0].sharedSource : null).toMatchObject({
+      id: '11', privacy: 2, create: '2026-07-28T10:00:00Z',
+    })
+  })
+
+  it('reads exact avatar provenance as lossless IDs through Gateway', async () => {
+    gatewayGraphQl.mockResolvedValue({
+      profileAvatarSource: {
+        contentId: '9007199254740993223',
+        mediaId: '9007199254740993224',
+      },
+    })
+
+    const source = await socialApi.getProfileAvatarSource('9007199254740993123')
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('profileAvatarSource(userId: 9007199254740993123)')
+    expect(source).toEqual({
+      contentId: '9007199254740993223',
+      mediaId: '9007199254740993224',
+    })
+  })
+
+  it('sends an existing avatar source as validated Snowflake literals, not rounded variables', async () => {
+    gatewayGraphQl.mockResolvedValue({ changeUserAvatar: null })
+
+    await socialApi.changeUserAvatar(
+      '9007199254740993123',
+      '/media/cropped.jpg',
+      null,
+      0,
+      { contentId: '9007199254740993223', mediaId: '9007199254740993224' },
+    )
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('sourceContentId: 9007199254740993223')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('sourceMediaId: 9007199254740993224')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({
+      avatarUrl: '/media/cropped.jpg',
+      originalUrl: null,
+      privacy: 0,
+    })
   })
 
   it('loads viewer-owned friend relations and their profiles in one request', async () => {
@@ -65,6 +149,24 @@ describe('SocialGraph Gateway adapter', () => {
     expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ limit: 9 })
     expect(friends[0]).toMatchObject({ profile: { id: '2', displayName: 'Friend' }, mutualFriendCount: 3 })
     expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
+  })
+
+  it('loads the visible friends of another profile without supplying a viewer id', async () => {
+    gatewayGraphQl.mockResolvedValue({ profileFriends: [{
+      profile: {
+        id: '3', avatar: '', background: '', name: 'Visible Friend', bio: '', gender: 0,
+        birthdate: '', location: '', privacy: 0, create: '2026-01-01', verify: '', isVerified: false,
+        friendCount: 2, followerCount: 0, followingCount: 0,
+      },
+      mutualFriendCount: 1,
+    }] })
+
+    const friends = await socialApi.getProfileFriends('2', 25)
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('profileFriends(targetUserId: 2')
+    expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('viewerId')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ limit: 25 })
+    expect(friends[0]).toMatchObject({ profile: { id: '3' }, mutualFriendCount: 1 })
   })
 
   it('loads the selected profile connection list from SocialGraph', async () => {
@@ -290,5 +392,30 @@ describe('SocialGraph Gateway adapter', () => {
     expect(reels[0]?.id).toBe('8')
     expect(gatewayGraphQl.mock.calls[0][0]).toContain('likedReels(limit: $limit, cursor: $cursor)')
     expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('userId')
+  })
+
+  it('sends Reel privacy and presentation ratio through Gateway GraphQL without rounding the author ID', async () => {
+    gatewayGraphQl.mockResolvedValue({ createReel: {
+      id: '9007199254740993555', type: 4, content: 'New reel', privacy: 2,
+      create: '2026-07-28T10:00:00Z', authorId: '9007199254740993123', aspectRatio: 0.5625,
+      focalPointX: 0.25, focalPointY: 0.75,
+      media: [{ id: '9007199254740993666', type: 1, url: '/reel.mp4' }],
+    } })
+
+    const reel = await socialApi.createReel('9007199254740993123', {
+      content: 'New reel',
+      privacy: 2,
+      aspectRatio: 0.5625,
+      focalPointX: 0.25,
+      focalPointY: 0.75,
+      media: { type: 1, url: '/reel.mp4' },
+    })
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('authorId: 9007199254740993123')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('privacy: $privacy, aspectRatio: $aspectRatio, focalPointX: $focalPointX, focalPointY: $focalPointY')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({
+      content: 'New reel', privacy: 2, aspectRatio: 0.5625, focalPointX: 0.25, focalPointY: 0.75, media: { type: 1, url: '/reel.mp4' },
+    })
+    expect(reel).toMatchObject({ id: '9007199254740993555', privacy: 2, aspectRatio: 0.5625, focalPointX: 0.25, focalPointY: 0.75 })
   })
 })

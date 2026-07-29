@@ -15,7 +15,7 @@ vi.mock('./client', () => ({
 vi.mock('./realtime', () => ({ subscribeGatewayGraphQl }))
 vi.mock('./social', () => ({ socialApi: { getProfiles } }))
 
-import { conversationImages, createGroupConversation, deleteMessage, directConversations, heartbeatPresence, markRead, message, messages, presence, sendMessage, setMessageReaction, setTyping, subscribeConversations, subscribePresence } from './messenger'
+import { conversationImages, createGroupConversation, deleteGroupConversation, deleteMessage, directConversations, editMessage, heartbeatPresence, markDelivered, markRead, message, messages, presence, sendMessage, setConversationMemberRole, setMessageReaction, setTyping, subscribeConversations, subscribePresence, updateGroupConversation } from './messenger'
 
 describe('messenger GraphQL adapter', () => {
   beforeEach(() => {
@@ -57,6 +57,45 @@ describe('messenger GraphQL adapter', () => {
   it('rejects a group with fewer than two friends before network I/O', async () => {
     await expect(createGroupConversation('Too small', ['2'], '1')).rejects.toThrow()
     expect(gatewayGraphQl).not.toHaveBeenCalled()
+  })
+
+  it('omits unchanged optional group fields instead of accidentally clearing them', async () => {
+    gatewayGraphQl.mockResolvedValue({
+      updateGroupConversation: {
+        id: 'group-1', type: 'GROUP', title: 'Renamed', avatarUrl: '/media/files/avatar.jpg',
+        updatedAt: '2026-07-28T00:00:00Z', currentSequence: '0', lastMessage: null,
+        participants: [{ userId: '1', role: 'ADMIN', leftAt: null, lastDeliveredSequence: '0', lastReadSequence: '0', user: { id: '1', name: 'Me', avatar: '', isVerified: false } }],
+      },
+    })
+
+    await updateGroupConversation('group-1', '1', { title: 'Renamed' })
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('title: $title')
+    expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('avatarUrl: $avatarUrl')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ conversationId: 'group-1', title: 'Renamed' })
+  })
+
+  it('changes group roles with a lossless user id and deletes a group', async () => {
+    gatewayGraphQl
+      .mockResolvedValueOnce({
+        setConversationMemberRole: {
+          id: 'group-1', type: 'GROUP', title: 'Group', avatarUrl: null,
+          updatedAt: '2026-07-28T00:00:00Z', currentSequence: '0', lastMessage: null,
+          participants: [
+            { userId: '1', role: 'ADMIN', leftAt: null, lastDeliveredSequence: '0', lastReadSequence: '0', user: { id: '1', name: 'Me', avatar: '', isVerified: false } },
+            { userId: '9007199254740993124', role: 'ADMIN', leftAt: null, lastDeliveredSequence: '0', lastReadSequence: '0', user: { id: '9007199254740993124', name: 'Friend', avatar: '', isVerified: false } },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({ deleteGroupConversation: true })
+
+    const updated = await setConversationMemberRole('group-1', '9007199254740993124', 'ADMIN', '1')
+    const deleted = await deleteGroupConversation('group-1')
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('userId: 9007199254740993124, role: ADMIN')
+    expect(updated.participants[1].role).toBe('ADMIN')
+    expect(gatewayGraphQl.mock.calls[1][0]).toContain('deleteGroupConversation')
+    expect(deleted).toBe(true)
   })
 
   it('loads only the server-scoped direct conversation contact source', async () => {
@@ -160,6 +199,34 @@ describe('messenger GraphQL adapter', () => {
     expect(gatewayGraphQl.mock.calls[1][0]).toContain('deleteMessage')
     expect(gatewayGraphQl.mock.calls[1][1]).toEqual({ input: { messageId: 'message-1' } })
     expect(recalled).toMatchObject({ id: 'message-1', deleted: true, body: '', attachments: [] })
+  })
+
+  it('edits a message through Gateway and preserves its id as an opaque UUID', async () => {
+    gatewayGraphQl.mockResolvedValue({
+      editMessage: {
+        id: 'message-1', conversationId: 'conversation-1', senderUserId: '1', sequence: '7',
+        kind: 'USER', systemEvent: null, systemSubjectUserId: null,
+        text: 'Nội dung mới', replyToMessageId: null, createdAt: '2026-07-18T00:00:00Z',
+        editedAt: '2026-07-18T00:01:00Z',
+        editHistory: [
+          { text: 'Nội dung cũ', versionAt: '2026-07-18T00:00:00Z' },
+        ],
+        deleted: false, reactions: [], attachments: [],
+        sender: { id: '1', name: 'Me', avatar: '', isVerified: false }, systemSubject: null,
+      },
+    })
+
+    const result = await editMessage('message-1', 'Nội dung mới', '1')
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('editMessage')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('editHistory { text versionAt }')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ input: { messageId: 'message-1', text: 'Nội dung mới' } })
+    expect(result).toMatchObject({
+      id: 'message-1',
+      body: 'Nội dung mới',
+      editedAt: '2026-07-18T00:01:00Z',
+      editHistory: [{ text: 'Nội dung cũ', versionAt: '2026-07-18T00:00:00Z' }],
+    })
   })
 
   it('sends and restores attachment metadata instead of guessing only from the URL', async () => {
@@ -268,6 +335,16 @@ describe('messenger GraphQL adapter', () => {
     ])
     expect(gatewayGraphQl.mock.calls[2][0]).toContain('markConversationRead')
     expect(gatewayGraphQl.mock.calls[2][0]).toContain('sequence: 3')
+  })
+
+  it('marks an incoming sequence delivered without rounding a Long value', async () => {
+    gatewayGraphQl.mockResolvedValue({ markConversationDelivered: { conversationId: 'conversation-1', lastDeliveredSequence: '9007199254740993124' } })
+
+    await markDelivered('conversation-1', '9007199254740993124')
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('markConversationDelivered')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('sequence: 9007199254740993124')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ conversationId: 'conversation-1' })
   })
 
   it('loads every conversation image across backward message pages in chronological and ordinal order', async () => {

@@ -63,6 +63,11 @@ export interface GroupPost extends Omit<FeedPost, '__typename'> {
 
 export interface ReelPost extends Omit<FeedPost, '__typename'> {
   __typename: 'ReelDetail'
+  /** Presentation crop selected by the author. Legacy reels omit this value. */
+  aspectRatio?: number | null
+  /** Normalized focal point used by object-fit presentation cropping. */
+  focalPointX?: number | null
+  focalPointY?: number | null
 }
 
 export type GatewayPost = FeedPost | GroupPost | ReelPost

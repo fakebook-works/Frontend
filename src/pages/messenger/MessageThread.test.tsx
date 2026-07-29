@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { useState } from 'react'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 import { MessageThread } from './MessageThread'
@@ -37,7 +37,13 @@ function makeMessage(id: string, sender: UserSummary, body: string, replyToMessa
   }
 }
 
-function Harness({ messages }: { messages: MessengerMessageDto[] }) {
+function Harness({
+  messages,
+  onEditMessage = () => undefined,
+}: {
+  messages: MessengerMessageDto[]
+  onEditMessage?: (message: MessengerMessageDto, text: string) => void | Promise<void>
+}) {
   const [replyTarget, setReplyTarget] = useState<MessengerMessageDto | null>(null)
   return <MessageThread
     me={me}
@@ -60,6 +66,7 @@ function Harness({ messages }: { messages: MessengerMessageDto[] }) {
     onCancelReply={() => setReplyTarget(null)}
     onReactMessage={() => undefined}
     onRecallMessage={() => undefined}
+    onEditMessage={onEditMessage}
     onForwardMessage={() => undefined}
     onOpenProfile={() => undefined}
     onToggleDetail={() => undefined}
@@ -79,6 +86,20 @@ describe('MessageThread reply navigation', () => {
   })
 
   afterEach(cleanup)
+
+  it('renders structured group activity as a centered non-actionable system line', () => {
+    const systemMessage: MessengerMessageDto = {
+      ...makeMessage('system-1', me, ''),
+      kind: 'SYSTEM',
+      systemEvent: 'MEMBER_ADDED',
+      systemSubject: friend,
+    }
+    const { container } = render(<Harness messages={[systemMessage]} />)
+
+    expect(container.querySelector('.message-system-line')).toBeInTheDocument()
+    expect(container.querySelector('.message-action-rail')).toBeNull()
+    expect(container.querySelector('.message-avatar-slot')).toBeNull()
+  })
 
   it('keeps the newest message visible when reply opens while the thread is at the bottom', () => {
     const messages = [makeMessage('original', friend, 'First'), makeMessage('latest', me, 'Latest')]
@@ -119,5 +140,60 @@ describe('MessageThread reply navigation', () => {
 
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
     expect(original).toHaveClass('reply-navigation-target')
+  })
+
+  it('edits through the normal composer and cancels by clicking the blue message marker', async () => {
+    const onEditMessage = vi.fn()
+    const editable = {
+      ...makeMessage('editable', me, 'Nội dung ban đầu'),
+      createdAt: new Date().toISOString(),
+    }
+    const earlier = { ...makeMessage('earlier', friend, 'Tin nhắn khác'), createdAt: new Date().toISOString() }
+    const { container } = render(<Harness messages={[earlier, editable]} onEditMessage={onEditMessage} />)
+
+    const moreButtons = container.querySelectorAll<HTMLButtonElement>('.message-action-button.more')
+    fireEvent.click(moreButtons[moreButtons.length - 1])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Chỉnh sửa' }))
+
+    expect(container.querySelector('.message-inline-editor')).toBeNull()
+    expect(container.querySelector('.messenger-editing-bar')).toHaveTextContent('Đang chỉnh sửa')
+    expect(container.querySelector('.messenger-editing-bar .message-reply-preview.composer')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Đang được chỉnh sửa' })).toBeInTheDocument()
+    expect(container.querySelector('.messenger-messages')).toHaveClass('has-edit-focus')
+    expect(container.querySelector('[data-message-id="earlier"]')).toHaveAttribute('inert')
+    expect(container.querySelector('[data-message-id="editable"]')).toHaveClass('is-editing')
+    expect(container.querySelector('[data-message-id="editable"]')).not.toHaveAttribute('inert')
+    const composer = container.querySelector<HTMLInputElement>('.messenger-input-wrap input')!
+    expect(composer).toHaveValue('Nội dung ban đầu')
+
+    fireEvent.change(composer, { target: { value: 'Nội dung mới' } })
+    fireEvent.submit(container.querySelector<HTMLFormElement>('.messenger-compose')!)
+    await waitFor(() => expect(onEditMessage).toHaveBeenCalledWith(editable, 'Nội dung mới'))
+
+    const refreshedMoreButtons = container.querySelectorAll<HTMLButtonElement>('.message-action-button.more')
+    fireEvent.click(refreshedMoreButtons[refreshedMoreButtons.length - 1])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Chỉnh sửa' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Đang được chỉnh sửa' }))
+    expect(container.querySelector('.messenger-editing-bar')).toBeNull()
+    expect(container.querySelector('.messenger-messages')).not.toHaveClass('has-edit-focus')
+    expect(container.querySelector('[data-message-id="earlier"]')).not.toHaveAttribute('inert')
+  })
+
+  it('reveals edit history oldest to newest as faded message bubbles', () => {
+    const edited = {
+      ...makeMessage('edited', me, 'Bản hiện tại'),
+      editedAt: '2026-07-19T00:03:00.000Z',
+      editHistory: [
+        { text: 'Bản đầu', versionAt: '2026-07-19T00:00:00.000Z' },
+        { text: 'Bản thứ hai', versionAt: '2026-07-19T00:02:00.000Z' },
+      ],
+    }
+    const { container } = render(<Harness messages={[edited]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Đã chỉnh sửa' }))
+
+    const revisions = Array.from(container.querySelectorAll('.message-edit-history-bubble'))
+    expect(revisions.map((element) => element.textContent)).toEqual(['Bản đầu', 'Bản thứ hai'])
+    expect(screen.getByRole('button', { name: 'Ẩn lịch sử chỉnh sửa' })).toBeInTheDocument()
   })
 })

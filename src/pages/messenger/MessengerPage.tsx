@@ -9,10 +9,12 @@ import { useI18n } from '../../i18n'
 import { ConversationDetail } from './ConversationDetail'
 import { ConversationList } from './ConversationList'
 import { ForwardMessageDialog } from './ForwardMessageDialog'
+import { GroupConversationManager } from './GroupConversationManager'
 import { MessageThread } from './MessageThread'
 import { NewConversationModal } from './NewConversationModal'
 import { playIncomingMessageSound } from '../../lib/sounds'
 import { encodeMessengerLike } from './helpers'
+import { groupPresenceSummary } from './helpers'
 import type { MessengerLikeLevel } from './helpers'
 import './MessengerPage.css'
 
@@ -59,6 +61,7 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   const [typingByConversationId, setTypingByConversationId] = useState<Record<string, string>>({})
   const [replyToByConversationId, setReplyToByConversationId] = useState<Record<string, string | null>>({})
   const [forwardingMessage, setForwardingMessage] = useState<MessengerMessageDto | null>(null)
+  const [managedGroupId, setManagedGroupId] = useState<string | null>(null)
   const seenEventIds = useRef(new Set<string>())
   const outgoingTypingTimers = useRef(new Map<string, number>())
   const outgoingTypingSentAt = useRef(new Map<string, number>())
@@ -145,15 +148,38 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   useEffect(() => messengerApi.subscribeInbox((event) => {
     if (seenEventIds.current.has(event.eventId)) return
     seenEventIds.current.add(event.eventId)
+    if (event.kind === 'CONVERSATION_DELETED' && event.conversationId) {
+      const deletedId = event.conversationId
+      setManagedGroupId((current) => current === deletedId ? null : current)
+      setConversations((current) => current.filter((conversation) => conversation.id !== deletedId))
+      setSelectedId((current) => current === deletedId ? null : current)
+      setMessages((current) => {
+        const next = { ...current }
+        delete next[deletedId]
+        return next
+      })
+      setDrafts((current) => {
+        const next = { ...current }
+        delete next[deletedId]
+        return next
+      })
+      setPendingAttachmentsByConversation((current) => {
+        const next = { ...current }
+        delete next[deletedId]
+        return next
+      })
+      return
+    }
     if (event.kind === 'MESSAGE_ADDED' && event.userId && event.userId !== me.id) {
       if (event.conversationId && event.sequence) {
         latestIncomingSequence.current.set(event.conversationId, event.sequence)
+        void messengerApi.markDelivered(event.conversationId, event.sequence).catch(() => setApiState('unavailable'))
       }
       // The dock played this before; it no longer holds streams open on this route.
       playIncomingMessageSound()
     }
     void loadConversations()
-    if (['MESSAGE_ADDED', 'MESSAGE_DELETED', 'REACTION_CHANGED'].includes(event.kind) && event.conversationId && event.messageId) {
+    if (['MESSAGE_ADDED', 'MESSAGE_EDITED', 'MESSAGE_DELETED', 'REACTION_CHANGED'].includes(event.kind) && event.conversationId && event.messageId) {
       void messengerApi.message(event.messageId, me.id).then((incoming) => {
         setMessages((current) => {
           const existing = current[event.conversationId!]
@@ -166,17 +192,25 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   }, () => setApiState('unavailable')), [loadConversations, me.id])
 
   const selected = conversations.find((conversation) => conversation.id === selectedId) ?? conversations[0] ?? null
+  const managedGroup = managedGroupId
+    ? conversations.find((conversation) => conversation.id === managedGroupId && conversation.type === 'GROUP') ?? null
+    : null
   // selectedId is the explicit choice and can be null while `selected` has fallen back to
   // the first conversation, so the stream keys on what is actually being shown.
   const shownConversationId = selected?.id ?? null
   const selectedOther = selected?.type === 'DIRECT'
     ? selected.participants.find((participant) => participant.id !== me.id)
     : undefined
-  const presenceUserIds = useMemo(() => [...new Set(conversations.flatMap((conversation) => {
-    if (conversation.type !== 'DIRECT') return []
-    const other = conversation.participants.find((participant) => participant.id !== me.id)
-    return other ? [other.id] : []
-  }))], [conversations, me.id])
+  const presenceUserIds = useMemo(() => [...new Set([
+    ...conversations.flatMap((conversation) => {
+      if (conversation.type !== 'DIRECT') return []
+      const other = conversation.participants.find((participant) => participant.id !== me.id)
+      return other ? [other.id] : []
+    }),
+    ...(selected?.type === 'GROUP'
+      ? selected.participants.filter((participant) => participant.id !== me.id && !participant.leftAt).map((participant) => participant.id)
+      : []),
+  ])].slice(0, 250), [conversations, me.id, selected])
   const presenceUserIdKey = presenceUserIds.join(',')
 
   useEffect(() => {
@@ -245,7 +279,10 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
         return
       }
       if (event.kind === 'MESSAGE_ADDED' && event.userId) {
-        if (event.userId !== me.id && event.sequence) latestIncomingSequence.current.set(shownConversationId, event.sequence)
+        if (event.userId !== me.id && event.sequence) {
+          latestIncomingSequence.current.set(shownConversationId, event.sequence)
+          void messengerApi.markDelivered(shownConversationId, event.sequence).catch(() => setApiState('unavailable'))
+        }
         setTypingByConversationId((current) => {
           if (current[shownConversationId] !== event.userId) return current
           const next = { ...current }
@@ -253,7 +290,7 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
           return next
         })
       }
-      if (['MESSAGE_ADDED', 'MESSAGE_DELETED', 'REACTION_CHANGED'].includes(event.kind) && event.messageId) {
+      if (['MESSAGE_ADDED', 'MESSAGE_EDITED', 'MESSAGE_DELETED', 'REACTION_CHANGED'].includes(event.kind) && event.messageId) {
         void messengerApi.message(event.messageId, me.id).then((incoming) => {
           setMessages((current) => ({
             ...current,
@@ -276,6 +313,9 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   }, [])
 
   const activeMessages = useMemo(() => selected ? messages[selected.id] ?? [] : [], [messages, selected])
+  const selectedGroupPresence = selected?.type === 'GROUP'
+    ? groupPresenceSummary(selected, me.id, presenceByUserId, t)
+    : null
   const replyTarget = selected
     ? activeMessages.find((message) => message.id === replyToByConversationId[selected.id]) ?? null
     : null
@@ -406,6 +446,17 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
     }
   }
 
+  async function editChatMessage(message: MessengerMessageDto, text: string) {
+    try {
+      const updated = await messengerApi.editMessage(message.id, text, me.id)
+      applyMessageUpdate(updated)
+      setApiState('gateway')
+    } catch (error) {
+      setApiState('unavailable')
+      throw error
+    }
+  }
+
   async function forwardMessage(target: MessengerConversationDto) {
     if (!forwardingMessage) return
     try {
@@ -488,6 +539,45 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
     }
   }
 
+  function updateConversation(updated: MessengerConversationDto) {
+    setConversations((current) => current.map((conversation) => conversation.id === updated.id ? updated : conversation))
+    if (updated.lastMessage) {
+      setMessages((current) => current[updated.id]
+        ? { ...current, [updated.id]: upsertMessage(current[updated.id], updated.lastMessage!) }
+        : current)
+    }
+    setApiState('gateway')
+  }
+
+  function removeConversationLocally(conversationId: string) {
+    setManagedGroupId(null)
+    setConversations((current) => current.filter((conversation) => conversation.id !== conversationId))
+    setSelectedId((current) => current === conversationId ? null : current)
+    setMessages((current) => {
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+    const pending = pendingAttachmentsByConversation[conversationId] ?? []
+    void Promise.allSettled(pending.map((attachment) => api.cancelPendingMedia(attachment)))
+    setDrafts((current) => {
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+    setPendingAttachmentsByConversation((current) => {
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+    setReplyToByConversationId((current) => {
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+    setApiState('gateway')
+  }
+
   async function attachFiles(conversationId: string, files: FileList | null) {
     if (!files?.length) return
     const current = pendingAttachmentsByConversation[conversationId] ?? []
@@ -531,10 +621,11 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   return <>
     <main className={`messenger-shell${mobileShowThread ? ' thread-open' : ''}${showDetail ? ' detail-open' : ''}`} aria-label="Messenger">
       <ConversationList me={me} conversations={conversations} presenceByUserId={presenceByUserId} selectedId={selectedId} query={query} loading={loading} activeTab={activeTab} totalUnread={totalUnread} onSelect={selectConversation} onQueryChange={setQuery} onTabChange={setActiveTab} onNewMessage={() => setShowNewModal(true)} />
-      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={drafts[selected.id] ?? ''} pendingAttachments={pendingAttachmentsByConversation[selected.id] ?? []} uploading={uploadingConversationId === selected.id} apiState={apiState} showDetail={showDetail} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} typingUserId={typingByConversationId[selected.id] ?? null} replyTarget={replyTarget} onInteract={() => markConversationRead(selected.id)} onDraftChange={(value) => updateDraft(selected.id, value)} onAttachFiles={(files) => void attachFiles(selected.id, files)} onRemoveAttachment={removePendingAttachment} onSubmit={handleSubmit} onSendLike={(level) => void sendLike(level)} onReplyMessage={(message) => setReplyToByConversationId((current) => ({ ...current, [selected.id]: message.id }))} onCancelReply={() => setReplyToByConversationId((current) => ({ ...current, [selected.id]: null }))} onReactMessage={reactToMessage} onRecallMessage={recallMessage} onForwardMessage={setForwardingMessage} onOpenProfile={onOpenProfile} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
-      {showDetail && selected && <ConversationDetail me={me} conversation={selected} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} onOpenProfile={onOpenProfile} onLeave={() => void leaveSelectedConversation()} />}
+      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={drafts[selected.id] ?? ''} pendingAttachments={pendingAttachmentsByConversation[selected.id] ?? []} uploading={uploadingConversationId === selected.id} apiState={apiState} showDetail={showDetail} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} groupPresenceLabel={selectedGroupPresence?.label} groupOnlineCount={selectedGroupPresence?.onlineCount} typingUserId={typingByConversationId[selected.id] ?? null} replyTarget={replyTarget} onInteract={() => markConversationRead(selected.id)} onDraftChange={(value) => updateDraft(selected.id, value)} onAttachFiles={(files) => void attachFiles(selected.id, files)} onRemoveAttachment={removePendingAttachment} onSubmit={handleSubmit} onSendLike={(level) => void sendLike(level)} onReplyMessage={(message) => setReplyToByConversationId((current) => ({ ...current, [selected.id]: message.id }))} onCancelReply={() => setReplyToByConversationId((current) => ({ ...current, [selected.id]: null }))} onReactMessage={reactToMessage} onRecallMessage={recallMessage} onEditMessage={editChatMessage} onForwardMessage={setForwardingMessage} onOpenProfile={onOpenProfile} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
+      {showDetail && selected && <ConversationDetail me={me} conversation={selected} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} onOpenProfile={onOpenProfile} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onLeave={() => void leaveSelectedConversation()} />}
     </main>
     {showNewModal && <NewConversationModal friends={friends} onStart={startConversation} onCreateGroup={startGroupConversation} onClose={() => setShowNewModal(false)} />}
     {forwardingMessage && <ForwardMessageDialog message={forwardingMessage} conversations={conversations} me={me} onForward={forwardMessage} onClose={() => setForwardingMessage(null)} />}
+    {managedGroup && <GroupConversationManager me={me} friends={friends} conversation={managedGroup} onClose={() => setManagedGroupId(null)} onUpdated={updateConversation} onRemoved={removeConversationLocally} onOpenProfile={onOpenProfile} />}
   </>
 }

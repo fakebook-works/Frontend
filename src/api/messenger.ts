@@ -30,9 +30,17 @@ interface MessageGraphQl {
   conversationId: string
   senderUserId: string
   sequence: string
+  kind?: 'USER' | 'SYSTEM'
+  systemEvent?: MessengerMessageDto['systemEvent']
+  systemSubjectUserId?: string | null
   text: string | null
   replyToMessageId: string | null
   createdAt: string
+  editedAt?: string | null
+  editHistory?: Array<{
+    text: string
+    versionAt: string
+  }>
   deleted: boolean
   reactions: Array<{
     userId: string
@@ -53,6 +61,7 @@ interface MessageGraphQl {
     thumbnailUrl?: string | null
   }>
   sender?: FederatedUserGraphQl | null
+  systemSubject?: FederatedUserGraphQl | null
 }
 
 interface ConversationGraphQl {
@@ -86,7 +95,7 @@ export interface MessengerPresenceDto {
   userId: string
   isOnline: boolean
   expiresAt: string | null
-  updatedAt: string
+  updatedAt: string | null
 }
 
 export interface MessengerConversationImage extends MediaUpload {
@@ -97,7 +106,8 @@ export interface MessengerConversationImage extends MediaUpload {
 }
 
 const MESSAGE_CORE_FIELDS = `
-  id conversationId senderUserId sequence text replyToMessageId createdAt deleted
+  id conversationId senderUserId sequence kind systemEvent systemSubjectUserId text replyToMessageId createdAt editedAt deleted
+  editHistory { text versionAt }
   reactions { userId emoji updatedAt }
   attachments { ordinal url assetId mediaType contentType originalName sizeBytes width height durationMs thumbnailUrl }
 `
@@ -105,6 +115,7 @@ const MESSAGE_CORE_FIELDS = `
 const MESSAGE_FIELDS = `
   ${MESSAGE_CORE_FIELDS}
   sender { id name avatar isVerified }
+  systemSubject { id name avatar isVerified }
 `
 
 const CONVERSATION_FIELDS = `
@@ -195,10 +206,27 @@ function messageFromGraphQl(message: MessageGraphQl, people: Map<string, UserSum
     avatarUrl: message.sender.avatar || null,
     isVerified: message.sender.isVerified,
   } : null
+  const systemSubject = message.systemSubject ? {
+    id: String(message.systemSubject.id),
+    username: message.systemSubject.name,
+    displayName: message.systemSubject.name,
+    avatarUrl: message.systemSubject.avatar || null,
+    isVerified: message.systemSubject.isVerified,
+  } : message.systemSubjectUserId
+    ? people.get(String(message.systemSubjectUserId)) ?? {
+        id: String(message.systemSubjectUserId),
+        username: String(message.systemSubjectUserId),
+        displayName: 'Fakebook user',
+        avatarUrl: null,
+      }
+    : null
   return {
     id: String(message.id),
     conversationId: String(message.conversationId),
     sequence: String(message.sequence),
+    kind: message.kind ?? 'USER',
+    systemEvent: message.systemEvent ?? null,
+    systemSubject,
     sender: federatedSender ?? people.get(senderId) ?? {
       id: senderId,
       username: senderId,
@@ -209,6 +237,8 @@ function messageFromGraphQl(message: MessageGraphQl, people: Map<string, UserSum
     replyToMessageId: message.replyToMessageId ?? null,
     reactions: message.reactions ?? [],
     deleted: message.deleted,
+    editedAt: message.editedAt ?? null,
+    editHistory: message.deleted ? [] : message.editHistory ?? [],
     createdAt: message.createdAt,
     status,
     attachments: message.deleted ? [] : message.attachments.map(attachmentFromGraphQl),
@@ -398,6 +428,16 @@ export async function deleteMessage(messageId: string, viewerId: string): Promis
   return messageFromGraphQl(data.deleteMessage, new Map(), viewerId)
 }
 
+export async function editMessage(messageId: string, text: string, viewerId: string): Promise<MessengerMessageDto> {
+  const data = await gatewayGraphQl<{ editMessage: MessageGraphQl }>(
+    `mutation EditMessage($input: EditMessageInput!) {
+      editMessage(input: $input) { ${MESSAGE_FIELDS} }
+    }`,
+    { input: { messageId, text } },
+  )
+  return messageFromGraphQl(data.editMessage, new Map(), viewerId)
+}
+
 export async function setMessageReaction(messageId: string, emoji: string | null, viewerId: string): Promise<MessengerMessageDto> {
   const data = await gatewayGraphQl<{ setMessageReaction: MessageGraphQl }>(
     `mutation SetMessageReaction($input: SetMessageReactionInput!) {
@@ -444,11 +484,27 @@ export async function updateGroupConversation(
   viewerId: string,
   input: { title?: string | null; avatarUrl?: string | null },
 ): Promise<MessengerConversationDto> {
+  const hasTitle = Object.prototype.hasOwnProperty.call(input, 'title')
+  const hasAvatarUrl = Object.prototype.hasOwnProperty.call(input, 'avatarUrl')
+  if (!hasTitle && !hasAvatarUrl) throw new Error('At least one group field is required.')
+  const definitions = ['$conversationId: UUID!']
+  const assignments = ['conversationId: $conversationId']
+  const variables: Record<string, string | null> = { conversationId }
+  if (hasTitle) {
+    definitions.push('$title: String')
+    assignments.push('title: $title')
+    variables.title = input.title ?? null
+  }
+  if (hasAvatarUrl) {
+    definitions.push('$avatarUrl: String')
+    assignments.push('avatarUrl: $avatarUrl')
+    variables.avatarUrl = input.avatarUrl ?? null
+  }
   const data = await gatewayGraphQl<{ updateGroupConversation: ConversationGraphQl }>(
-    `mutation UpdateGroupConversation($conversationId: UUID!, $title: String, $avatarUrl: String) {
-      updateGroupConversation(input: { conversationId: $conversationId, title: $title, avatarUrl: $avatarUrl }) { ${CONVERSATION_FIELDS} }
+    `mutation UpdateGroupConversation(${definitions.join(', ')}) {
+      updateGroupConversation(input: { ${assignments.join(', ')} }) { ${CONVERSATION_FIELDS} }
     }`,
-    { conversationId, title: input.title, avatarUrl: input.avatarUrl },
+    variables,
   )
   const people = await participantMap([data.updateGroupConversation], viewerId)
   return conversationFromGraphQl(data.updateGroupConversation, people, viewerId)
@@ -498,6 +554,33 @@ export async function leaveConversation(conversationId: string, viewerId: string
   return conversationFromGraphQl(data.leaveConversation, people, viewerId)
 }
 
+export async function setConversationMemberRole(
+  conversationId: string,
+  targetUserId: string,
+  role: 'ADMIN' | 'MEMBER',
+  viewerId: string,
+): Promise<MessengerConversationDto> {
+  const target = graphQlLongLiteral(targetUserId)
+  const data = await gatewayGraphQl<{ setConversationMemberRole: ConversationGraphQl }>(
+    `mutation SetConversationMemberRole($conversationId: UUID!) {
+      setConversationMemberRole(input: { conversationId: $conversationId, userId: ${target}, role: ${role} }) { ${CONVERSATION_FIELDS} }
+    }`,
+    { conversationId },
+  )
+  const people = await participantMap([data.setConversationMemberRole], viewerId)
+  return conversationFromGraphQl(data.setConversationMemberRole, people, viewerId)
+}
+
+export async function deleteGroupConversation(conversationId: string): Promise<boolean> {
+  const data = await gatewayGraphQl<{ deleteGroupConversation: boolean }>(
+    `mutation DeleteGroupConversation($conversationId: UUID!) {
+      deleteGroupConversation(conversationId: $conversationId)
+    }`,
+    { conversationId },
+  )
+  return data.deleteGroupConversation
+}
+
 export async function markRead(conversationId: string, sequence: string): Promise<void> {
   const sequenceLiteral = sequence === '0' ? '0' : graphQlLongLiteral(sequence)
   await gatewayGraphQl<{ markConversationRead: { conversationId: string } }>(
@@ -508,15 +591,27 @@ export async function markRead(conversationId: string, sequence: string): Promis
   )
 }
 
+export async function markDelivered(conversationId: string, sequence: string): Promise<void> {
+  const sequenceLiteral = graphQlLongLiteral(sequence)
+  await gatewayGraphQl(
+    `mutation MarkConversationDelivered($conversationId: UUID!) {
+      markConversationDelivered(input: { conversationId: $conversationId, sequence: ${sequenceLiteral} }) {
+        conversationId lastDeliveredSequence
+      }
+    }`,
+    { conversationId },
+  )
+}
+
 export async function presence(userIds: string[]): Promise<MessengerPresenceDto[]> {
-  const ids = [...new Set(userIds)].filter((id) => id.length > 0).slice(0, 100)
+  const ids = [...new Set(userIds)].filter((id) => id.length > 0).slice(0, 250)
   if (ids.length === 0) return []
   const literals = ids.map(graphQlLongLiteral).join(', ')
   const data = await gatewayGraphQl<{ userPresence: Array<{
     userId: string
     isOnline: boolean
     expiresAt: string | null
-    updatedAt: string
+    updatedAt: string | null
   }> }>(
     `query UserPresence { userPresence(userIds: [${literals}]) { userId isOnline expiresAt updatedAt } }`,
   )
@@ -578,7 +673,7 @@ export function subscribeConversations(conversationIds: string[], onEvent: (even
 }
 
 export function subscribePresence(userIds: string[], onEvent: (event: MessengerRealtimeEvent) => void, onError?: (error: Error) => void): () => void {
-  const ids = [...new Set(userIds)].filter((id) => id.length > 0).slice(0, 100)
+  const ids = [...new Set(userIds)].filter((id) => id.length > 0).slice(0, 250)
   if (ids.length === 0) return () => undefined
   const literals = ids.map(graphQlLongLiteral).join(', ')
   return subscribeGatewayGraphQl<{ presenceEvents: MessengerRealtimeEvent }>({
@@ -596,14 +691,18 @@ export const messengerApi = {
   message,
   sendMessage,
   deleteMessage,
+  editMessage,
   setMessageReaction,
   createDirectConversation,
   createGroupConversation,
   updateGroupConversation,
   addConversationMembers,
   removeConversationMember,
+  setConversationMemberRole,
   leaveConversation,
+  deleteGroupConversation,
   markRead,
+  markDelivered,
   presence,
   heartbeatPresence,
   setTyping,

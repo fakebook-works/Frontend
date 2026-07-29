@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { messengerApi } from '../api/messenger'
 import { socialApi, type ContentEngagement } from '../api/social'
-import type { GatewayPost, SharedPostSource, SharedStory } from '../api/gatewayTypes'
+import type { GatewayMedia, GatewayPost, SharedPostSource, SharedStory } from '../api/gatewayTypes'
 import type { UserSummary } from '../api/types'
 import { Avatar } from './Avatar'
 import { Icon } from './Icon'
@@ -24,7 +24,7 @@ const EMPTY_ENGAGEMENT: ContentEngagement = {
   viewerHasWatched: false,
 }
 
-export function ContentActions({ viewerId, contentId, post, variant = 'post', canShare = true, canReshare = canShare, onNavigate, onMessage, onStoryCreated }: { viewerId: string; contentId: string; post?: GatewayPost; variant?: 'post' | 'reel'; canShare?: boolean; canReshare?: boolean; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void }) {
+export function ContentActions({ viewerId, contentId, post, variant = 'post', canShare = true, canReshare = canShare, onNavigate, onMessage, onStoryCreated, onOpenImage }: { viewerId: string; contentId: string; post?: GatewayPost; variant?: 'post' | 'reel'; canShare?: boolean; canReshare?: boolean; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void }) {
   const { t } = useI18n()
   const [engagement, setEngagement] = useState<ContentEngagement>({ ...EMPTY_ENGAGEMENT, targetId: contentId })
   const [loading, setLoading] = useState(true)
@@ -120,18 +120,19 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
       {canShare && <button type="button" onClick={() => setShareOpen(true)}><Icon name="shareOutline" />{showShareCount && <span>{counts.shares}</span>}</button>}
       <button type="button" className={engagement.viewerHasSaved ? 'active' : ''} disabled={loading || busy != null} onClick={() => void toggleSave()}><Icon name="bookmark" /><span>{engagement.viewerHasSaved ? t('saved') : t('save')}</span></button>
     </aside>}
-    {commentsOpen && <PostDetailCommentsModal viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} />}
+    {commentsOpen && <PostDetailCommentsModal viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} />}
     {canShare && shareOpen && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare={canReshare} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
   </>
 }
 
-export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate, onMessage, onStoryCreated }: {
+export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate, onMessage, onStoryCreated, onOpenImage }: {
   viewerId: string
   contentId: string
   onClose: () => void
   onNavigate?: (path: string) => void
   onMessage?: (profileId: string) => Promise<void>
   onStoryCreated?: (story: SharedStory) => void
+  onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void
 }) {
   const { t } = useI18n()
   const [post, setPost] = useState<GatewayPost | null>(null)
@@ -207,6 +208,7 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
     onShare={() => setShareOpen(true)}
     onClose={onClose}
     onNavigate={onNavigate}
+    onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { onClose(); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined}
     onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))}
   />
 }

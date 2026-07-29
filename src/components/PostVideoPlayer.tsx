@@ -42,11 +42,17 @@ function VideoChevron({ direction }: { direction: 'left' | 'right' }) {
   return <svg className="post-video-chevron" width="14" height="17" viewBox="0 0 18 20" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d={path} /></svg>
 }
 
-export function PostVideoPlayer({ src, controls = true, autoPlay = true, onLoadedMetadata }: {
+export function PostVideoPlayer({ src, controls = true, autoPlay = true, controlVariant = 'full', displayAspectRatio, objectPosition = '50% 50%', initialTime = 0, onLoadedMetadata, onOpenDetail, onPlaybackTimeChange }: {
   src: string
   controls?: boolean
   autoPlay?: boolean
+  controlVariant?: 'full' | 'compact'
+  displayAspectRatio?: number | null
+  objectPosition?: string
+  initialTime?: number
   onLoadedMetadata?: (width: number, height: number) => void
+  onOpenDetail?: (currentTime: number) => void
+  onPlaybackTimeChange?: (currentTime: number) => void
 }) {
   const { t } = useI18n()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -62,6 +68,8 @@ export function PostVideoPlayer({ src, controls = true, autoPlay = true, onLoade
   const [settingsPanel, setSettingsPanel] = useState<'root' | 'quality' | 'speed'>('root')
   const [playbackRate, setPlaybackRate] = useState(1)
   const autoplaySuppressedRef = useRef(false)
+  const initialTimeRef = useRef(initialTime)
+  const initialTimeAppliedRef = useRef(false)
 
   useEffect(() => {
     setHasAudio(null)
@@ -132,6 +140,16 @@ export function PostVideoPlayer({ src, controls = true, autoPlay = true, onLoade
     }
   }
 
+  function openDetail() {
+    const video = videoRef.current
+    const resumeAt = video && Number.isFinite(video.currentTime) ? video.currentTime : currentTime
+    if (video) {
+      video.pause()
+      releasePostVideo(video)
+    }
+    onOpenDetail?.(resumeAt)
+  }
+
   function seek(value: number) {
     const video = videoRef.current
     if (!video || !Number.isFinite(value)) return
@@ -187,14 +205,14 @@ export function PostVideoPlayer({ src, controls = true, autoPlay = true, onLoade
   const volumeStyle = { '--post-video-volume': `${volumeProgress}%` } as CSSProperties
   const quality = videoHeight > 0 ? `${t('videoQualityAuto')} ${videoHeight}p` : t('videoQualityAuto')
 
-  return <div ref={rootRef} className={`post-video-player post-media-content${playing ? ' playing' : ''}`} onClick={(event) => event.stopPropagation()} onDoubleClick={() => void toggleFullscreen()}>
-    <video
+  const video = <video
       ref={videoRef}
       src={src}
+      style={{ objectPosition }}
       muted={!controls || muted}
       playsInline
       preload="metadata"
-      onClick={controls ? togglePlay : undefined}
+      onClick={controls ? (onOpenDetail ? openDetail : togglePlay) : undefined}
       onLoadedMetadata={(event) => {
         const video = event.currentTarget
         setDuration(Number.isFinite(video.duration) ? video.duration : 0)
@@ -202,6 +220,14 @@ export function PostVideoPlayer({ src, controls = true, autoPlay = true, onLoade
         setVolume(video.volume)
         setMuted(video.muted)
         updateAudioAvailability(video)
+        if (!initialTimeAppliedRef.current && Number.isFinite(initialTimeRef.current) && initialTimeRef.current > 0) {
+          const resumeAt = Number.isFinite(video.duration) && video.duration > 0
+            ? Math.min(initialTimeRef.current, video.duration)
+            : initialTimeRef.current
+          video.currentTime = resumeAt
+          setCurrentTime(resumeAt)
+          initialTimeAppliedRef.current = true
+        }
         onLoadedMetadata?.(video.videoWidth, video.videoHeight)
       }}
       onLoadedData={(event) => updateAudioAvailability(event.currentTarget)}
@@ -209,6 +235,7 @@ export function PostVideoPlayer({ src, controls = true, autoPlay = true, onLoade
       onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
       onTimeUpdate={(event) => {
         setCurrentTime(event.currentTarget.currentTime)
+        onPlaybackTimeChange?.(event.currentTarget.currentTime)
         if (hasAudio == null) updateAudioAvailability(event.currentTarget)
       }}
       onPlay={(event) => {
@@ -228,11 +255,16 @@ export function PostVideoPlayer({ src, controls = true, autoPlay = true, onLoade
         setMuted(event.currentTarget.muted)
       }}
     />
+
+  return <div ref={rootRef} className={`post-video-player post-media-content${playing ? ' playing' : ''}${displayAspectRatio ? ' has-display-crop' : ''}${controlVariant === 'compact' ? ' compact-controls' : ''}${onOpenDetail ? ' opens-media-detail' : ''}`} onClick={(event) => event.stopPropagation()} onDoubleClick={controlVariant === 'full' && !onOpenDetail ? () => void toggleFullscreen() : undefined}>
+    {displayAspectRatio
+      ? <div className="post-video-crop-frame" style={{ aspectRatio: String(displayAspectRatio) }}>{video}</div>
+      : video}
     {controls && <div className="post-video-controls" onDoubleClick={(event) => event.stopPropagation()}>
       <button type="button" className="post-video-control-button play" aria-label={t(playing ? 'videoPause' : 'videoPlay')} onClick={togglePlay}>{playing ? <Icon name="pause" size={21} /> : <VideoPlayGlyph />}</button>
       <time>{formatVideoTime(currentTime)} / {formatVideoTime(duration)}</time>
       <input className="post-video-progress" type="range" min={0} max={Math.max(duration, 0)} step="0.05" value={Math.min(currentTime, Math.max(duration, 0))} aria-label={t('videoSeek')} style={progressStyle} onChange={(event) => seek(Number(event.target.value))} />
-      <div className="post-video-settings-wrap">
+      {controlVariant === 'full' && <div className="post-video-settings-wrap">
         <button type="button" className="post-video-control-button" aria-label={t('videoSettings')} aria-expanded={settingsOpen} onClick={() => { setSettingsOpen((open) => !open); setSettingsPanel('root') }}><VideoSettingsGlyph /></button>
         {settingsOpen && <div className="post-video-settings-menu" role="menu">
           {settingsPanel === 'root' && <>
@@ -250,8 +282,8 @@ export function PostVideoPlayer({ src, controls = true, autoPlay = true, onLoade
             <div className="post-video-speed-options">{PLAYBACK_SPEEDS.map((speed) => <button type="button" role="menuitemradio" aria-checked={speed === playbackRate} className={speed === playbackRate ? 'active' : ''} key={speed} onClick={() => changePlaybackRate(speed)}>{speed}x</button>)}</div>
           </>}
         </div>}
-      </div>
-      <button type="button" className="post-video-control-button" aria-label={t('videoFullscreen')} onClick={() => void toggleFullscreen()}><Icon name="expand" size={21} /></button>
+      </div>}
+      {controlVariant === 'full' && <button type="button" className="post-video-control-button" aria-label={t('videoFullscreen')} onClick={() => onOpenDetail ? openDetail() : void toggleFullscreen()}><Icon name="expand" size={21} /></button>}
       <div className={`post-video-volume-wrap${hasAudio === false ? ' no-audio' : ''}`}>
         {hasAudio !== false && <div className="post-video-volume-popover"><input type="range" min={0} max={1} step={0.02} value={muted ? 0 : volume} aria-label={t('videoVolume')} style={volumeStyle} onChange={(event) => changeVolume(Number(event.target.value))} /></div>}
         <button type="button" className="post-video-control-button" aria-label={hasAudio === false ? t('videoNoAudio') : t(muted || volume === 0 ? 'videoUnmute' : 'videoMute')} aria-disabled={hasAudio === false} onClick={toggleMute}><Icon name={hasAudio === false || muted || volume === 0 ? 'volumeOff' : 'volume'} size={22} /></button>

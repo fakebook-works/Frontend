@@ -1,8 +1,26 @@
-import { GRAPHQL_GATEWAY_URL, getAuth, parseGraphQlEnvelope } from './client'
+import { GRAPHQL_GATEWAY_URL, getAuth, parseGraphQlEnvelope, refreshAuthSession } from './client'
 
 interface GraphQlSsePayload<T> {
   data?: T
-  errors?: Array<{ message?: string }>
+  errors?: Array<{ message?: string; extensions?: { code?: string } }>
+}
+
+class RealtimeConnectionError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+    this.name = 'RealtimeConnectionError'
+  }
+}
+
+class RealtimeGraphQlError extends Error {
+  code: string | null
+  constructor(code: string | null, message: string) {
+    super(message)
+    this.code = code
+    this.name = 'RealtimeGraphQlError'
+  }
 }
 
 export interface GatewaySubscription<T> {
@@ -27,13 +45,12 @@ export function parseSseFrames(value: string): { payloads: string[]; remainder: 
   return { payloads, remainder }
 }
 
-function subscriptionHeaders(): Headers {
+function subscriptionHeaders(accessToken: string | null): Headers {
   const headers = new Headers({
     Accept: 'text/event-stream',
     'Content-Type': 'application/json',
   })
-  const token = getAuth()?.accessToken
-  if (token) headers.set('Authorization', `Bearer ${token}`)
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
   return headers
 }
 
@@ -43,7 +60,7 @@ async function readSubscription<T>(
   signal: AbortSignal,
   onHealthy?: () => void,
 ) {
-  if (!response.ok) throw new Error(`Realtime connection failed (${response.status}).`)
+  if (!response.ok) throw new RealtimeConnectionError(response.status, `Realtime connection failed (${response.status}).`)
   if (!response.body) throw new Error('Realtime response did not include a stream.')
 
   const reader = response.body.getReader()
@@ -57,7 +74,10 @@ async function readSubscription<T>(
     for (const payloadText of parsed.payloads) {
       if (payloadText === '[DONE]') return
       const payload = parseGraphQlEnvelope<T>(payloadText) as GraphQlSsePayload<T>
-      if (payload.errors?.length) throw new Error(payload.errors[0]?.message || 'Realtime operation failed.')
+      if (payload.errors?.length) {
+        const firstError = payload.errors[0]
+        throw new RealtimeGraphQlError(firstError?.extensions?.code ?? null, firstError?.message || 'Realtime operation failed.')
+      }
       if (payload.data) {
         // The stream is genuinely working, which is the only safe point to forget
         // previous failures.
@@ -74,16 +94,33 @@ export function subscribeGatewayGraphQl<T>(subscription: GatewaySubscription<T>)
   let retryTimer: number | null = null
   let retryAttempt = 0
 
+  const recoverAuthentication = async (attemptedAccessToken: string | null) => {
+    try {
+      await refreshAuthSession(attemptedAccessToken)
+      retryAttempt = 0
+      if (!controller.signal.aborted) void connect()
+    } catch (refreshError) {
+      if (controller.signal.aborted) return
+      subscription.onError?.(refreshError instanceof Error ? refreshError : new Error('Realtime authentication failed.'))
+      if (!isExpiredSessionError(refreshError)) scheduleReconnect()
+    }
+  }
+
   const connect = async () => {
     if (controller.signal.aborted) return
+    const attemptedAccessToken = getAuth()?.accessToken ?? null
     try {
       const response = await fetch(GRAPHQL_GATEWAY_URL, {
         method: 'POST',
-        headers: subscriptionHeaders(),
+        headers: subscriptionHeaders(attemptedAccessToken),
         credentials: 'include',
         body: JSON.stringify({ query: subscription.query, variables: subscription.variables ?? {} }),
         signal: controller.signal,
       })
+      if (response.status === 401) {
+        await recoverAuthentication(attemptedAccessToken)
+        return
+      }
       // Deliberately not reset here: fetch resolving says nothing about whether the
       // gateway accepted the subscription. A 401, 429 or 500 rejects inside
       // readSubscription, and resetting first put the backoff back to one second, so a
@@ -94,6 +131,11 @@ export function subscribeGatewayGraphQl<T>(subscription: GatewaySubscription<T>)
       if (!controller.signal.aborted) scheduleReconnect()
     } catch (error) {
       if (controller.signal.aborted) return
+      const authRejected = isRealtimeAuthRejected(error)
+      if (authRejected) {
+        await recoverAuthentication(attemptedAccessToken)
+        return
+      }
       subscription.onError?.(error instanceof Error ? error : new Error('Realtime connection failed.'))
       scheduleReconnect()
     }
@@ -116,4 +158,16 @@ export function subscribeGatewayGraphQl<T>(subscription: GatewaySubscription<T>)
     controller.abort()
     if (retryTimer !== null) window.clearTimeout(retryTimer)
   }
+}
+
+function isExpiredSessionError(error: unknown): boolean {
+  return error instanceof Error &&
+    'status' in error &&
+    (error as Error & { status?: unknown }).status === 401
+}
+
+function isRealtimeAuthRejected(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const tagged = error as Error & { status?: unknown; code?: unknown }
+  return tagged.status === 401 || tagged.code === 'UNAUTHENTICATED'
 }

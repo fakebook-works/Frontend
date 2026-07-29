@@ -75,6 +75,8 @@ interface MessageActionRailProps {
   compact?: boolean
   onReact: (emoji: string | null) => void | Promise<void>
   onReply: () => void
+  canEdit?: boolean
+  onEdit?: () => void
   onRecall?: () => void | Promise<void>
   onForward: () => void
 }
@@ -86,6 +88,8 @@ export function MessageActionRail({
   compact = false,
   onReact,
   onReply,
+  canEdit = false,
+  onEdit,
   onRecall,
   onForward,
 }: MessageActionRailProps) {
@@ -159,6 +163,7 @@ export function MessageActionRail({
     </div>, document.body)}
 
     {moreOpen && createPortal(<div ref={menuLayerRef} className="message-more-menu floating" style={menuPosition} role="menu" aria-label="Tùy chọn tin nhắn">
+      {canEdit && onEdit && <button type="button" role="menuitem" disabled={pending} onClick={() => { setMoreOpen(false); onEdit() }}>Chỉnh sửa</button>}
       {mine && onRecall && <button type="button" role="menuitem" disabled={pending} onClick={() => void recall()}>Thu hồi</button>}
       <button type="button" role="menuitem" disabled={pending} onClick={() => { setMoreOpen(false); onForward() }}>Chuyển tiếp</button>
     </div>, document.body)}

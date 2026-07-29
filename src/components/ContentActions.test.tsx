@@ -97,6 +97,21 @@ describe('ContentActions refreshed overlays', () => {
     expect(container.querySelector('.thread-post-engagement .content-share-summary')).not.toBeInTheDocument()
   })
 
+  it('opens the shared photo viewer when an image is selected inside post detail', async () => {
+    const onOpenImage = vi.fn()
+    const { container } = render(<ContentActions viewerId="1" contentId="90" post={post} onOpenImage={onOpenImage} />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+
+    const imageSlot = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>('.thread-post-preview .post-media-slot.image-interactive')
+      expect(element).not.toBeNull()
+      return element!
+    })
+    fireEvent.click(imageSlot)
+
+    expect(onOpenImage).toHaveBeenCalledWith(post, post.media[0], 0, undefined)
+  })
+
   it('omits the engagement summary completely when every count is zero', async () => {
     socialMocks.getContentEngagement.mockResolvedValue({
       targetId: '90', likeCount: 0, commentCount: 0, shareCount: 0,

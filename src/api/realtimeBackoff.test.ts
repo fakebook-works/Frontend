@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const refreshAuthSession = vi.hoisted(() => vi.fn())
+
 vi.mock('./client', () => ({
   GRAPHQL_GATEWAY_URL: 'http://gateway.test/graphql',
   getAuth: () => ({ accessToken: 'test-token' }),
   parseGraphQlEnvelope: (value: string) => JSON.parse(value),
+  refreshAuthSession,
 }))
 
 import { subscribeGatewayGraphQl } from './realtime'
@@ -21,6 +24,7 @@ describe('realtime reconnect backoff', () => {
 
   beforeEach(() => {
     vi.useFakeTimers()
+    refreshAuthSession.mockReset().mockResolvedValue({ accessToken: 'rotated-token' })
     delays = []
     scheduled = window.setTimeout
     // Remove jitter so the progression is exact.
@@ -94,5 +98,44 @@ describe('realtime reconnect backoff', () => {
     unsubscribe()
 
     expect(Math.max(...delays)).toBe(15_000)
+  })
+
+  it('refreshes once on a 401 and reconnects the stream with no backoff delay', async () => {
+    const healthy = new Response('data: {"data":{"x":1}}\n\n', {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockResolvedValueOnce(healthy)
+      .mockResolvedValue(new Response('', { status: 500 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const received: unknown[] = []
+
+    const unsubscribe = subscribeGatewayGraphQl({
+      query: 'subscription { x }',
+      onData: (data) => received.push(data),
+    })
+    await vi.advanceTimersByTimeAsync(20_000)
+    unsubscribe()
+
+    expect(refreshAuthSession).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(received).toEqual([{ x: 1 }])
+    expect(delays[0]).toBe(1_000)
+  })
+
+  it('stops reconnecting after Auth definitively expires the session', async () => {
+    refreshAuthSession.mockRejectedValue(Object.assign(new Error('expired'), { status: 401 }))
+    const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 401 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const unsubscribe = subscribeGatewayGraphQl({ query: 'subscription { x }', onData: () => {} })
+    await vi.advanceTimersByTimeAsync(30_000)
+    unsubscribe()
+
+    expect(refreshAuthSession).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(delays).toEqual([])
   })
 })

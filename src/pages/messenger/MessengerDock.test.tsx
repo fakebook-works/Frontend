@@ -14,6 +14,7 @@ const messengerMocks = vi.hoisted(() => ({
   createGroupConversation: vi.fn(),
   sendMessage: vi.fn(),
   presence: vi.fn(),
+  markDelivered: vi.fn(),
   markRead: vi.fn(),
   setTyping: vi.fn(),
   subscribeInbox: vi.fn(),
@@ -70,16 +71,30 @@ function directConversation(friendId: string): MessengerConversationDto {
   }
 }
 
-function Harness({ onOpenProfile = () => undefined, hidden = false }: { onOpenProfile?: (id: string) => void; hidden?: boolean } = {}) {
+function groupConversation(friendIds: string[]): MessengerConversationDto {
+  return {
+    id: `group-${friendIds.join('-')}`,
+    type: 'GROUP',
+    participants: [me, ...friendIds.map(friend)],
+    title: 'defaultGroupChatName',
+    avatarUrl: null,
+    updatedAt: '2026-07-18T00:00:00.000Z',
+    unreadCount: 0,
+    lastMessage: null,
+  }
+}
+
+function Harness({ onOpenProfile = () => undefined, hidden = false, showComposeRail = false, friends = [] }: { onOpenProfile?: (id: string) => void; hidden?: boolean; showComposeRail?: boolean; friends?: UserSummary[] } = {}) {
   const dock = useRef<MessengerDockHandle>(null)
   return <>
     {['2', '3', '4', '5'].map((id) => <button key={id} type="button" onClick={() => void dock.current?.openDirect(id)}>open-{id}</button>)}
     <MessengerDock
       ref={dock}
       me={me}
-      friends={[]}
+      friends={friends}
       panelOpen={false}
       hidden={hidden}
+      showComposeRail={showComposeRail}
       onPanelClose={() => undefined}
       onOpenAll={() => undefined}
       onOpenProfile={onOpenProfile}
@@ -113,6 +128,7 @@ describe('MessengerDock overflow windows', () => {
     messengerMocks.createGroupConversation.mockReset()
     messengerMocks.sendMessage.mockReset()
     messengerMocks.presence.mockReset().mockResolvedValue([])
+    messengerMocks.markDelivered.mockReset().mockResolvedValue(undefined)
     messengerMocks.markRead.mockReset().mockResolvedValue(undefined)
     messengerMocks.setTyping.mockReset().mockResolvedValue(undefined)
     inboxListener = null
@@ -148,6 +164,7 @@ describe('MessengerDock overflow windows', () => {
 
   afterEach(() => {
     cleanup()
+    document.body.classList.remove('post-photo-viewer-open', 'mini-chat-bubble-rail-open')
     vi.unstubAllGlobals()
   })
 
@@ -165,7 +182,77 @@ describe('MessengerDock overflow windows', () => {
     expect(messengerMocks.subscribePresence).not.toHaveBeenCalled()
   })
 
+  it('always renders the compose rail with the home-aligned dock layout on Home', () => {
+    const { container } = render(<Harness showComposeRail />)
+
+    expect(screen.getByRole('button', { name: 'newMessage' })).toBeInTheDocument()
+    expect(container.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail', 'home-compose-rail')
+    expect(container.querySelector('.mini-chat-compose-icon')).toBeInTheDocument()
+  })
+
+  it('keeps the pinned compose button visible while the dock conversation panel is open', async () => {
+    const { container } = render(<Harness showComposeRail friends={[friend('2')]} />)
+    const composeButton = screen.getByRole('button', { name: 'newMessage' })
+
+    fireEvent.click(composeButton)
+
+    const panel = await screen.findByRole('dialog', { name: 'createConversation' })
+    expect(panel).toHaveClass('mini-chat-window', 'new-conversation-window')
+    expect(panel.closest('.mini-chat-windows')).toBeInTheDocument()
+    expect(container.querySelector('.modal-backdrop')).not.toBeInTheDocument()
+    expect(composeButton).toBeVisible()
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'close' }))
+    expect(screen.queryByRole('dialog', { name: 'createConversation' })).not.toBeInTheDocument()
+    expect(composeButton).toBeVisible()
+  })
+
+  it('waits for confirmation before opening the selected direct conversation', async () => {
+    render(<Harness showComposeRail friends={[friend('2'), friend('3')]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'newMessage' }))
+    const panel = await screen.findByRole('dialog', { name: 'createConversation' })
+    const friendRow = within(panel).getByRole('button', { name: /Friend 2/ })
+    const confirm = within(panel).getByRole('button', { name: 'confirmConversation' })
+
+    expect(confirm).toBeDisabled()
+    fireEvent.click(friendRow)
+    expect(friendRow).toHaveAttribute('aria-pressed', 'true')
+    expect(confirm).toBeEnabled()
+    expect(messengerMocks.createDirectConversation).not.toHaveBeenCalled()
+
+    fireEvent.click(confirm)
+
+    await waitFor(() => expect(messengerMocks.createDirectConversation).toHaveBeenCalledWith('2', me.id))
+    expect(messengerMocks.createGroupConversation).not.toHaveBeenCalled()
+    expect(await screen.findByRole('region', { name: 'Friend 2' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'createConversation' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'newMessage' })).toBeVisible()
+  })
+
+  it('creates a default-named group after confirming multiple selected friends', async () => {
+    const createdGroup = groupConversation(['2', '3'])
+    messengerMocks.createGroupConversation.mockResolvedValue(createdGroup)
+    render(<Harness showComposeRail friends={[friend('2'), friend('3')]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'newMessage' }))
+    const panel = await screen.findByRole('dialog', { name: 'createConversation' })
+
+    fireEvent.click(within(panel).getByRole('button', { name: /Friend 2/ }))
+    fireEvent.click(within(panel).getByRole('button', { name: /Friend 3/ }))
+    expect(messengerMocks.createGroupConversation).not.toHaveBeenCalled()
+    fireEvent.click(within(panel).getByRole('button', { name: 'confirmConversation' }))
+
+    await waitFor(() => expect(messengerMocks.createGroupConversation).toHaveBeenCalledWith('defaultGroupChatName', ['2', '3'], me.id))
+    expect(messengerMocks.createDirectConversation).not.toHaveBeenCalled()
+    expect(await screen.findByRole('region', { name: 'defaultGroupChatName' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'createConversation' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'newMessage' })).toBeVisible()
+  })
+
   it('keeps three full windows and moves the least-recent chat into an avatar bubble', async () => {
+    messengerMocks.createDirectConversation.mockImplementation(async (id: string) => ({
+      ...directConversation(id),
+      unreadCount: id === '2' ? 8 : 0,
+    }))
     const { container } = render(<Harness />)
 
     for (const id of ['2', '3', '4']) {
@@ -181,6 +268,7 @@ describe('MessengerDock overflow windows', () => {
     expect(screen.queryByRole('region', { name: 'Friend 2' })).not.toBeInTheDocument()
     const oldestBubble = screen.getByRole('button', { name: 'messages: Friend 2' })
     expect(oldestBubble).toHaveClass('mini-chat-overflow-avatar')
+    expect(oldestBubble.querySelector('b')).not.toBeInTheDocument()
 
     fireEvent.click(oldestBubble)
 
@@ -207,6 +295,40 @@ describe('MessengerDock overflow windows', () => {
     expect(await screen.findByRole('region', { name: 'Friend 2' })).toBeInTheDocument()
     await waitFor(() => expect(container.querySelector('.mini-chat-bubble-rail')).not.toBeInTheDocument())
     expect(document.body).not.toHaveClass('mini-chat-bubble-rail-open')
+  })
+
+  it('keeps the real online presence indicator on a minimized chat avatar', async () => {
+    messengerMocks.presence.mockResolvedValue([{
+      userId: '2',
+      isOnline: true,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      updatedAt: new Date().toISOString(),
+    }])
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    await waitFor(() => expect(messengerMocks.presence).toHaveBeenCalledWith(['2']))
+    fireEvent.click(within(chat).getByRole('button', { name: 'minimize' }))
+
+    const bubble = await screen.findByRole('button', { name: 'messages: Friend 2' })
+    expect(bubble.querySelector('.avatar-dot')).toBeInTheDocument()
+  })
+
+  it('keeps one full chat and shows the compose rail while the photo viewer is open', async () => {
+    document.body.classList.add('post-photo-viewer-open')
+    const { container } = render(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    expect(await screen.findByRole('region', { name: 'Friend 2' })).toBeInTheDocument()
+    await waitFor(() => expect(container.querySelector('.mini-chat-bubble-rail')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'newMessage' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'messages: Friend 2' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-3' }))
+    expect(await screen.findByRole('region', { name: 'Friend 3' })).toBeInTheDocument()
+    expect(container.querySelectorAll('.mini-chat-window')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'messages: Friend 2' })).toBeInTheDocument()
   })
 
   it('shows the current friendship state in the conversation introduction', async () => {

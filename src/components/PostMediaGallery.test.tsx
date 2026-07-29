@@ -19,14 +19,14 @@ describe('PostMediaGallery', () => {
     vi.unstubAllGlobals()
   })
 
-  it('contains an extremely tall image inside a 4:5 frame with a blurred backdrop', async () => {
+  it('contains a portrait image inside the 4:3 sample frame with black side space', async () => {
     const { container } = render(<PostMediaGallery media={[{ id: 'tall-feed', type: 0, url: '/tall-feed.jpg' }]} />)
     const foreground = container.querySelector<HTMLImageElement>('.post-media-content')!
     loadImage(foreground, 900, 1600)
 
     await waitFor(() => expect(container.querySelector('.post-media-slot')).toHaveClass('letterboxed'))
-    expect(container.querySelector<HTMLElement>('.post-media-slot')?.style.aspectRatio).toBe('0.8 / 1')
-    expect(container.querySelector('.post-media-backdrop')).toBeInTheDocument()
+    expect(container.querySelector<HTMLElement>('.post-media-slot')?.style.aspectRatio).toBe('1.3333333333333333 / 1')
+    expect(container.querySelector('.post-media-backdrop')).not.toBeInTheDocument()
   })
 
   it('keeps a normal single-image ratio without adding a backdrop', async () => {
@@ -34,6 +34,34 @@ describe('PostMediaGallery', () => {
     loadImage(container.querySelector<HTMLImageElement>('.post-media-content')!, 1200, 1000)
 
     await waitFor(() => expect(container.querySelector<HTMLElement>('.post-media-slot')?.style.aspectRatio).toBe('1.2 / 1'))
+    expect(container.querySelector('.post-media-backdrop')).not.toBeInTheDocument()
+  })
+
+  it('uses a Reel presentation crop while containing portrait frames in the feed height', () => {
+    const { container } = render(<PostMediaGallery
+      media={[{ id: 'portrait-reel', type: 1, url: '/portrait-reel.mp4' }]}
+      preferredAspectRatio={9 / 16}
+      focalPointX={0.25}
+      focalPointY={0.75}
+    />)
+
+    expect(container.querySelector('.post-media-slot')).toHaveClass('preferred-presentation')
+    expect(container.querySelector<HTMLElement>('.post-media-slot')?.style.aspectRatio).toBe('1.3333333333333333 / 1')
+    expect(container.querySelector<HTMLElement>('.post-video-crop-frame')?.style.aspectRatio).toBe('0.5625 / 1')
+    expect(container.querySelector<HTMLVideoElement>('video')?.style.objectPosition).toBe('25% 75%')
+    expect(container.querySelector('.post-video-crop-frame .post-video-controls')).not.toBeInTheDocument()
+    expect(container.querySelector('.post-video-player > .post-video-controls')).toBeInTheDocument()
+    expect(container.querySelector('[aria-label="videoSettings"]')).toBeInTheDocument()
+    expect(container.querySelector('[aria-label="videoFullscreen"]')).toBeInTheDocument()
+    expect(container.querySelector('.post-media-backdrop')).not.toBeInTheDocument()
+  })
+
+  it('keeps a super-wide single image at its natural ratio without top or bottom filler', async () => {
+    const { container } = render(<PostMediaGallery media={[{ id: 'super-wide', type: 0, url: '/super-wide.jpg' }]} />)
+    loadImage(container.querySelector<HTMLImageElement>('.post-media-content')!, 2400, 900)
+
+    await waitFor(() => expect(container.querySelector<HTMLElement>('.post-media-slot')?.style.aspectRatio).toBe(`${2400 / 900} / 1`))
+    expect(container.querySelector('.post-media-slot')).not.toHaveClass('letterboxed')
     expect(container.querySelector('.post-media-backdrop')).not.toBeInTheDocument()
   })
 
@@ -108,6 +136,22 @@ describe('PostMediaGallery', () => {
     expect(onOpenImage).toHaveBeenNthCalledWith(1, media[0], 0)
     expect(onOpenImage).toHaveBeenNthCalledWith(2, media[2], 2)
     expect(onOpenImage).toHaveBeenCalledTimes(2)
+  })
+
+  it('opens a regular post video from its surface or expand control and forwards its playback position', () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
+    const onOpenMedia = vi.fn()
+    const media = { id: 'video-detail', type: 1, url: '/video-detail.mp4' }
+    const { container } = render(<PostMediaGallery media={[media]} onOpenImage={onOpenMedia} />)
+    const video = container.querySelector<HTMLVideoElement>('video')!
+    Object.defineProperty(video, 'currentTime', { configurable: true, writable: true, value: 37.25 })
+
+    fireEvent.click(video)
+    expect(onOpenMedia).toHaveBeenLastCalledWith(media, 0, 37.25)
+
+    onOpenMedia.mockClear()
+    fireEvent.click(container.querySelector<HTMLButtonElement>('[aria-label="videoFullscreen"]')!)
+    expect(onOpenMedia).toHaveBeenCalledWith(media, 0, 37.25)
   })
 
   it('keeps a silent-video volume icon crisp but non-interactive', async () => {

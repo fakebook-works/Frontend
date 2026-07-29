@@ -115,11 +115,15 @@ function ProfileSettings() {
   const [gender, setGender] = useState('')
   const [birthDate, setBirthDate] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
-  const [cropTarget, setCropTarget] = useState<{ file: File; kind: 'avatar' | 'background'; fromExisting: boolean } | null>(null)
+  const [cropTarget, setCropTarget] = useState<{
+    file: File
+    kind: 'avatar' | 'background'
+    fromExisting: boolean
+    source?: { contentId: string; mediaId: string } | null
+  } | null>(null)
   const [removingImage, setRemovingImage] = useState<'avatar' | 'background' | null>(null)
   const [existingImages, setExistingImages] = useState<SocialPhoto[]>([])
   const [existingPicker, setExistingPicker] = useState<'avatar' | 'background' | null>(null)
-  const [imagePostPrivacy, setImagePostPrivacy] = useState(() => user ? readDefaultPostPrivacy(user.userId) : 0)
   const dateBounds = useMemo(() => birthDateBounds(), [])
 
   useEffect(() => {
@@ -156,8 +160,6 @@ function ProfileSettings() {
       if (!user) return
       const updated = await socialApi.updateProfile(user.userId, {
         name: displayName.trim(),
-        avatar: avatarUrl.trim() || null,
-        background: profile?.backgroundUrl ?? null,
         bio: bio.trim() || null,
         location: location.trim() || null,
         gender: gender === 'male' ? true : gender === 'female' ? false : null,
@@ -185,8 +187,10 @@ function ProfileSettings() {
       const originalUpload = cropTarget.fromExisting ? null : uploads[0]
       const croppedUpload = uploads[uploads.length - 1]
       const updated = cropTarget.kind === 'avatar'
-        ? await socialApi.changeUserAvatar(user.userId, croppedUpload.url, originalUpload?.url ?? null, imagePostPrivacy)
-        : await socialApi.changeUserBackground(user.userId, croppedUpload.url, originalUpload?.url ?? null, imagePostPrivacy)
+        ? cropTarget.source
+          ? await socialApi.changeUserAvatar(user.userId, croppedUpload.url, originalUpload?.url ?? null, 0, cropTarget.source)
+          : await socialApi.changeUserAvatar(user.userId, croppedUpload.url, originalUpload?.url ?? null, 0)
+        : await socialApi.changeUserBackground(user.userId, croppedUpload.url, originalUpload?.url ?? null, 0)
       if (!updated) throw new Error('Profile image update failed')
       persisted = true
       setProfile(updated)
@@ -228,7 +232,12 @@ function ProfileSettings() {
       if (!response.ok) throw new Error('Could not fetch media')
       const blob = await response.blob()
       const extension = blob.type.split('/')[1] || 'jpg'
-      setCropTarget({ file: new File([blob], `fakebook-photo.${extension}`, { type: blob.type || 'image/jpeg' }), kind, fromExisting: true })
+      setCropTarget({
+        file: new File([blob], `fakebook-photo.${extension}`, { type: blob.type || 'image/jpeg' }),
+        kind,
+        fromExisting: true,
+        source: kind === 'avatar' ? { contentId: photo.contentId, mediaId: photo.media.id } : null,
+      })
       setExistingPicker(null)
     } catch {
       setMessage(t('existingPhotoLoadError'))
@@ -251,7 +260,6 @@ function ProfileSettings() {
             <label><span>{t('locationLabel')}</span><input value={location} onChange={(e) => setLocation(e.target.value)} /></label>
             <label><span>{t('birthDateLabel')}</span><input type="date" min={dateBounds.min} max={dateBounds.max} value={birthDate} onChange={(e) => setBirthDate(e.target.value)} /></label>
             <label><span>{t('genderLabel')}</span><select value={gender} onChange={(e) => setGender(e.target.value)}><option value="">{t('genderPreferNot')}</option><option value="female">{t('genderFemale')}</option><option value="male">{t('genderMale')}</option><option value="custom">{t('genderCustom')}</option></select></label>
-            <label><span>{t('profilePhotoPostPrivacy')}</span><select value={imagePostPrivacy} onChange={(event) => { const value = writeDefaultPostPrivacy(user?.userId ?? '', Number(event.target.value)); setImagePostPrivacy(value) }}><option value={0}>{t('privacyPublic')}</option><option value={1}>{t('privacyFriendsFollowers')}</option><option value={2}>{t('privacyFriends')}</option><option value={3}>{t('privacyOnlyMe')}</option></select></label>
           </div>
           {message && <p className={message === t('profileSaved') || message === t('profileImageSaved') || message === t('profileImageRemoved') ? 'form-success' : 'form-error'}>{message}</p>}
           <div className="settings-actions"><button type="submit" className="btn-primary" disabled={saving}>{saving ? t('saving') : t('saveChanges')}</button></div>

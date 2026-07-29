@@ -19,13 +19,13 @@ function loadImage(image: HTMLImageElement, width: number, height: number) {
 describe('ComposerMediaPreview', () => {
   afterEach(cleanup)
 
-  it('previews a tall image without stretching it and fills the side space with a backdrop', async () => {
+  it('previews a tall image without stretching it inside the 4:3 sample frame', async () => {
     const { container } = render(<ComposerMediaPreview items={[item('composer-tall.jpg', '/composer-tall.jpg')]} fileKey={0} busy={false} onReplace={vi.fn()} onClear={vi.fn()} />)
     loadImage(container.querySelector<HTMLImageElement>('.home-media-content')!, 900, 1600)
 
     await waitFor(() => expect(container.querySelector('.home-media-slot')).toHaveClass('letterboxed'))
-    expect(container.querySelector('.home-media-preview')).toHaveStyle({ aspectRatio: '0.8' })
-    expect(container.querySelector('.home-media-backdrop')).toBeInTheDocument()
+    expect(container.querySelector('.home-media-preview')).toHaveStyle({ aspectRatio: String(4 / 3) })
+    expect(container.querySelector('.home-media-backdrop')).not.toBeInTheDocument()
   })
 
   it('changes the upload preview to landscape rows after reading both image sizes', async () => {

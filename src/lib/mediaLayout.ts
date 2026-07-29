@@ -21,9 +21,8 @@ export interface AdaptiveMediaLayout {
   overflowCount: number
 }
 
-export const MIN_SINGLE_MEDIA_ASPECT_RATIO = 4 / 5
-export const MAX_SINGLE_MEDIA_ASPECT_RATIO = 1.91
 export const DEFAULT_SINGLE_MEDIA_ASPECT_RATIO = 4 / 3
+export const PORTRAIT_SINGLE_MEDIA_FRAME_ASPECT_RATIO = 4 / 3
 
 export function isValidMediaDimensions(dimensions: MediaDimensions | null | undefined): dimensions is MediaDimensions {
   return Boolean(dimensions && Number.isFinite(dimensions.width) && Number.isFinite(dimensions.height) && dimensions.width > 0 && dimensions.height > 0)
@@ -47,16 +46,18 @@ export function getSingleMediaPresentation(dimensions: MediaDimensions | null | 
     return {
       naturalAspectRatio: null,
       frameAspectRatio: DEFAULT_SINGLE_MEDIA_ASPECT_RATIO,
-      needsBackdrop: false,
+      needsLetterbox: false,
       orientation: 'unknown' as const,
     }
   }
 
+  const orientation = classifyMediaDimensions(dimensions)
+  const needsLetterbox = orientation === 'portrait'
   return {
     naturalAspectRatio,
-    frameAspectRatio: Math.min(MAX_SINGLE_MEDIA_ASPECT_RATIO, Math.max(MIN_SINGLE_MEDIA_ASPECT_RATIO, naturalAspectRatio)),
-    needsBackdrop: naturalAspectRatio < MIN_SINGLE_MEDIA_ASPECT_RATIO || naturalAspectRatio > MAX_SINGLE_MEDIA_ASPECT_RATIO,
-    orientation: classifyMediaDimensions(dimensions),
+    frameAspectRatio: needsLetterbox ? PORTRAIT_SINGLE_MEDIA_FRAME_ASPECT_RATIO : naturalAspectRatio,
+    needsLetterbox,
+    orientation,
   }
 }
 

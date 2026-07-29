@@ -15,7 +15,7 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource,
   locale: string
   onNavigate?: (path: string) => void
   onOpenSource?: (sourceId: string) => void
-  onOpenImage?: (source: SharedPostSource, media: SharedPostSource['media'][number], index: number) => void
+  onOpenImage?: (source: SharedPostSource, media: SharedPostSource['media'][number], index: number, initialPlaybackTime?: number) => void
 }) {
   const { t } = useI18n()
   if (!source.isAvailable) {
@@ -63,6 +63,6 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource,
         }
       } : undefined}><MentionContent content={decodedContent.text} mentions={source.mentions} onNavigate={onNavigate} /></div>}
     </div>
-    <PostMediaGallery media={source.media} controls onOpenImage={onOpenImage ? (media, index) => onOpenImage(source, media, index) : undefined} />
+    <PostMediaGallery media={source.media} controls onOpenImage={onOpenImage ? (media, index, initialPlaybackTime) => onOpenImage(source, media, index, initialPlaybackTime) : undefined} />
   </section>
 }

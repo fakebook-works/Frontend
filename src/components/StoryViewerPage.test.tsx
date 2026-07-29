@@ -190,6 +190,46 @@ describe('StoryViewerPage', () => {
     expect(container.querySelectorAll('.story-shared-post-card .post-media-slot')).toHaveLength(2)
   })
 
+  it('keeps a horizontal image shared to Story at its natural ratio', async () => {
+    const sharedBucket: StoryBucket = {
+      author: { id: '2', name: 'Story Sharer', avatar: '', isVerified: false },
+      latestCreate: '2026-07-21T09:00:00Z',
+      hasUnseen: true,
+      stories: [{
+        __typename: 'FeedPostShareStory',
+        id: 'shared-story-landscape',
+        content: '',
+        create: '2026-07-21T09:00:00Z',
+        sharedSource: {
+          id: 'source-post-landscape',
+          content: 'Landscape source',
+          media: { id: 'landscape-preview', type: 0, url: '/media/landscape.jpg' },
+          author: { id: '3', name: 'Original Author', avatar: '', isVerified: false },
+        },
+      }],
+    }
+    apiMocks.postDetail.mockResolvedValue({
+      __typename: 'FeedPostDetail', id: 'source-post-landscape', type: 1, content: 'Landscape source', privacy: 0,
+      create: '2026-07-20T08:00:00Z', author: { id: '3', name: 'Original Author', avatar: '', isVerified: false, canFollow: false },
+      media: [{ id: 'landscape-media', type: 0, url: '/media/landscape.jpg' }], sharedSource: null,
+    })
+    const { container } = renderViewer([sharedBucket], '2')
+
+    const image = await waitFor(() => {
+      const value = container.querySelector<HTMLImageElement>('.story-shared-post-card .post-media-content')
+      expect(value).toBeInTheDocument()
+      return value!
+    })
+    Object.defineProperties(image, {
+      naturalWidth: { configurable: true, value: 1600 },
+      naturalHeight: { configurable: true, value: 900 },
+    })
+    fireEvent.load(image)
+
+    await waitFor(() => expect(container.querySelector<HTMLElement>('.story-shared-post-card .post-media-slot')?.style.aspectRatio).toBe(`${1600 / 900} / 1`))
+    expect(container.querySelector('.story-shared-post-card .post-media-slot')).not.toHaveClass('letterboxed')
+  })
+
   it('uses the detail scrubber and keeps the viewer open after deleting one of several owner stories', async () => {
     const ownerBucket = textBucket(ownerId, 'Owner', ['story-1', 'story-2'])
     const onClose = vi.fn()

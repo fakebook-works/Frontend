@@ -24,6 +24,7 @@ export type IconName =
   | 'feeling'
   | 'close'
   | 'edit'
+  | 'compose'
   | 'trash'
   | 'globe'
   | 'lock'
@@ -87,6 +88,7 @@ const PATHS: Record<IconName, string> = {
     'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-3.5 7a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm7 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM12 17.5c-2.3 0-4.3-1.4-5-3.5h10c-.7 2.1-2.7 3.5-5 3.5z',
   close: 'M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z',
   edit: 'M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
+  compose: 'M13.5 5H6.25A2.25 2.25 0 0 0 4 7.25v10.5A2.25 2.25 0 0 0 6.25 20h10.5A2.25 2.25 0 0 0 19 17.75V10.5M10.25 14.1l.45-2.55 6.8-6.8a1.75 1.75 0 0 1 2.48 2.48l-6.8 6.8-2.93.07Z',
   trash: 'M6 7h12l-1 13a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6 7zm3-3h6l1 2h4v2H4V6h4l1-2z',
   globe:
     'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-2.8a14 14 0 0 0-1.2-3.2A8 8 0 0 1 18.9 8zM12 4c.8 1.1 1.4 2.5 1.8 4h-3.6c.4-1.5 1-2.9 1.8-4zM4.3 14a8 8 0 0 1 0-4h3a17 17 0 0 0 0 4h-3zm.8 2h2.8c.3 1.2.7 2.3 1.2 3.2A8 8 0 0 1 5.1 16zm2.8-8H5.1a8 8 0 0 1 4-3.2A14 14 0 0 0 7.9 8zM12 20c-.8-1.1-1.4-2.5-1.8-4h3.6c-.4 1.5-1 2.9-1.8 4zm2.2-6H9.8a15 15 0 0 1 0-4h4.4a15 15 0 0 1 0 4zm.7 5.2c.5-1 .9-2 1.2-3.2h2.8a8 8 0 0 1-4 3.2zm1.6-5.2a17 17 0 0 0 0-4h3a8 8 0 0 1 0 4h-3z',
@@ -275,7 +277,7 @@ export function Icon({
   size?: number
   className?: string
 }) {
-  const outline = name === 'likeOutline' || name === 'commentOutline' || name === 'shareOutline' || name === 'sticker' || name === 'link'
+  const outline = name === 'likeOutline' || name === 'commentOutline' || name === 'shareOutline' || name === 'sticker' || name === 'link' || name === 'compose'
   return (
     <svg
       className={className}

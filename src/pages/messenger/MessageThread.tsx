@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { messengerApi, type MessengerPresenceDto } from '../../api/messenger'
 import type { MediaUpload, MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
@@ -8,11 +8,14 @@ import { VerifiedBadge } from '../../components/VerifiedBadge'
 import { EmojiButton } from './EmojiButton'
 import { MESSENGER_ATTACHMENT_ACCEPT } from './attachmentPolicy'
 import { conversationAvatar, conversationName, formatPresence, formatTime, messageGroupPosition, messengerLikeLevel, shouldShowAvatar, shouldShowTimestamp } from './helpers'
-import type { MessengerLikeLevel } from './helpers'
+import type { MessageVisualBreaks, MessengerLikeLevel } from './helpers'
 import { HoldLikeButton } from './HoldLikeButton'
 import { MessengerLikeIcon } from './MessengerLikeIcon'
 import { MediaAttachmentPreview, MediaGallery } from './MediaGallery'
 import { MessageActionRail, MessageHoverTimestamp, MessageReactionSummary, MessageReplyPreview } from './MessageInteractions'
+import { MessageSenderAvatar } from './MessageSenderAvatar'
+import { MessageEditHistory, MessageEditingBar, MessageEditMarker } from './MessageEditState'
+import { SystemMessageLine } from './SystemMessageLine'
 import { useI18n } from '../../i18n'
 
 interface MessageThreadProps {
@@ -25,6 +28,8 @@ interface MessageThreadProps {
   apiState: 'gateway' | 'unavailable'
   showDetail: boolean
   presence?: MessengerPresenceDto
+  groupPresenceLabel?: string
+  groupOnlineCount?: number
   typingUserId: string | null
   onInteract: () => void
   onDraftChange: (value: string) => void
@@ -37,8 +42,10 @@ interface MessageThreadProps {
   onCancelReply: () => void
   onReactMessage: (message: MessengerMessageDto, emoji: string | null) => void | Promise<void>
   onRecallMessage: (message: MessengerMessageDto) => void | Promise<void>
+  onEditMessage: (message: MessengerMessageDto, text: string) => void | Promise<void>
   onForwardMessage: (message: MessengerMessageDto) => void
   onOpenProfile: (id: string) => void
+  onOpenGroup?: () => void
   onToggleDetail: () => void
   onBack: () => void
 }
@@ -53,6 +60,8 @@ export function MessageThread({
   apiState,
   showDetail,
   presence,
+  groupPresenceLabel,
+  groupOnlineCount = 0,
   typingUserId,
   onInteract,
   onDraftChange,
@@ -65,8 +74,10 @@ export function MessageThread({
   onCancelReply,
   onReactMessage,
   onRecallMessage,
+  onEditMessage,
   onForwardMessage,
   onOpenProfile,
+  onOpenGroup,
   onToggleDetail,
   onBack,
 }: MessageThreadProps) {
@@ -78,6 +89,10 @@ export function MessageThread({
   const keepBottomAfterReplyRef = useRef(false)
   const replyNavigationHighlightRef = useRef<{ element: HTMLElement; timeoutId: number } | null>(null)
   const [presenceNow, setPresenceNow] = useState(() => Date.now())
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [editBusy, setEditBusy] = useState(false)
+  const [expandedEditHistoryIds, setExpandedEditHistoryIds] = useState<Set<string>>(() => new Set())
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -100,6 +115,13 @@ export function MessageThread({
     if (replyTarget) inputRef.current?.focus()
   }, [replyTarget])
 
+  useEffect(() => {
+    setEditingMessageId(null)
+    setEditDraft('')
+    setEditBusy(false)
+    setExpandedEditHistoryIds(new Set())
+  }, [conversation.id])
+
   useLayoutEffect(() => {
     if (!replyTarget || !keepBottomAfterReplyRef.current) return
     const container = messagesContainerRef.current
@@ -117,6 +139,8 @@ export function MessageThread({
     keepBottomAfterReplyRef.current = Boolean(
       container && container.scrollHeight - container.scrollTop - container.clientHeight <= 40,
     )
+    setEditingMessageId(null)
+    setEditDraft('')
     onReplyMessage(message)
   }, [onReplyMessage])
 
@@ -149,14 +173,73 @@ export function MessageThread({
   const otherParticipant = conversation.participants.find((p) => p.id !== me.id)
   const latestOwnPendingMessage = [...messages].reverse().find((message) => !message.deleted && message.sender.id === me.id && (message.status === 'sent' || message.status === 'delivered'))
   const latestOwnReadMessage = [...messages].reverse().find((message) => !message.deleted && message.sender.id === me.id && message.status === 'read')
+  const editingMessage = editingMessageId
+    ? messages.find((message) => message.id === editingMessageId) ?? null
+    : null
+  const visualBreaks = useMemo<MessageVisualBreaks>(() => ({
+    beforeMessageIds: new Set(messages
+      .filter((message) => Boolean(message.editedAt) || message.id === editingMessageId)
+      .map((message) => message.id)),
+    afterMessageIds: new Set([
+      latestOwnPendingMessage?.id,
+      latestOwnReadMessage?.id,
+    ].filter((id): id is string => Boolean(id))),
+  }), [editingMessageId, latestOwnPendingMessage?.id, latestOwnReadMessage?.id, messages])
   const typingParticipant = typingUserId
     ? conversation.participants.find((participant) => participant.id === typingUserId)
     : undefined
-  const isOnline = Boolean(presence?.isOnline)
+  const isOnline = conversation.type === 'GROUP' ? groupOnlineCount > 0 : Boolean(presence?.isOnline)
 
   function handleSubmit(e: FormEvent) {
+    if (editingMessage) {
+      void saveEdit(e, editingMessage)
+      return
+    }
     onSubmit(e)
     inputRef.current?.focus()
+  }
+
+  function beginEditing(message: MessengerMessageDto) {
+    onCancelReply()
+    setExpandedEditHistoryIds((current) => {
+      if (!current.has(message.id)) return current
+      const next = new Set(current)
+      next.delete(message.id)
+      return next
+    })
+    setEditingMessageId(message.id)
+    setEditDraft(message.body)
+    window.requestAnimationFrame(() => inputRef.current?.focus())
+  }
+
+  function cancelEditing() {
+    setEditingMessageId(null)
+    setEditDraft('')
+    window.requestAnimationFrame(() => inputRef.current?.focus())
+  }
+
+  function toggleEditHistory(messageId: string) {
+    setExpandedEditHistoryIds((current) => {
+      const next = new Set(current)
+      if (next.has(messageId)) next.delete(messageId)
+      else next.add(messageId)
+      return next
+    })
+  }
+
+  async function saveEdit(event: FormEvent, message: MessengerMessageDto) {
+    event.preventDefault()
+    const text = editDraft.trim()
+    if (!text || editBusy) return
+    setEditBusy(true)
+    try {
+      await onEditMessage(message, text)
+      cancelEditing()
+    } catch {
+      // The parent keeps the existing message and exposes the shared API state.
+    } finally {
+      setEditBusy(false)
+    }
   }
 
   return (
@@ -167,12 +250,15 @@ export function MessageThread({
           <Icon name="caret" size={20} />
         </button>
         <div className="messenger-id">
-          <button type="button" className="messenger-id-avatar" aria-label={name} onClick={() => otherParticipant && onOpenProfile(otherParticipant.id)}>
+          <button type="button" className="messenger-id-avatar" aria-label={name} onClick={() => {
+            if (conversation.type === 'GROUP') onOpenGroup?.()
+            else if (otherParticipant) onOpenProfile(otherParticipant.id)
+          }}>
             <Avatar name={name} src={avatar} size={40} online={isOnline} />
           </button>
           <span>
             <strong>{name}<VerifiedBadge verified={otherParticipant?.isVerified} size={13} /></strong>
-            {conversation.type === 'DIRECT' && <small className={typingParticipant ? 'typing' : isOnline ? 'online' : 'offline'}>{typingParticipant ? t('typingNow') : formatPresence(presence, t, presenceNow)}</small>}
+            <small className={typingParticipant ? 'typing' : isOnline ? 'online' : 'offline'}>{typingParticipant ? t('typingNow') : conversation.type === 'GROUP' ? groupPresenceLabel ?? t('offline') : formatPresence(presence, t, presenceNow)}</small>
           </span>
         </div>
         <div className="messenger-actions">
@@ -188,7 +274,7 @@ export function MessageThread({
       </header>
 
       {/* Messages */}
-      <div className="messenger-messages" ref={messagesContainerRef}>
+      <div className={`messenger-messages${editingMessage ? ' has-edit-focus' : ''}`} ref={messagesContainerRef}>
         <div className="messenger-intro">
           <Avatar name={name} src={avatar} size={72} online={isOnline} />
           <h2>{name}<VerifiedBadge verified={otherParticipant?.isVerified} /></h2>
@@ -196,27 +282,47 @@ export function MessageThread({
         </div>
 
         {messages.map((message, idx) => {
+          if (message.kind === 'SYSTEM') {
+            return <SystemMessageLine key={message.id} message={message} viewerId={me.id} />
+          }
           const mine = message.sender.id === me.id
           const showTime = shouldShowTimestamp(messages, idx)
-          const showAv = shouldShowAvatar(messages, idx)
-          const groupPosition = messageGroupPosition(messages, idx)
+          const showAv = shouldShowAvatar(messages, idx, visualBreaks)
+          const groupPosition = messageGroupPosition(messages, idx, visualBreaks)
           const likeLevel = messengerLikeLevel(message.body)
           const repliedMessage = message.replyToMessageId
             ? messages.find((candidate) => candidate.id === message.replyToMessageId)
             : null
           const hasReactions = Boolean(message.reactions?.length)
           const actionable = !message.deleted && !message.id.startsWith('local-')
+          const canEdit = actionable && mine && Boolean(message.body.trim()) && !likeLevel &&
+            Date.now() - new Date(message.createdAt).getTime() <= 15 * 60_000
+          const senderIsAdmin = conversation.type === 'GROUP' &&
+            conversation.participants.some((participant) => participant.id === message.sender.id && participant.role === 'ADMIN')
+          const editing = editingMessageId === message.id
+          const historyExpanded = expandedEditHistoryIds.has(message.id)
 
           return (
-            <div className="message-entry" data-message-id={message.id} key={message.id}>
+            <div
+              className={`message-entry${editing ? ' is-editing' : ''}`}
+              data-message-id={message.id}
+              inert={Boolean(editingMessage) && !editing}
+              key={message.id}
+            >
               {showTime && <div className="message-timestamp">{formatTime(message.createdAt)}</div>}
               <div className={`message-line group-${groupPosition}${mine ? ' mine' : ''}`}>
                 {!mine && (
                   <div className="message-avatar-slot">
-                    {showAv && <Avatar name={message.sender.displayName} src={message.sender.avatarUrl} size={28} />}
+                    {showAv && <MessageSenderAvatar person={message.sender} size={30} isAdmin={senderIsAdmin} />}
                   </div>
                 )}
                 <div className={`message-stack message-interaction-host${hasReactions ? ' has-reactions' : ''}`}>
+                  {(editing || message.editedAt) && <MessageEditMarker
+                    active={editing}
+                    expanded={historyExpanded}
+                    onClick={() => editing ? cancelEditing() : toggleEditHistory(message.id)}
+                  />}
+                  {historyExpanded && !editing && <MessageEditHistory revisions={message.editHistory ?? []} />}
                   {message.replyToMessageId && <MessageReplyPreview message={repliedMessage} missing={!repliedMessage} viewerId={me.id} replyingSender={message.sender} onNavigate={repliedMessage ? () => navigateToMessage(message.replyToMessageId!) : undefined} />}
                   <div className="message-primary-shell">
                     <div className="message-content-hover-target">
@@ -229,7 +335,7 @@ export function MessageThread({
                       <MessageHoverTimestamp createdAt={message.createdAt} mine={mine} />
                       <MessageReactionSummary reactions={message.reactions} viewerId={me.id} />
                     </div>
-                    {actionable && <MessageActionRail message={message} viewerId={me.id} mine={mine} onReact={(emoji) => onReactMessage(message, emoji)} onReply={() => handleReplyMessage(message)} onRecall={mine ? () => onRecallMessage(message) : undefined} onForward={() => onForwardMessage(message)} />}
+                    {actionable && !editing && <MessageActionRail message={message} viewerId={me.id} mine={mine} canEdit={canEdit} onEdit={() => beginEditing(message)} onReact={(emoji) => onReactMessage(message, emoji)} onReply={() => handleReplyMessage(message)} onRecall={mine ? () => onRecallMessage(message) : undefined} onForward={() => onForwardMessage(message)} />}
                   </div>
                 </div>
               </div>
@@ -238,12 +344,14 @@ export function MessageThread({
             </div>
           )
         })}
-        {typingParticipant && <div className="message-typing-line" aria-label={`${typingParticipant.displayName} ${t('typingNow')}`}><div className="message-avatar-slot"><Avatar name={typingParticipant.displayName} src={typingParticipant.avatarUrl} size={28} /></div><span className="message-typing-bubble"><i /><i /><i /></span></div>}
+        {typingParticipant && <div className="message-typing-line" aria-label={`${typingParticipant.displayName} ${t('typingNow')}`}><div className="message-avatar-slot"><MessageSenderAvatar person={typingParticipant} size={30} isAdmin={conversation.type === 'GROUP' && typingParticipant.role === 'ADMIN'} /></div><span className="message-typing-bubble"><i /><i /><i /></span></div>}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Compose */}
-      {replyTarget && <div className="messenger-replying-bar"><MessageReplyPreview message={replyTarget} viewerId={me.id} composer onCancel={onCancelReply} /></div>}
+      {editingMessage
+        ? <div className="messenger-editing-bar"><MessageEditingBar message={editingMessage} onCancel={cancelEditing} /></div>
+        : replyTarget && <div className="messenger-replying-bar"><MessageReplyPreview message={replyTarget} viewerId={me.id} composer onCancel={onCancelReply} /></div>}
       <form className="messenger-compose" onSubmit={handleSubmit}>
         <input
           ref={fileInputRef}
@@ -251,6 +359,7 @@ export function MessageThread({
           type="file"
           multiple
           accept={MESSENGER_ATTACHMENT_ACCEPT}
+          disabled={Boolean(editingMessage) || uploading}
           onChange={(event) => {
             onAttachFiles(event.currentTarget.files)
             event.currentTarget.value = ''
@@ -261,7 +370,7 @@ export function MessageThread({
           className="icon-circle subtle"
           aria-label={t('addAttachment')}
           onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
+          disabled={Boolean(editingMessage) || uploading}
         >
           <Icon name="plus" size={19} />
         </button>
@@ -270,25 +379,25 @@ export function MessageThread({
           className="icon-circle subtle"
           aria-label={t('attachPhoto')}
           onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
+          disabled={Boolean(editingMessage) || uploading}
         >
           <Icon name="photo" size={19} />
         </button>
         <label className="messenger-input-wrap">
           <input
             ref={inputRef}
-            value={draft}
-            onChange={(e) => onDraftChange(e.target.value)}
+            value={editingMessage ? editDraft : draft}
+            onChange={(e) => editingMessage ? setEditDraft(e.target.value) : onDraftChange(e.target.value)}
             placeholder="Aa"
             autoComplete="off"
           />
-          <EmojiButton onPick={(emoji) => onDraftChange(draft + emoji)} />
+          <EmojiButton onPick={(emoji) => editingMessage ? setEditDraft(editDraft + emoji) : onDraftChange(draft + emoji)} />
         </label>
-        {draft.trim() || pendingAttachments.length ? <button
+        {editingMessage || draft.trim() || pendingAttachments.length ? <button
           type="submit"
           className="icon-circle subtle send ready"
           aria-label={t('sendMessage')}
-          disabled={uploading}
+          disabled={uploading || editBusy || (Boolean(editingMessage) && !editDraft.trim())}
         >
           <Icon name="send" size={20} />
         </button> : <HoldLikeButton label={t('like')} disabled={uploading} buttonClassName="icon-circle subtle send ready messenger-hold-like" onSend={onSendLike} />}

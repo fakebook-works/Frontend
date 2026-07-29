@@ -35,6 +35,8 @@ export function AuthenticatedApp() {
   const authenticatedUserId = user?.userId
   const { t } = useI18n()
   const [location, navigate] = useAppLocation()
+  const isHomeRoute = location.pathname === '/' || location.pathname === '/home'
+  const [homeRefreshToken, setHomeRefreshToken] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
   const [appsMenuOpen, setAppsMenuOpen] = useState(false)
   const [menuView, setMenuView] = useState<'root' | 'settings'>('root')
@@ -142,9 +144,9 @@ export function AuthenticatedApp() {
   }, [currentProfile, profileId, t, user])
 
   useEffect(() => {
-    if (!user || (!messengerPanelOpen && location.pathname !== '/messenger')) return
-    socialApi.getRelationProfiles(user.userId, 0).then((profiles) => setFriends(profiles.map(toSummary))).catch(() => setFriends([]))
-  }, [location.pathname, messengerPanelOpen, user])
+    if (!user || (!messengerPanelOpen && location.pathname !== '/messenger' && !isHomeRoute)) return
+    socialApi.getRelationProfiles(user.userId, 0, 100).then((profiles) => setFriends(profiles.map(toSummary))).catch(() => setFriends([]))
+  }, [isHomeRoute, location.pathname, messengerPanelOpen, user])
 
   useEffect(() => {
     const unlock = () => {
@@ -216,7 +218,6 @@ export function AuthenticatedApp() {
   const groupRouteId = memberRoute?.groupId ?? (location.pathname.startsWith('/groups/') ? pathSegment(location.pathname, 1) : null)
   const groupMemberProfileId = memberRoute?.profileId ?? null
   const groupId = groupMemberProfileId ? null : groupRouteId
-  const isHomeRoute = location.pathname === '/' || location.pathname === '/home'
   const homeDetailPostId = isHomeRoute ? location.params.get('post') : null
 
   function go(path: string) {
@@ -227,6 +228,12 @@ export function AuthenticatedApp() {
     setMenuView('root')
     setQuickOpen(false)
     navigate(path)
+  }
+
+  function goHome() {
+    const refreshCurrentHome = isHomeRoute
+    go('/home')
+    if (refreshCurrentHome) setHomeRefreshToken((value) => value + 1)
   }
 
   function runSearch() {
@@ -277,7 +284,7 @@ export function AuthenticatedApp() {
   return <div className="authenticated-app">
     <header className="app-shell-topbar">
       <div className="shell-brand-search">
-        <button type="button" className="app-brand" onClick={() => go('/home')} aria-label={t('home')}><img src="/brand/fakebook-minimal-cropped.png" alt="Fakebook" /></button>
+        <button type="button" className="app-brand" onClick={goHome} aria-label={t('home')}><img src="/brand/fakebook-minimal-cropped.png" alt="Fakebook" /></button>
         <form ref={searchRef} className="shell-search-wrap" onSubmit={submitSearch} onFocus={() => setQuickOpen(true)} onBlur={() => window.setTimeout(() => { if (!searchRef.current?.contains(document.activeElement)) setQuickOpen(false) }, 0)}>
           <label className="shell-search"><svg className="shell-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder={t('searchPlaceholder')} aria-label={t('searchPlaceholder')} /></label>
           {quickOpen && searchText.trim().length >= 1 && <QuickSearchDropdown items={quickResults} loading={quickLoading} onOpen={openQuickResult} onSeeAll={runSearch} />}
@@ -285,7 +292,7 @@ export function AuthenticatedApp() {
       </div>
 
       <nav className="app-shell-nav" aria-label={t('appNavigation')}>
-        <NavButton icon="home" label={t('home')} active={isHomeRoute} onClick={() => go('/home')} />
+        <NavButton icon="home" label={t('home')} active={isHomeRoute} onClick={goHome} />
         <NavButton icon="friends" label={t('friends')} active={location.pathname.startsWith('/friends')} onClick={() => go('/friends')} />
         <NavButton icon="video" label={t('reels')} active={location.pathname.startsWith('/reels')} onClick={() => go('/reels')} />
         <NavButton icon="groups" label={t('groups')} active={location.pathname.startsWith('/groups')} onClick={() => go('/groups')} />
@@ -296,7 +303,7 @@ export function AuthenticatedApp() {
         <button type="button" className={location.pathname === '/messenger' || messengerPanelOpen ? 'icon-circle shell-messenger-button active' : 'icon-circle shell-messenger-button'} aria-label={t('messages')} aria-expanded={messengerPanelOpen} onClick={() => { setMessengerPanelOpen((open) => !open); setMenuOpen(false); setAppsMenuOpen(false) }}><Icon name="messenger" size={20} /></button>
         <button type="button" className={notificationPanelOpen ? 'icon-circle shell-notification-button active badge-button' : 'icon-circle shell-notification-button badge-button'} aria-label={t('notifications')} aria-expanded={notificationPanelOpen} onClick={() => { setNotificationPanelOpen((open) => !open); setMessengerPanelOpen(false); setMenuOpen(false); setAppsMenuOpen(false) }}><Icon name="bell" size={20} />{unreadNotifications > 0 && <span>{Math.min(99, unreadNotifications)}</span>}</button>
         <div className="account-menu-wrap" ref={menuRef}>
-          <button ref={menuTriggerRef} type="button" className="shell-avatar-button" aria-haspopup="dialog" aria-expanded={menuOpen} aria-label={displayName} onClick={() => { setMenuOpen((open) => !open); setMenuView('root') }}><Avatar name={displayName} src={avatarUrl} size={40} /></button>
+          <button ref={menuTriggerRef} type="button" className="shell-avatar-button" aria-haspopup="dialog" aria-expanded={menuOpen} aria-label={displayName} onClick={() => { setMenuOpen((open) => !open); setMenuView('root') }}><Avatar name={displayName} src={avatarUrl} size={36} /></button>
           {menuOpen && <div className={`account-dropdown account-dropdown-${menuView}`} role="dialog" aria-label={t('accountMenu')}>
             {menuView === 'root' ? <>
               <div className="account-profile-card"><button type="button" onClick={() => go(`/profile/${user.userId}`)}><Avatar name={displayName} src={avatarUrl} size={58} /><span><strong>{displayName}<VerifiedBadge verified={currentProfile?.isVerified} /></strong><small>{user.email}</small></span></button><button type="button" className="view-profile-link" onClick={() => go(`/profile/${user.userId}`)}>{t('seeYourProfile')}</button></div>
@@ -313,7 +320,7 @@ export function AuthenticatedApp() {
 
     {notificationPanelOpen && <NotificationPopover items={notificationItems} unreadCount={unreadNotifications} loading={notificationsLoading} onOpen={(item) => void openNotification(item)} onMarkAll={() => void markAllNotificationsRead()} onClose={() => setNotificationPanelOpen(false)} />}
 
-    {isHomeRoute && <GatewayHomePage profile={currentProfile} detailPostId={homeDetailPostId} onDetailClose={() => navigate('/home', { replace: true })} onNavigate={go} onMessage={openDirectMessage} />}
+    {isHomeRoute && <GatewayHomePage profile={currentProfile} refreshToken={homeRefreshToken} detailPostId={homeDetailPostId} onDetailClose={() => navigate('/home', { replace: true })} onNavigate={go} onMessage={openDirectMessage} onNewConversation={() => messengerDockRef.current?.openComposer()} onConversation={(conversation) => messengerDockRef.current?.openConversation(conversation)} />}
     {location.pathname === '/search' && <SearchPage query={location.params.get('q') ?? ''} tab={searchTab} userId={user.userId} onNavigate={go} />}
     {location.pathname.startsWith('/friends') && <FriendsPage userId={user.userId} section={normalizeFriendSection(pathSegment(location.pathname, 1))} onNavigate={go} onMessage={openDirectMessage} />}
     {location.pathname.startsWith('/reels') && <ReelsPage userId={user.userId} mode={normalizeReelMode(pathSegment(location.pathname, 1))} onNavigate={go} />}
@@ -328,7 +335,7 @@ export function AuthenticatedApp() {
     {location.pathname === '/premium/payment' && <SettingsPage initialSection="premium" />}
     {location.pathname.startsWith('/content/') && <ContentPage contentId={pathSegment(location.pathname, 1)!} viewerId={user.userId} onNavigate={go} onBack={() => go('/home')} />}
     {!isKnownPath(location.pathname) && <main className="unknown-page"><div className="card state-card"><h1>{t('pageNotFound')}</h1><p>{t('pageNotFoundDesc')}</p><button className="btn-primary" onClick={() => go('/home')}>{t('backToHome')}</button></div></main>}
-    <MessengerDock ref={messengerDockRef} me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} panelOpen={messengerPanelOpen} hidden={location.pathname === '/messenger'} onPanelClose={() => setMessengerPanelOpen(false)} onOpenAll={(conversationId) => go(conversationId ? `/messenger?conversation=${encodeURIComponent(conversationId)}` : '/messenger')} onOpenProfile={(id) => go(`/profile/${id}`)} />
+    <MessengerDock ref={messengerDockRef} me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} panelOpen={messengerPanelOpen} hidden={location.pathname === '/messenger'} showComposeRail={isHomeRoute || Boolean(profileId)} onPanelClose={() => setMessengerPanelOpen(false)} onOpenAll={(conversationId) => go(conversationId ? `/messenger?conversation=${encodeURIComponent(conversationId)}` : '/messenger')} onOpenProfile={(id) => go(`/profile/${id}`)} />
   </div>
 }
 

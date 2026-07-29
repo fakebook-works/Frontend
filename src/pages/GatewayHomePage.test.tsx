@@ -41,6 +41,7 @@ const socialMocks = vi.hoisted(() => ({
   leaveGroup: vi.fn(),
 }))
 const messengerMocks = vi.hoisted(() => ({
+  conversations: vi.fn(),
   directConversations: vi.fn(),
   createDirectConversation: vi.fn(),
   presence: vi.fn(),
@@ -117,6 +118,7 @@ describe('GatewayHomePage', () => {
     socialMocks.unfriend.mockReset().mockResolvedValue(true)
     socialMocks.blockUser.mockReset().mockResolvedValue(true)
     socialMocks.leaveGroup.mockReset().mockResolvedValue(true)
+    messengerMocks.conversations.mockReset().mockResolvedValue([])
     messengerMocks.directConversations.mockReset().mockResolvedValue([])
     messengerMocks.createDirectConversation.mockReset()
     messengerMocks.presence.mockReset().mockResolvedValue([])
@@ -152,6 +154,27 @@ describe('GatewayHomePage', () => {
     expect(document.body).not.toHaveClass('home-page-scroll')
   })
 
+  it('reloads Home data and resets its scroll regions when refreshToken changes', async () => {
+    const { container, rerender } = render(<GatewayHomePage refreshToken={0} />)
+    await screen.findByText('noRecommendedPosts')
+    const leftRail = container.querySelector<HTMLElement>('.gateway-left-rail')!
+    const rightRail = container.querySelector<HTMLElement>('.gateway-right-rail')!
+    document.documentElement.scrollTop = 240
+    document.body.scrollTop = 240
+    leftRail.scrollTop = 80
+    rightRail.scrollTop = 90
+
+    rerender(<GatewayHomePage refreshToken={1} />)
+
+    await waitFor(() => expect(apiMocks.recommendedFeed).toHaveBeenCalledTimes(2))
+    expect(apiMocks.homeStories).toHaveBeenCalledTimes(2)
+    expect(apiMocks.visitedGroups).toHaveBeenCalledTimes(2)
+    expect(document.documentElement.scrollTop).toBe(0)
+    expect(document.body.scrollTop).toBe(0)
+    expect(leftRail.scrollTop).toBe(0)
+    expect(rightRail.scrollTop).toBe(0)
+  })
+
   it('keeps desktop wheel movement inside the hovered side rail', async () => {
     vi.stubGlobal('innerWidth', 1440)
     const { container } = render(<GatewayHomePage />)
@@ -179,9 +202,8 @@ describe('GatewayHomePage', () => {
     expect(container.querySelector('.feed-section > .state-card')).not.toBeInTheDocument()
   })
 
-  it('keeps the profile composer width contract while matching Home avatar and icon sizes', () => {
-    const onReel = vi.fn()
-    const { container } = render(<PostComposer variant="profile" userId="9007199254740993123" displayName="Profile Owner" avatarUrl={null} friends={[]} onReel={onReel} onCreated={vi.fn()} />)
+  it('keeps the profile composer size contract and opens its Reel composer in place', async () => {
+    const { container } = render(<PostComposer variant="profile" userId="9007199254740993123" displayName="Profile Owner" avatarUrl={null} friends={[]} onCreated={vi.fn()} />)
     const composer = container.querySelector('.profile-composer-card')!
 
     expect(composer.querySelector('.home-composer-row .avatar')).toHaveStyle({ width: '40px', height: '40px' })
@@ -192,7 +214,18 @@ describe('GatewayHomePage', () => {
     expect(composer.querySelector('.profile-composer-actions .media .profile-composer-action-label')).toHaveTextContent('photoVideo')
     expect(composer.querySelector('.profile-composer-actions .reel .profile-composer-action-label')).toHaveTextContent('profileTabReels')
     fireEvent.click(within(composer as HTMLElement).getByRole('button', { name: 'profileTabReels' }))
-    expect(onReel).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole('dialog', { name: 'createReel' })).toBeInTheDocument()
+  })
+
+  it('opens the Home Reel composer from state isolated inside the composer subtree', async () => {
+    const { container } = render(<PostComposer userId="9007199254740993123" displayName="Home Owner" avatarUrl={null} friends={[]} onCreated={vi.fn()} />)
+
+    fireEvent.click(within(container.querySelector('.home-composer-card') as HTMLElement).getByRole('button', { name: 'createReel' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'createReel' })
+    expect(dialog).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'close' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'createReel' })).not.toBeInTheDocument())
   })
 
   it('renders retryable service errors', async () => {
@@ -481,7 +514,7 @@ describe('GatewayHomePage', () => {
 
   it('rejects an oversized feed video before starting the upload request', () => {
     const video = new File([new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112])], 'too-large.mp4', { type: 'video/mp4' })
-    Object.defineProperty(video, 'size', { value: (100 * 1024 * 1024) + 1 })
+    Object.defineProperty(video, 'size', { value: (500 * 1024 * 1024) + 1 })
     render(<GatewayHomePage />)
 
     fireEvent.change(screen.getAllByLabelText('photoVideo')[0], { target: { files: [video] } })
@@ -656,7 +689,8 @@ describe('GatewayHomePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'liveVideo' }))
     expect(screen.queryByRole('dialog', { name: 'createPost' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'createReel' }))
-    expect(onNavigate).toHaveBeenCalledWith('/reels')
+    expect(await screen.findByRole('dialog', { name: 'createReel' })).toBeInTheDocument()
+    expect(onNavigate).not.toHaveBeenCalledWith('/reels')
     const storyLabels = [...container.querySelectorAll('.story-tile strong')].map((item) => item.textContent)
     expect(storyLabels).toEqual(['storyCreate', 'yourStory', 'Friend Story'])
     expect(container.querySelector<HTMLElement>('.create-story-preview')?.style.backgroundImage).toContain('avatar-square.jpg')
@@ -764,12 +798,6 @@ describe('GatewayHomePage', () => {
   it('opens a direct conversation from the contacts rail', async () => {
     messengerMocks.directConversations.mockResolvedValue([
       {
-        id: 'group-1', type: 'GROUP', participants: [
-          { id: '9007199254740993123', username: 'me', displayName: 'Me', avatarUrl: null, leftAt: null },
-          { id: '3', username: 'group-only', displayName: 'Group Only', avatarUrl: null, leftAt: null },
-        ], title: 'Group Only', avatarUrl: null, updatedAt: '2026-01-02', unreadCount: 0, lastMessage: null,
-      },
-      {
         id: 'direct-1', type: 'DIRECT', participants: [
           { id: '9007199254740993123', username: 'me', displayName: 'Me', avatarUrl: null, leftAt: null },
           { id: '2', username: 'friend', displayName: 'Friend Contact', avatarUrl: null, leftAt: null },
@@ -780,9 +808,50 @@ describe('GatewayHomePage', () => {
     render(<GatewayHomePage onMessage={onMessage} />)
 
     const contactName = await screen.findByText('Friend Contact')
-    expect(screen.queryByText('Group Only')).not.toBeInTheDocument()
     fireEvent.click(contactName.closest('button')!)
     expect(onMessage).toHaveBeenCalledWith('2')
+  })
+
+  it('renders active group conversations below contacts and opens the selected group', async () => {
+    const directConversation = {
+      id: 'direct-1', type: 'DIRECT' as const, participants: [
+        { id: '9007199254740993123', username: 'me', displayName: 'Me', avatarUrl: null, leftAt: null },
+        { id: '2', username: 'friend', displayName: 'Friend Contact', avatarUrl: null, leftAt: null },
+      ], title: null, avatarUrl: null, updatedAt: '2026-01-01', unreadCount: 0, lastMessage: null,
+    }
+    const groupConversation = {
+      id: 'group-1', type: 'GROUP' as const, participants: [
+        { id: '9007199254740993123', username: 'me', displayName: 'Me', avatarUrl: null, leftAt: null },
+        { id: '3', username: 'group-member', displayName: 'Group Member', avatarUrl: null, leftAt: null },
+      ], title: 'Group Only', avatarUrl: null, updatedAt: '2026-01-02', unreadCount: 0, lastMessage: null,
+    }
+    const leftGroupConversation = {
+      ...groupConversation,
+      id: 'group-left',
+      title: 'Left Group',
+      participants: groupConversation.participants.map((participant) => participant.id === '9007199254740993123'
+        ? { ...participant, leftAt: '2026-01-03' }
+        : participant),
+    }
+    messengerMocks.directConversations.mockResolvedValue([directConversation])
+    messengerMocks.conversations.mockResolvedValue([groupConversation, directConversation, leftGroupConversation])
+    const onConversation = vi.fn()
+    const { container } = render(<GatewayHomePage onConversation={onConversation} />)
+
+    const rightRail = container.querySelector<HTMLElement>('.gateway-right-rail')!
+    const contactsModule = rightRail.querySelector<HTMLElement>('.contacts-module')!
+    const groupModule = rightRail.querySelector<HTMLElement>('.group-conversations-module')!
+    expect(await within(contactsModule).findByText('Friend Contact')).toBeInTheDocument()
+    expect(within(contactsModule).queryByText('Group Only')).not.toBeInTheDocument()
+    expect(within(groupModule).getByRole('heading', { name: 'groupChats' })).toBeInTheDocument()
+    const groupName = await within(groupModule).findByText('Group Only')
+    expect(within(groupModule).queryByText('Friend Contact')).not.toBeInTheDocument()
+    expect(within(groupModule).queryByText('Left Group')).not.toBeInTheDocument()
+    expect(contactsModule.compareDocumentPosition(groupModule) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(messengerMocks.conversations).toHaveBeenCalledWith('9007199254740993123', 100)
+
+    fireEvent.click(groupName.closest('button')!)
+    expect(onConversation).toHaveBeenCalledWith(groupConversation)
   })
 
   it('searches the complete direct-contact scope through Search Service', async () => {
@@ -803,22 +872,14 @@ describe('GatewayHomePage', () => {
     expect(await screen.findByText('Older Contact')).toBeInTheDocument()
   })
 
-  it('starts a direct conversation from the plus button using friend-scoped search', async () => {
-    const olderFriend = {
-      id: '88', username: 'remote-friend', email: '', displayName: 'Remote Friend', avatarUrl: null,
-      isVerified: false, bio: null, birthDate: null, gender: null, location: null, createdAt: '',
-      friendCount: 1, postCount: 0, backgroundUrl: null, privacy: 0, followerCount: 0, followingCount: 0,
-    }
-    searchMocks.searchFriends.mockResolvedValue([olderFriend])
-    const onMessage = vi.fn().mockResolvedValue(undefined)
-    render(<GatewayHomePage onMessage={onMessage} />)
+  it('delegates the contacts plus button to the dock conversation composer', async () => {
+    const onNewConversation = vi.fn()
+    render(<GatewayHomePage onNewConversation={onNewConversation} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'newMessage' }))
-    fireEvent.change(screen.getByPlaceholderText('searchFriends'), { target: { value: 'r' } })
 
-    await waitFor(() => expect(searchMocks.searchFriends).toHaveBeenCalledWith('r', 1, 30))
-    fireEvent.click(await screen.findByRole('button', { name: /Remote Friend/ }))
-    await waitFor(() => expect(onMessage).toHaveBeenCalledWith('88'))
+    expect(onNewConversation).toHaveBeenCalledTimes(1)
+    expect(searchMocks.searchFriends).not.toHaveBeenCalled()
     expect(screen.queryByPlaceholderText('searchFriends')).not.toBeInTheDocument()
   })
 

@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api/client'
-import type { GatewayPost, SharedStory } from '../api/gatewayTypes'
+import type { GatewayMedia, GatewayPost, SharedStory } from '../api/gatewayTypes'
 import { socialApi, type ContentEngagement } from '../api/social'
 import { useI18n } from '../i18n'
 import { Icon } from './Icon'
 import { PostDetailCommentsModal } from './PostDetailCommentsModal'
+import { PostVideoPlayer } from './PostVideoPlayer'
 import { ShareModal } from './ContentActions'
 
 const EMPTY_ENGAGEMENT: ContentEngagement = {
@@ -24,29 +26,111 @@ export interface PostPhotoViewerProps {
   contentId: string
   initialMediaId?: string
   initialMediaUrl?: string
+  initialPlaybackTime?: number
   initialPost?: GatewayPost
+  mediaEntries?: PostPhotoViewerMediaEntry[]
   onClose: () => void
   onNavigate?: (path: string) => void
   onMessage?: (profileId: string) => Promise<void>
   onStoryCreated?: (story: SharedStory) => void
 }
 
-function PhotoNavigationIcon({ direction }: { direction: 'previous' | 'next' }) {
-  return <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={direction === 'previous' ? 'm14.5 5.5-6.5 6.5 6.5 6.5' : 'm9.5 5.5 6.5 6.5-6.5 6.5'} /></svg>
+export interface PostPhotoViewerMediaEntry {
+  post: GatewayPost | null
+  media: GatewayMedia
 }
 
-export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMediaUrl, initialPost, onClose, onNavigate, onMessage, onStoryCreated }: PostPhotoViewerProps) {
+function PhotoNavigationIcon({ direction }: { direction: 'previous' | 'next' }) {
+  return <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={direction === 'previous' ? 'm14.5 5.5-6.5 6.5 6.5 6.5' : 'm9.5 5.5 6.5 6.5-6.5 6.5'} /></svg>
+}
+
+function PhotoViewerToolIcon({ name }: { name: 'zoom-in' | 'zoom-out' | 'fullscreen' | 'fullscreen-exit' }) {
+  if (name === 'fullscreen' || name === 'fullscreen-exit') {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.05" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={name === 'fullscreen' ? 'M14.5 9.5 20 4m0 0h-4.25M20 4v4.25M9.5 14.5 4 20m0 0h4.25M4 20v-4.25' : 'M20 4l-5.5 5.5m0 0V5.75m0 3.75h3.75M4 20l5.5-5.5m0 0v3.75m0-3.75H5.75'} /></svg>
+  }
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15.1 15.1A6.5 6.5 0 1 1 5.9 5.9a6.5 6.5 0 0 1 9.2 9.2l5.15 5.15M7.5 10.5h6" />{name === 'zoom-in' && <path d="M10.5 7.5v6" />}</svg>
+}
+
+const MIN_PHOTO_SCALE = 1
+const MAX_PHOTO_SCALE = 4
+const PHOTO_SCALE_STEP = 0.5
+
+export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMediaUrl, initialPlaybackTime = 0, initialPost, mediaEntries, onClose, onNavigate, onMessage, onStoryCreated }: PostPhotoViewerProps) {
   const { t } = useI18n()
   const usableInitialPost = initialPost?.__typename === 'ReelDetail' ? null : initialPost ?? null
   const [post, setPost] = useState<GatewayPost | null>(usableInitialPost)
-  const [loading, setLoading] = useState(!usableInitialPost)
+  const hasSuppliedEntries = Boolean(mediaEntries?.length)
+  const [loading, setLoading] = useState(!usableInitialPost && !hasSuppliedEntries)
   const [loadError, setLoadError] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
   const [engagement, setEngagement] = useState<ContentEngagement>({ ...EMPTY_ENGAGEMENT, targetId: contentId })
   const [likeBusy, setLikeBusy] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
-  const photos = useMemo(() => post?.media.filter((media) => media.type === 0) ?? [], [post])
-  const activePhoto = photos[activeIndex] ?? null
+  const [scale, setScale] = useState(MIN_PHOTO_SCALE)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const [dragging, setDragging] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+  const stageRef = useRef<HTMLElement>(null)
+  const imageRef = useRef<HTMLImageElement>(null)
+  const dragStartRef = useRef<{ pointerId: number; x: number; y: number; offsetX: number; offsetY: number } | null>(null)
+  const playbackTimesRef = useRef<Record<string, number>>({})
+  const viewerEntries = useMemo<PostPhotoViewerMediaEntry[]>(() => {
+    if (mediaEntries?.length) return mediaEntries.filter((entry) => entry.post?.__typename !== 'ReelDetail' && (entry.media.type === 0 || entry.media.type === 1))
+    if (!post || post.__typename === 'ReelDetail') return []
+    return post.media.filter((media) => media.type === 0 || media.type === 1).map((media) => ({ post, media }))
+  }, [mediaEntries, post])
+  const activeEntry = viewerEntries[activeIndex] ?? null
+  const activeMedia = activeEntry?.media ?? null
+  const activePost = activeEntry ? activeEntry.post : post
+  const activePhoto = activeMedia?.type === 0 ? activeMedia : null
+
+  const clampOffset = useCallback((next: { x: number; y: number }, nextScale = scale) => {
+    const stage = stageRef.current
+    const image = imageRef.current
+    if (!stage || !image || nextScale <= MIN_PHOTO_SCALE) return { x: 0, y: 0 }
+    const maxX = Math.max(0, (image.clientWidth * nextScale - stage.clientWidth) / 2)
+    const maxY = Math.max(0, (image.clientHeight * nextScale - stage.clientHeight) / 2)
+    return {
+      x: Math.max(-maxX, Math.min(maxX, next.x)),
+      y: Math.max(-maxY, Math.min(maxY, next.y)),
+    }
+  }, [scale])
+
+  const movePhoto = useCallback((delta: number) => {
+    if (viewerEntries.length === 0) return
+    setScale(MIN_PHOTO_SCALE)
+    setOffset({ x: 0, y: 0 })
+    setActiveIndex((index) => (index + delta + viewerEntries.length) % viewerEntries.length)
+  }, [viewerEntries.length])
+
+  const changeScale = useCallback((delta: number) => {
+    setScale((current) => {
+      const next = Math.max(MIN_PHOTO_SCALE, Math.min(MAX_PHOTO_SCALE, current + delta))
+      window.requestAnimationFrame(() => setOffset((currentOffset) => clampOffset(currentOffset, next)))
+      return next
+    })
+  }, [clampOffset])
+
+  function startPan(event: ReactPointerEvent<HTMLImageElement>) {
+    if (scale <= MIN_PHOTO_SCALE || event.button !== 0) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragStartRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, offsetX: offset.x, offsetY: offset.y }
+    setDragging(true)
+  }
+
+  function panPhoto(event: ReactPointerEvent<HTMLImageElement>) {
+    const start = dragStartRef.current
+    if (!start || start.pointerId !== event.pointerId) return
+    setOffset(clampOffset({ x: start.offsetX + event.clientX - start.x, y: start.offsetY + event.clientY - start.y }))
+  }
+
+  function stopPan(event: ReactPointerEvent<HTMLImageElement>) {
+    if (dragStartRef.current?.pointerId !== event.pointerId) return
+    dragStartRef.current = null
+    setDragging(false)
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
@@ -59,14 +143,21 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
   }, [])
 
   useEffect(() => {
+    document.body.classList.toggle('post-photo-viewer-fullscreen', fullscreen)
+    return () => document.body.classList.remove('post-photo-viewer-fullscreen')
+  }, [fullscreen])
+
+  useEffect(() => {
     let active = true
     setPost(usableInitialPost)
+    if (hasSuppliedEntries) {
+      setLoading(false)
+      setLoadError(false)
+      return () => { active = false }
+    }
     setLoading(!usableInitialPost)
     setLoadError(false)
-    Promise.all([
-      api.postDetail(contentId),
-      socialApi.getContentEngagement(contentId).catch(() => null),
-    ]).then(([detail, nextEngagement]) => {
+    api.postDetail(contentId).then((detail) => {
       if (!active) return
       if (detail?.__typename === 'ReelDetail') {
         setLoadError(true)
@@ -75,34 +166,58 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
       } else if (!usableInitialPost) {
         setLoadError(true)
       }
-      if (nextEngagement) setEngagement(nextEngagement)
     }).catch(() => {
       if (active && !usableInitialPost) setLoadError(true)
     }).finally(() => {
       if (active) setLoading(false)
     })
     return () => { active = false }
-  }, [contentId, usableInitialPost])
+  }, [contentId, hasSuppliedEntries, usableInitialPost])
 
   useEffect(() => {
-    if (photos.length === 0) {
+    if (!activePost) {
+      setEngagement({ ...EMPTY_ENGAGEMENT, targetId: contentId })
+      return
+    }
+    let active = true
+    setEngagement({ ...EMPTY_ENGAGEMENT, targetId: activePost.id })
+    socialApi.getContentEngagement(activePost.id)
+      .then((value) => { if (active && value) setEngagement(value) })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [activePost, contentId])
+
+  useEffect(() => {
+    if (viewerEntries.length === 0) {
       setActiveIndex(0)
       return
     }
-    const requestedIndex = photos.findIndex((media) =>
-      (initialMediaId && media.id === initialMediaId) ||
-      (initialMediaUrl && media.url === initialMediaUrl))
+    const requestedIndex = viewerEntries.findIndex((entry) =>
+      (initialMediaId && entry.media.id === initialMediaId) ||
+      (initialMediaUrl && entry.media.url === initialMediaUrl))
     setActiveIndex(requestedIndex >= 0 ? requestedIndex : 0)
-  }, [initialMediaId, initialMediaUrl, photos])
+  }, [initialMediaId, initialMediaUrl, viewerEntries])
 
   useEffect(() => {
-    for (const index of [activeIndex - 1, activeIndex + 1]) {
-      const photo = photos[index]
-      if (!photo) continue
+    setScale(MIN_PHOTO_SCALE)
+    setOffset({ x: 0, y: 0 })
+    setDragging(false)
+    dragStartRef.current = null
+  }, [activeIndex])
+
+  useEffect(() => {
+    if (viewerEntries.length < 2) return
+    const adjacentIndexes = new Set([
+      (activeIndex - 1 + viewerEntries.length) % viewerEntries.length,
+      (activeIndex + 1) % viewerEntries.length,
+    ])
+    for (const index of adjacentIndexes) {
+      const photo = viewerEntries[index]?.media
+      if (!photo || photo.type !== 0) continue
       const preload = new Image()
       preload.src = photo.url
     }
-  }, [activeIndex, photos])
+  }, [activeIndex, viewerEntries])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -110,25 +225,32 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
       const isEditing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)
       if (event.key === 'Escape') {
         if (shareOpen) setShareOpen(false)
+        else if (fullscreen) setFullscreen(false)
         else onClose()
         return
       }
       if (isEditing) return
-      if (event.key === 'ArrowLeft' && activeIndex > 0) setActiveIndex((index) => index - 1)
-      if (event.key === 'ArrowRight' && activeIndex < photos.length - 1) setActiveIndex((index) => index + 1)
+      if (event.key === 'ArrowLeft') movePhoto(-1)
+      if (event.key === 'ArrowRight') movePhoto(1)
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeIndex, onClose, photos.length, shareOpen])
+  }, [fullscreen, movePhoto, onClose, shareOpen])
+
+  useEffect(() => {
+    const keepPhotoInBounds = () => setOffset((current) => clampOffset(current))
+    window.addEventListener('resize', keepPhotoInBounds)
+    return () => window.removeEventListener('resize', keepPhotoInBounds)
+  }, [clampOffset])
 
   async function toggleLike() {
-    if (!post) return
+    if (!activePost) return
     const next = !engagement.viewerHasLiked
     setLikeBusy(true)
     try {
       const success = next
-        ? await socialApi.likeContent(viewerId, post.id)
-        : await socialApi.unlikeContent(viewerId, post.id)
+        ? await socialApi.likeContent(viewerId, activePost.id)
+        : await socialApi.unlikeContent(viewerId, activePost.id)
       if (!success) return
       setEngagement((current) => ({ ...current, viewerHasLiked: next, likeCount: Math.max(0, current.likeCount + (next ? 1 : -1)) }))
     } finally {
@@ -136,28 +258,55 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
     }
   }
 
-  const canShare = Boolean(post && (post.__typename === 'GroupPostDetail' || post.privacy === 0))
-  const canReshare = Boolean(post && post.__typename !== 'GroupPostDetail' && post.privacy === 0 && (
-    post.__typename !== 'FeedPostDetail' || !post.sharedSource || post.sharedSource.isAvailable
+  const canShare = Boolean(activePost && (activePost.__typename === 'GroupPostDetail' || activePost.privacy === 0))
+  const canReshare = Boolean(activePost && activePost.__typename !== 'GroupPostDetail' && activePost.privacy === 0 && (
+    activePost.__typename !== 'FeedPostDetail' || !activePost.sharedSource || activePost.sharedSource.isAvailable
   ))
-  const shareSourceId = post?.__typename === 'FeedPostDetail' && post.sharedSource?.isAvailable
-    ? post.sharedSource.id
-    : post?.id ?? contentId
+  const shareSourceId = activePost?.__typename === 'FeedPostDetail' && activePost.sharedSource?.isAvailable
+    ? activePost.sharedSource.id
+    : activePost?.id ?? contentId
 
   return createPortal(<>
     <button type="button" className="content-detail-shell-close post-photo-viewer-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>
-    <div className="post-photo-viewer" role="dialog" aria-modal="true" aria-label={t('photoViewer')}>
-      <section className="post-photo-viewer-stage">
-        {loading && !activePhoto ? <span className="spinner" /> : loadError || !post || !activePhoto ? <div className="post-photo-viewer-error"><Icon name="photo" size={30} /><strong>{t('contentUnavailable')}</strong></div> : <img className="post-photo-viewer-image" src={activePhoto.url} alt="" loading="eager" />}
-        {activeIndex > 0 && <button type="button" className="post-photo-viewer-nav previous" aria-label={t('previousPhoto')} onClick={() => setActiveIndex((index) => index - 1)}><PhotoNavigationIcon direction="previous" /></button>}
-        {activeIndex < photos.length - 1 && <button type="button" className="post-photo-viewer-nav next" aria-label={t('nextPhoto')} onClick={() => setActiveIndex((index) => index + 1)}><PhotoNavigationIcon direction="next" /></button>}
+    <div className={`post-photo-viewer${fullscreen ? ' is-fullscreen' : ''}${activePost ? '' : ' no-sidebar'}`} role="dialog" aria-modal="true" aria-label={t('photoViewer')}>
+      <section ref={stageRef} className="post-photo-viewer-stage">
+        {loading && !activeMedia ? <span className="spinner" /> : loadError || !activeMedia ? <div className="post-photo-viewer-error"><Icon name="photo" size={30} /><strong>{t('contentUnavailable')}</strong></div> : activeMedia.type === 1
+          ? <div className="post-photo-viewer-video"><PostVideoPlayer
+              key={activeMedia.id || activeMedia.url}
+              src={activeMedia.url}
+              controls
+              autoPlay
+              initialTime={playbackTimesRef.current[activeMedia.id || activeMedia.url] ?? (((initialMediaId && activeMedia.id === initialMediaId) || (initialMediaUrl && activeMedia.url === initialMediaUrl)) ? initialPlaybackTime : 0)}
+              onPlaybackTimeChange={(currentTime) => { playbackTimesRef.current[activeMedia.id || activeMedia.url] = currentTime }}
+            /></div>
+          : <img
+              ref={imageRef}
+              className={`post-photo-viewer-image${scale > MIN_PHOTO_SCALE ? ' is-zoomed' : ''}${dragging ? ' is-dragging' : ''}`}
+              src={activeMedia.url}
+              alt=""
+              loading="eager"
+              draggable={false}
+              style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${scale})` }}
+              onPointerDown={startPan}
+              onPointerMove={panPhoto}
+              onPointerUp={stopPan}
+              onPointerCancel={stopPan}
+            />}
+        {activePhoto && <div className="post-photo-viewer-tools" aria-label={t('zoom')}>
+          <button type="button" aria-label={t('storyZoomIn')} disabled={scale >= MAX_PHOTO_SCALE} onClick={() => changeScale(PHOTO_SCALE_STEP)}><PhotoViewerToolIcon name="zoom-in" /></button>
+          <button type="button" aria-label={t('storyZoomOut')} disabled={scale <= MIN_PHOTO_SCALE} onClick={() => changeScale(-PHOTO_SCALE_STEP)}><PhotoViewerToolIcon name="zoom-out" /></button>
+          <button type="button" className={fullscreen ? 'active' : ''} aria-label={t('videoFullscreen')} aria-pressed={fullscreen} onClick={() => setFullscreen((current) => !current)}><PhotoViewerToolIcon name={fullscreen ? 'fullscreen-exit' : 'fullscreen'} /></button>
+        </div>}
+        {activeMedia && <button type="button" className="post-photo-viewer-nav previous" aria-label={t('previousPhoto')} onClick={() => movePhoto(-1)}><PhotoNavigationIcon direction="previous" /></button>}
+        {activeMedia && <button type="button" className="post-photo-viewer-nav next" aria-label={t('nextPhoto')} onClick={() => movePhoto(1)}><PhotoNavigationIcon direction="next" /></button>}
       </section>
       <aside className="post-photo-viewer-sidebar">
-        {post && <PostDetailCommentsModal
+        {activePost && <PostDetailCommentsModal
+          key={activePost.id}
           variant="photo-sidebar"
           viewerId={viewerId}
-          targetId={post.id}
-          post={post}
+          targetId={activePost.id}
+          post={activePost}
           engagement={engagement}
           likeBusy={likeBusy}
           canShare={canShare}
@@ -169,6 +318,6 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
         />}
       </aside>
     </div>
-    {shareOpen && post && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare={canReshare} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
+    {shareOpen && activePost && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare={canReshare} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
   </>, document.body)
 }

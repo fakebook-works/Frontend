@@ -27,6 +27,11 @@ export interface SocialProfile extends UserProfile {
   followingCount: number
 }
 
+export interface ProfileAvatarSource {
+  contentId: string
+  mediaId: string
+}
+
 export interface FriendSuggestion {
   profile: SocialProfile
   mutualFriendCount: number
@@ -60,6 +65,9 @@ export interface SocialContent {
   createdAt: string
   authorId: string
   media: GatewayMedia[]
+  aspectRatio?: number | null
+  focalPointX?: number | null
+  focalPointY?: number | null
   author?: UserSummary | null
   mentions?: GatewayMention[]
 }
@@ -148,7 +156,7 @@ const PROFILE_FIELDS = `
 `
 
 const GROUP_FIELDS = `id avatar background name bio privacy create memberCount adminCount`
-const CONTENT_FIELDS = `id type content privacy create authorId media { id type url }`
+const CONTENT_FIELDS = `id type content privacy create authorId aspectRatio focalPointX focalPointY media { id type url }`
 const POST_FIELDS = `
   __typename
   ... on FeedPostDetail {
@@ -158,14 +166,14 @@ const POST_FIELDS = `
     author { id name avatar isVerified canFollow }
     media { id type url }
     sharedSource {
-      id isAvailable type content
+      id isAvailable type content privacy create
       mentions { userId name available }
       author { id name avatar isVerified }
       media { id type url }
     }
   }
   ... on ReelDetail {
-    id type content privacy create
+    id type content privacy create aspectRatio focalPointX focalPointY
     mentions { userId name available }
     author { id name avatar isVerified canFollow }
     media { id type url }
@@ -256,6 +264,9 @@ function contentFromGraphQl(value: Record<string, unknown>): SocialContent {
       id: String(item.id),
       type: Number(item.type),
     })),
+    aspectRatio: typeof value.aspectRatio === 'number' ? value.aspectRatio : null,
+    focalPointX: typeof value.focalPointX === 'number' ? value.focalPointX : null,
+    focalPointY: typeof value.focalPointY === 'number' ? value.focalPointY : null,
     mentions: normalizeMentionUsers(value.mentions),
   }
 }
@@ -301,10 +312,23 @@ function postFromGraphQl(post: GatewayPost): GatewayPost {
 
 export async function getProfile(userId: string, email = ''): Promise<SocialProfile | null> {
   const id = graphQlLongLiteral(userId)
-  const data = await gatewayGraphQl<{ profile: ProfileGraphQl | null }>(
-    `query Profile { profile(userId: ${id}) { ${PROFILE_FIELDS} } }`,
+  if (email) {
+    const data = await gatewayGraphQl<{ profile: ProfileGraphQl | null }>(
+      `query Profile { profile(userId: ${id}) { ${PROFILE_FIELDS} } }`,
+    )
+    return data.profile ? profileFromGraphQl(data.profile, email) : null
+  }
+
+  const data = await gatewayGraphQl<{
+    profile: ProfileGraphQl | null
+    profileContact: { email: string } | null
+  }>(
+    `query Profile {
+      profile(userId: ${id}) { ${PROFILE_FIELDS} }
+      profileContact(userId: ${id}) { email }
+    }`,
   )
-  return data.profile ? profileFromGraphQl(data.profile, email) : null
+  return data.profile ? profileFromGraphQl(data.profile, data.profileContact?.email ?? '') : null
 }
 
 export async function getProfiles(userIds: string[]): Promise<SocialProfile[]> {
@@ -313,6 +337,21 @@ export async function getProfiles(userIds: string[]): Promise<SocialProfile[]> {
   const literals = ids.map(graphQlLongLiteral).join(', ')
   const data = await gatewayGraphQl<{ profiles: ProfileGraphQl[] }>(`query Profiles { profiles(userIds: [${literals}]) { ${PROFILE_FIELDS} } }`)
   return data.profiles.map((profile) => profileFromGraphQl(profile))
+}
+
+export async function getProfileAvatarSource(userId: string): Promise<ProfileAvatarSource | null> {
+  const user = graphQlLongLiteral(userId)
+  const data = await gatewayGraphQl<{ profileAvatarSource: { contentId: string; mediaId: string } | null }>(
+    `query ProfileAvatarSource {
+      profileAvatarSource(userId: ${user}) { contentId mediaId }
+    }`,
+  )
+  return data.profileAvatarSource
+    ? {
+        contentId: String(data.profileAvatarSource.contentId),
+        mediaId: String(data.profileAvatarSource.mediaId),
+      }
+    : null
 }
 
 export async function getGroup(groupId: string): Promise<SocialGroup | null> {
@@ -473,6 +512,26 @@ export async function getFriendProfilesWithMutualCounts(userId: string, limit = 
     { limit },
   )
   return data.friendProfilesWithMutualCounts.map((item) => ({
+    profile: profileFromGraphQl(item.profile),
+    mutualFriendCount: Number(item.mutualFriendCount),
+  }))
+}
+
+export async function getProfileFriends(targetUserId: string, limit = 100): Promise<FriendProfileWithMutualCount[]> {
+  const target = graphQlLongLiteral(targetUserId)
+  const data = await gatewayGraphQl<{ profileFriends: Array<{
+    profile: ProfileGraphQl
+    mutualFriendCount: number
+  }> }>(
+    `query ProfileFriends($limit: Int!) {
+      profileFriends(targetUserId: ${target}, limit: $limit) {
+        profile { ${PROFILE_FIELDS} }
+        mutualFriendCount
+      }
+    }`,
+    { limit },
+  )
+  return data.profileFriends.map((item) => ({
     profile: profileFromGraphQl(item.profile),
     mutualFriendCount: Number(item.mutualFriendCount),
   }))
@@ -917,11 +976,20 @@ export async function deleteGroup(groupId: string): Promise<boolean> {
   return data.deleteGroup
 }
 
-export async function changeUserAvatar(userId: string, avatarUrl: string, originalUrl: string | null = null, privacy: number | null = null): Promise<SocialProfile | null> {
+export async function changeUserAvatar(
+  userId: string,
+  avatarUrl: string,
+  originalUrl: string | null = null,
+  privacy: number | null = null,
+  source: ProfileAvatarSource | null = null,
+): Promise<SocialProfile | null> {
   const user = graphQlLongLiteral(userId)
+  const sourceArguments = source
+    ? `, sourceContentId: ${graphQlLongLiteral(source.contentId)}, sourceMediaId: ${graphQlLongLiteral(source.mediaId)}`
+    : ''
   const data = await gatewayGraphQl<{ changeUserAvatar: ProfileGraphQl | null }>(
     `mutation ChangeUserAvatar($avatarUrl: String!, $originalUrl: String, $privacy: Int) {
-      changeUserAvatar(userId: ${user}, avatarUrl: $avatarUrl, originalUrl: $originalUrl, privacy: $privacy) { ${PROFILE_FIELDS} }
+      changeUserAvatar(userId: ${user}, avatarUrl: $avatarUrl, originalUrl: $originalUrl, privacy: $privacy${sourceArguments}) { ${PROFILE_FIELDS} }
     }`,
     { avatarUrl, originalUrl, privacy },
   )
@@ -1088,15 +1156,15 @@ export async function removeGroupAdmin(groupId: string, userId: string): Promise
   return data.removeGroupAdmin
 }
 
-export async function createReel(viewerId: string, input: { content: string; media?: { type: number; url: string } | null }): Promise<SocialContent> {
+export async function createReel(viewerId: string, input: { content: string; privacy: number; aspectRatio: number; focalPointX: number; focalPointY: number; media?: { type: number; url: string } | null }): Promise<SocialContent> {
   const viewer = graphQlLongLiteral(viewerId)
   const data = await gatewayGraphQl<{ createReel: Record<string, unknown> }>(
-    `mutation CreateReel($content: String!, $media: MediaInput) {
-      createReel(input: { authorId: ${viewer}, content: $content, media: $media }) { ${CONTENT_FIELDS} }
+    `mutation CreateReel($content: String!, $privacy: Int!, $aspectRatio: Float!, $focalPointX: Float!, $focalPointY: Float!, $media: MediaInput) {
+      createReel(input: { authorId: ${viewer}, content: $content, privacy: $privacy, aspectRatio: $aspectRatio, focalPointX: $focalPointX, focalPointY: $focalPointY, media: $media }) { ${CONTENT_FIELDS} }
     }`,
     input,
   )
-  return contentFromGraphQl(data.createReel)
+  return { ...contentFromGraphQl(data.createReel), privacy: input.privacy, aspectRatio: input.aspectRatio, focalPointX: input.focalPointX, focalPointY: input.focalPointY }
 }
 
 export async function createGroupPost(viewerId: string, groupId: string, input: { content: string; media?: Array<{ type: number; url: string }> }): Promise<SocialContent> {
@@ -1230,6 +1298,7 @@ export async function sharePost(viewerId: string, sourceId: string, content: str
 
 export const socialApi = {
   getProfile,
+  getProfileAvatarSource,
   getProfiles,
   getGroup,
   getGroups,
@@ -1242,6 +1311,7 @@ export const socialApi = {
   getGroupPhotoCandidates,
   getRelationProfiles,
   getFriendProfilesWithMutualCounts,
+  getProfileFriends,
   getProfileConnections,
   getFriendSuggestions,
   getProfileRelationshipState,

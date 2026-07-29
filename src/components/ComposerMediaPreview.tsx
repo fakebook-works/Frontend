@@ -20,7 +20,7 @@ export default function ComposerMediaPreview({ items, busy, onClear, showClear =
   const { dimensions, rememberDimensions } = useMediaDimensions(mediaKeys)
   const layout = getAdaptiveMediaLayout(dimensions, items.length)
   const singlePresentation = getSingleMediaPresentation(dimensions[0])
-  return <section className={`home-media-preview media-count-${layoutCount} layout-${layout.kind}${layoutCount === 1 && singlePresentation.needsBackdrop ? ' letterboxed' : ''}`} style={layoutCount === 1 ? { aspectRatio: String(singlePresentation.frameAspectRatio) } : undefined} aria-label={t('mediaPreview')}>
+  return <section className={`home-media-preview media-count-${layoutCount} layout-${layout.kind}${layoutCount === 1 && singlePresentation.needsLetterbox ? ' letterboxed' : ''}`} style={layoutCount === 1 ? { aspectRatio: String(singlePresentation.frameAspectRatio) } : undefined} aria-label={t('mediaPreview')}>
     {showClear && <div className="home-media-preview-controls">
       <button type="button" disabled={busy} aria-label={t('removeMedia')} title={t('removeMedia')} onClick={onClear}><Icon name="close" size={18} /></button>
     </div>}
@@ -28,9 +28,8 @@ export default function ComposerMediaPreview({ items, busy, onClear, showClear =
       {visibleItems.map((item, index) => {
         const key = mediaKeys[index]
         const isVideo = item.file.type.startsWith('video/')
-        const letterboxed = layoutCount === 1 && singlePresentation.needsBackdrop
+        const letterboxed = layoutCount === 1 && singlePresentation.needsLetterbox
         return <figure className={`home-media-slot media-slot-${index + 1}${letterboxed ? ' letterboxed' : ''}`} key={key}>
-        {letterboxed && item.previewUrl && !isVideo && <img className="home-media-backdrop" src={item.previewUrl} alt="" aria-hidden="true" />}
         {item.previewUrl ? isVideo
           ? <video className="home-media-content" src={item.previewUrl} muted playsInline preload="metadata" onLoadedMetadata={(event) => rememberDimensions(key, event.currentTarget.videoWidth, event.currentTarget.videoHeight)} />
           : <img className="home-media-content" src={item.previewUrl} alt="" onLoad={(event) => rememberDimensions(key, event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)} />

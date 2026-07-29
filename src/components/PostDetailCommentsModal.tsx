@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { api } from '../api/client'
 import type { ContentEngagement, SocialComment } from '../api/social'
 import { socialApi } from '../api/social'
-import type { GatewayPost, GatewayTaggedUser } from '../api/gatewayTypes'
+import type { GatewayMedia, GatewayPost, GatewayTaggedUser, SharedPostSource } from '../api/gatewayTypes'
 import type { MediaUpload, UserSummary } from '../api/types'
 import { useI18n } from '../i18n'
 import { relativeTime } from '../lib/format'
@@ -100,11 +100,12 @@ export interface PostDetailCommentsModalProps {
   onShare: () => void
   onClose: () => void
   onNavigate?: (path: string) => void
+  onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void
   onCommentCreated: () => void
   variant?: 'modal' | 'photo-sidebar'
 }
 
-export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, likeBusy, canShare, onToggleLike, onShare, onClose, onNavigate, onCommentCreated, variant = 'modal' }: PostDetailCommentsModalProps) {
+export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, likeBusy, canShare, onToggleLike, onShare, onClose, onNavigate, onOpenImage, onCommentCreated, variant = 'modal' }: PostDetailCommentsModalProps) {
   const { t, locale } = useI18n()
   const [comments, setComments] = useState<SocialComment[]>([])
   const [replyPages, setReplyPages] = useState<Record<string, ReplyPageState>>({})
@@ -479,7 +480,11 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
             </div>
             {comment.content && <ExpandableCommentContent content={comment.content} mentions={comment.mentions} onNavigate={onNavigate} />}
           </div>
-          {comment.media && <div className="comment-media"><img src={comment.media.url} alt="" /></div>}
+          {comment.media && <div className={`comment-media media-type-${comment.media.type}`}>{comment.media.type === 1
+            ? <video src={comment.media.url} controls preload="metadata" />
+            : comment.media.type === 2
+              ? <audio src={comment.media.url} controls preload="metadata" />
+              : <img src={comment.media.url} alt="" />}</div>}
           <div className="comment-meta">
             <button type="button" className={`comment-like-action${comment.viewerHasLiked ? ' active' : ''}`} aria-label={t('like')} aria-pressed={comment.viewerHasLiked} disabled={busyCommentId === comment.id} onClick={() => void toggleCommentLike(comment)}><Icon name={comment.viewerHasLiked ? 'like' : 'likeOutline'} size={15} /></button>
             <button type="button" className={`comment-reply-action${isReplyTarget ? ' active' : ''}`} aria-pressed={isReplyTarget} onClick={() => startReply(comment)}>{t('reply')}</button>
@@ -533,7 +538,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   const showEmptyComments = !loading && comments.length === 0
 
   const discussionScroll = <div className="content-thread-scroll">
-    {post && <ThreadPostPreview post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onHidden={onClose} hideMedia={variant === 'photo-sidebar'} />}
+    {post && <ThreadPostPreview post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenImage={onOpenImage} onHidden={onClose} hideMedia={variant === 'photo-sidebar'} />}
     {post && <div className={`content-actions-wrap thread-post-engagement${showEngagementSummary ? '' : ' no-summary'}${post.__typename === 'FeedPostDetail' && post.sharedSource ? ' has-shared-source' : ''}`}>
       {showEngagementSummary && <div className="content-engagement-summary">
         {showLikeCount && <span className="content-like-summary"><Icon name="like" size={15} />{engagement.likeCount}</span>}
@@ -601,7 +606,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   </>
 }
 
-function ThreadPostPreview({ post, locale, viewerId, onNavigate, onHidden, hideMedia = false }: { post: GatewayPost; locale: string; viewerId: string; onNavigate?: (path: string) => void; onHidden: () => void; hideMedia?: boolean }) {
+function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, onHidden, hideMedia = false }: { post: GatewayPost; locale: string; viewerId: string; onNavigate?: (path: string) => void; onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void; onHidden: () => void; hideMedia?: boolean }) {
   const { t } = useI18n()
   const timestamp = formatPostTimestamp(post.create, locale)
   const isGroup = post.__typename === 'GroupPostDetail'
@@ -630,9 +635,30 @@ function ThreadPostPreview({ post, locale, viewerId, onNavigate, onHidden, hideM
       <PostOptionsMenu post={post} viewerId={viewerId} owned={viewerId === post.author.id} onPostHidden={onHidden} />
     </header>
     {decodedContent.text && <p className={`gateway-post-content${postBackground ? ' has-background' : ''}`} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={post.mentions} onNavigate={onNavigate} /></p>}
-    {!hideMedia && <PostMediaGallery media={post.media} />}
-    {!hideMedia && post.__typename === 'FeedPostDetail' && post.sharedSource && <SharedPostSourceCard source={post.sharedSource} locale={locale} onNavigate={onNavigate} />}
+    {!hideMedia && <PostMediaGallery media={post.media} preferredAspectRatio={post.__typename === 'ReelDetail' ? post.aspectRatio : null} focalPointX={post.__typename === 'ReelDetail' ? post.focalPointX : null} focalPointY={post.__typename === 'ReelDetail' ? post.focalPointY : null} onOpenImage={onOpenImage && post.__typename !== 'ReelDetail' ? (media, index, initialPlaybackTime) => onOpenImage(post, media, index, initialPlaybackTime) : undefined} />}
+    {!hideMedia && post.__typename === 'FeedPostDetail' && post.sharedSource && <SharedPostSourceCard source={post.sharedSource} locale={locale} onNavigate={onNavigate} onOpenImage={onOpenImage ? (source, media, index, initialPlaybackTime) => onOpenImage(sharedSourceAsPost(source, post), media, index, initialPlaybackTime) : undefined} />}
   </article>
+}
+
+function sharedSourceAsPost(source: SharedPostSource, parent: GatewayPost): GatewayPost {
+  return {
+    __typename: 'FeedPostDetail',
+    id: source.id,
+    type: source.type ?? 1,
+    content: source.content ?? '',
+    privacy: source.privacy ?? 0,
+    create: source.create ?? parent.create,
+    author: {
+      id: source.author?.id ?? parent.author.id,
+      name: source.author?.name ?? parent.author.name,
+      avatar: source.author?.avatar ?? parent.author.avatar,
+      isVerified: source.author?.isVerified ?? false,
+    },
+    media: source.media,
+    mentions: source.mentions,
+    taggedUsers: [],
+    sharedSource: null,
+  }
 }
 
 function ThreadTaggedUsers({ users, onNavigate }: { users: GatewayTaggedUser[]; onNavigate?: (path: string) => void }) {

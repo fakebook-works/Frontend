@@ -51,20 +51,130 @@ describe('PostPhotoViewer', () => {
 
   afterEach(() => cleanup())
 
-  it('opens the requested image, navigates only among photos and keeps comments attached to the post', async () => {
+  it('opens the requested image, loops through post media and keeps comments attached to the post', async () => {
     const onClose = vi.fn()
     render(<PostPhotoViewer viewerId="viewer-1" contentId="post-1" initialMediaId="photo-b" initialPost={post} onClose={onClose} />)
 
     await waitFor(() => expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-b.jpg'))
     expect(screen.getByTestId('photo-discussion')).toHaveAttribute('data-target-id', 'post-1')
     expect(screen.getByTestId('photo-discussion')).toHaveAttribute('data-variant', 'photo-sidebar')
-    expect(screen.queryByRole('button', { name: 'nextPhoto' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'previousPhoto' }))
+    expect(screen.getByRole('button', { name: 'nextPhoto' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'nextPhoto' }))
     expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-a.jpg')
+    fireEvent.click(screen.getByRole('button', { name: 'previousPhoto' }))
+    expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-b.jpg')
     expect(screen.getByRole('button', { name: 'nextPhoto' })).toBeInTheDocument()
     expect(apiMocks.postDetail).toHaveBeenCalledTimes(1)
     expect(document.body).toHaveClass('post-photo-viewer-open', 'content-detail-open')
 
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('loops across feed posts, switches the discussion owner and excludes Reel media', async () => {
+    const secondPost: GatewayPost = {
+      ...post,
+      id: 'post-2',
+      content: 'Second photo post',
+      author: { id: 'author-2', name: 'Second Author', avatar: '', isVerified: false },
+      media: [{ id: 'photo-c', type: 0, url: '/photo-c.jpg' }],
+    }
+    const reel = {
+      ...post,
+      __typename: 'ReelDetail' as const,
+      id: 'reel-1',
+      media: [{ id: 'reel-video', type: 1, url: '/reel.mp4' }],
+    } as GatewayPost
+    const entries = [
+      ...post.media.map((media) => ({ post, media })),
+      { post: secondPost, media: secondPost.media[0] },
+      { post: reel, media: reel.media[0] },
+    ]
+
+    render(<PostPhotoViewer viewerId="viewer-1" contentId="post-1" initialMediaId="photo-b" initialPost={post} mediaEntries={entries} onClose={vi.fn()} />)
+
+    await waitFor(() => expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-b.jpg'))
+    expect(screen.getByTestId('photo-discussion')).toHaveAttribute('data-target-id', 'post-1')
+    fireEvent.click(screen.getByRole('button', { name: 'nextPhoto' }))
+    await waitFor(() => expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-c.jpg'))
+    expect(screen.getByTestId('photo-discussion')).toHaveAttribute('data-target-id', 'post-2')
+    fireEvent.click(screen.getByRole('button', { name: 'nextPhoto' }))
+    expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-a.jpg')
+    fireEvent.click(screen.getByRole('button', { name: 'previousPhoto' }))
+    expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-c.jpg')
+    expect(document.querySelector('video[src="/reel.mp4"]')).not.toBeInTheDocument()
+    expect(apiMocks.postDetail).not.toHaveBeenCalled()
+  })
+
+  it('renders an unlinked profile picture without inventing a post discussion', async () => {
+    render(<PostPhotoViewer
+      viewerId="viewer-1"
+      contentId="profile-avatar-author-1"
+      initialMediaId="standalone-avatar"
+      mediaEntries={[{ post: null, media: { id: 'standalone-avatar', type: 0, url: '/standalone-avatar.jpg' } }]}
+      onClose={vi.fn()}
+    />)
+
+    await waitFor(() => expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/standalone-avatar.jpg'))
+    expect(document.querySelector('.post-photo-viewer')).toHaveClass('no-sidebar')
+    expect(screen.queryByTestId('photo-discussion')).not.toBeInTheDocument()
+    expect(socialMocks.getContentEngagement).not.toHaveBeenCalled()
+  })
+
+  it('opens a post video at the feed playback position and uses the player for real fullscreen', async () => {
+    render(<PostPhotoViewer viewerId="viewer-1" contentId="post-1" initialMediaId="video-a" initialPlaybackTime={42.5} initialPost={post} onClose={vi.fn()} />)
+
+    await waitFor(() => expect(document.querySelector('.post-photo-viewer-video video')).toBeInTheDocument())
+    const video = document.querySelector<HTMLVideoElement>('.post-photo-viewer-video video')!
+    Object.defineProperties(video, {
+      duration: { configurable: true, value: 120 },
+      videoWidth: { configurable: true, value: 1920 },
+      videoHeight: { configurable: true, value: 1080 },
+    })
+    fireEvent.loadedMetadata(video)
+    expect(video.currentTime).toBe(42.5)
+    expect(screen.queryByRole('button', { name: 'storyZoomIn' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'storyZoomOut' })).not.toBeInTheDocument()
+
+    const player = document.querySelector<HTMLElement>('.post-photo-viewer-video .post-video-player')!
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(player, 'requestFullscreen', { configurable: true, value: requestFullscreen })
+    fireEvent.click(screen.getByRole('button', { name: 'videoFullscreen' }))
+    expect(requestFullscreen).toHaveBeenCalledTimes(1)
+  })
+
+  it('zooms from a fixed minimum and exits fullscreen before closing the viewer', async () => {
+    const onClose = vi.fn()
+    render(<PostPhotoViewer viewerId="viewer-1" contentId="post-1" initialMediaId="photo-a" initialPost={post} onClose={onClose} />)
+
+    await waitFor(() => expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-a.jpg'))
+    const zoomOut = screen.getByRole('button', { name: 'storyZoomOut' })
+    expect(zoomOut).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'storyZoomIn' }))
+    expect(zoomOut).toBeEnabled()
+    const image = document.querySelector<HTMLImageElement>('.post-photo-viewer-image')!
+    const stage = document.querySelector<HTMLElement>('.post-photo-viewer-stage')!
+    expect(image).toHaveStyle({ transform: 'translate3d(0px, 0px, 0) scale(1.5)' })
+    Object.defineProperties(stage, { clientWidth: { configurable: true, value: 400 }, clientHeight: { configurable: true, value: 300 } })
+    Object.defineProperties(image, {
+      clientWidth: { configurable: true, value: 400 },
+      clientHeight: { configurable: true, value: 300 },
+      setPointerCapture: { configurable: true, value: vi.fn() },
+      hasPointerCapture: { configurable: true, value: vi.fn(() => false) },
+    })
+    fireEvent.pointerDown(image, { pointerId: 7, button: 0, clientX: 100, clientY: 100 })
+    fireEvent.pointerMove(image, { pointerId: 7, clientX: 140, clientY: 120 })
+    expect(image).toHaveStyle({ transform: 'translate3d(40px, 20px, 0) scale(1.5)' })
+    fireEvent.pointerUp(image, { pointerId: 7 })
+
+    const fullscreen = screen.getByRole('button', { name: 'videoFullscreen' })
+    fireEvent.click(fullscreen)
+    expect(fullscreen).toHaveAttribute('aria-pressed', 'true')
+    expect(document.body).toHaveClass('post-photo-viewer-fullscreen')
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(document.body).not.toHaveClass('post-photo-viewer-fullscreen')
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
   })

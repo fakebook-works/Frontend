@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MessengerMessageDto, UserSummary } from '../../api/types'
-import { encodeMessengerLike, formatPresence, formatTime, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, messengerMessagePreview, shouldShowAvatar, shouldShowTimestamp } from './helpers'
+import { encodeMessengerLike, formatPresence, formatTime, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, messengerMessagePreview, shouldShowAvatar, shouldShowTimestamp, type MessageVisualBreaks } from './helpers'
 
 const alice: UserSummary = { id: '1', username: 'alice', displayName: 'Alice', avatarUrl: null }
 const bob: UserSummary = { id: '2', username: 'bob', displayName: 'Bob', avatarUrl: null }
@@ -9,6 +9,7 @@ function message(id: string, sender: UserSummary, minute: number): MessengerMess
   return {
     id,
     conversationId: 'conversation-1',
+    sequence: String(minute + 1),
     sender,
     body: id,
     createdAt: new Date(Date.UTC(2026, 6, 18, 12, minute)).toISOString(),
@@ -17,18 +18,55 @@ function message(id: string, sender: UserSummary, minute: number): MessengerMess
   }
 }
 
+const none: MessageVisualBreaks = {
+  beforeMessageIds: new Set(),
+  afterMessageIds: new Set(),
+}
+
 describe('message grouping', () => {
+  const messages = [message('a', alice, 0), message('b', alice, 1), message('c', alice, 2)]
+
   it('formats message clocks with a 24-hour value', () => {
     const today = new Date()
     today.setHours(13, 5, 0, 0)
     expect(formatTime(today.toISOString())).toBe('13:05')
   })
 
-  it('groups consecutive messages from one sender and shows the avatar only at the end', () => {
-    const messages = [message('one', alice, 0), message('two', alice, 1), message('three', alice, 2)]
+  it('groups consecutive messages normally when no receipt or edit marker interrupts them', () => {
+    expect(messages.map((_, index) => messageGroupPosition(messages, index, none)))
+      .toEqual(['start', 'middle', 'end'])
+    expect(shouldShowAvatar(messages, 0, none)).toBe(false)
+    expect(shouldShowAvatar(messages, 2, none)).toBe(true)
+  })
 
-    expect(messages.map((_, index) => messageGroupPosition(messages, index))).toEqual(['start', 'middle', 'end'])
-    expect(messages.map((_, index) => shouldShowAvatar(messages, index))).toEqual([false, false, true])
+  it('splits a group after the message that renders a read receipt', () => {
+    const receiptAfterFirst: MessageVisualBreaks = {
+      beforeMessageIds: new Set(),
+      afterMessageIds: new Set(['a']),
+    }
+
+    expect(messages.map((_, index) => messageGroupPosition(messages, index, receiptAfterFirst)))
+      .toEqual(['single', 'start', 'end'])
+  })
+
+  it('regroups automatically after the receipt moves to the newest message', () => {
+    const receiptAfterNewest: MessageVisualBreaks = {
+      beforeMessageIds: new Set(),
+      afterMessageIds: new Set(['c']),
+    }
+
+    expect(messages.map((_, index) => messageGroupPosition(messages, index, receiptAfterNewest)))
+      .toEqual(['start', 'middle', 'end'])
+  })
+
+  it('starts a fresh group for a message carrying an edit marker', () => {
+    const editBeforeSecond: MessageVisualBreaks = {
+      beforeMessageIds: new Set(['b']),
+      afterMessageIds: new Set(),
+    }
+
+    expect(messages.map((_, index) => messageGroupPosition(messages, index, editBeforeSecond)))
+      .toEqual(['single', 'start', 'end'])
   })
 
   it('starts a new bubble group when the sender changes or the time gap is too large', () => {
@@ -41,9 +79,9 @@ describe('message grouping', () => {
   })
 
   it('shows a centered timestamp after a long pause', () => {
-    const messages = [message('one', alice, 0), message('two', alice, 16)]
-    expect(shouldShowTimestamp(messages, 0)).toBe(true)
-    expect(shouldShowTimestamp(messages, 1)).toBe(true)
+    const paused = [message('one', alice, 0), message('two', alice, 16)]
+    expect(shouldShowTimestamp(paused, 0)).toBe(true)
+    expect(shouldShowTimestamp(paused, 1)).toBe(true)
   })
 })
 

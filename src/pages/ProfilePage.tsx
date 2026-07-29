@@ -1,22 +1,31 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api/client'
 import type { GatewayPost, GatewayStory, StoryBucket } from '../api/gatewayTypes'
 import type { MediaUpload } from '../api/types'
 import { socialApi, type ProfileRelationshipState, type SocialContent, type SocialGroup, type SocialPhoto, type SocialProfile } from '../api/social'
 import { searchApi } from '../api/search'
 import { Avatar } from '../components/Avatar'
-import { ImageCropModal } from '../components/ImageCropModal'
+import { AnchoredMenuPortal } from '../components/AnchoredMenuPortal'
 import { Icon } from '../components/Icon'
+import { MentionContent } from '../components/MentionContent'
+import { PostPrivacyIcon, type PostPrivacy } from '../components/PostPrivacyIcon'
 import { SharedStoryMiniPreview } from '../components/SharedStoryMiniPreview'
 import { VerifiedBadge } from '../components/VerifiedBadge'
+import type { PostPhotoViewerMediaEntry } from '../components/PostPhotoViewer'
 import { useI18n } from '../i18n'
+import { cropImageFile } from '../lib/imageCrop'
+import { forgetOwnUnseenStory, reconcileOwnUnseenStories, rememberOwnUnseenStory } from '../lib/ownStoryUnseen'
 import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
-import { readDefaultPostPrivacy } from '../lib/privacy'
+import { formatPostTimestamp } from '../lib/postTime'
 import { decodeStoryContent } from '../lib/storyContent'
+import { useInlineImageCrop } from '../lib/useInlineImageCrop'
 import { GatewayPostCard, PostComposer } from './GatewayHomePage'
 
 const StoryViewerPage = lazy(() => import('../components/StoryViewerPage').then((module) => ({ default: module.StoryViewerPage })))
 const StoryCreatorModal = lazy(() => import('../components/StoryCreatorModal').then((module) => ({ default: module.StoryCreatorModal })))
+const PostPhotoViewer = lazy(() => import('../components/PostPhotoViewer').then((module) => ({ default: module.PostPhotoViewer })))
+const ContentDetailOverlay = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentDetailOverlay })))
 
 const EMPTY_RELATIONSHIP: ProfileRelationshipState = {
   friendship: 'none',
@@ -29,6 +38,134 @@ const EMPTY_RELATIONSHIP: ProfileRelationshipState = {
 type ProfileTab = 'posts' | 'about' | 'friends' | 'photos' | 'reels' | 'groups'
 type ProfilePostFilter = 'all' | 'media' | 'text'
 type ProfilePostView = 'list' | 'grid'
+
+interface CoverEditTarget {
+  file: File
+  fromExisting: boolean
+  previewUrl: string
+}
+
+interface CoverPreviewPlacement {
+  width: number
+  height: number
+  shiftX: number
+  shiftY: number
+  maxShiftX: number
+  maxShiftY: number
+}
+
+interface ProfileMediaViewerState {
+  contentId: string
+  mediaId: string
+  mediaUrl: string
+  initialPost?: GatewayPost
+  entries: PostPhotoViewerMediaEntry[]
+}
+
+interface ProfilePostMonthGroup {
+  id: string
+  label: string
+  posts: GatewayPost[]
+}
+
+interface ProfileGridMediaSource {
+  contentId: string
+  media: GatewayPost['media']
+}
+
+function normalizePostPrivacy(value: number): PostPrivacy {
+  return Math.min(3, Math.max(0, Math.trunc(Number(value) || 0))) as PostPrivacy
+}
+
+function profileGridMediaSource(post: GatewayPost): ProfileGridMediaSource {
+  if (post.media.length > 0) return { contentId: post.id, media: post.media }
+  if (post.__typename === 'FeedPostDetail' && post.sharedSource?.isAvailable && post.sharedSource.media.length > 0) {
+    return { contentId: post.sharedSource.id, media: post.sharedSource.media }
+  }
+  return { contentId: post.id, media: [] }
+}
+
+function groupProfilePostsByMonth(posts: GatewayPost[], locale: string): ProfilePostMonthGroup[] {
+  const groups = new Map<string, ProfilePostMonthGroup>()
+  for (const post of posts) {
+    const created = new Date(post.create)
+    const valid = !Number.isNaN(created.getTime())
+    const id = valid ? `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, '0')}` : 'unknown'
+    let group = groups.get(id)
+    if (!group) {
+      const formatted = valid
+        ? new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(created)
+        : post.create
+      group = {
+        id,
+        label: formatted ? `${formatted.charAt(0).toLocaleUpperCase(locale)}${formatted.slice(1)}` : '',
+        posts: [],
+      }
+      groups.set(id, group)
+    }
+    group.posts.push(post)
+  }
+  return [...groups.values()]
+}
+
+async function loadAllProfileFeedPosts(userId: string): Promise<GatewayPost[]> {
+  const posts: GatewayPost[] = []
+  let cursor: string | null = null
+  for (let pageIndex = 0; pageIndex < 20; pageIndex++) {
+    const page = await socialApi.getProfilePosts(userId, 40, cursor)
+    posts.push(...page.items.filter((post) => post.__typename !== 'ReelDetail'))
+    if (!page.hasNextPage || !page.endCursor) break
+    cursor = page.endCursor
+  }
+  return [...new Map(posts.map((post) => [post.id, post])).values()]
+}
+
+function buildProfileMediaEntries(posts: GatewayPost[]): PostPhotoViewerMediaEntry[] {
+  return posts.flatMap((post) => post.__typename === 'ReelDetail'
+    ? []
+    : post.media.filter((media) => media.type === 0 || media.type === 1).map((media) => ({ post, media })))
+}
+
+function profilePhotoPreviewCornerClass(index: number, total: number) {
+  const lastIndex = total - 1
+  const lastRowStart = Math.floor(lastIndex / 3) * 3
+  const classes: string[] = []
+  if (index === 0) classes.push('round-top-left')
+  if (index === Math.min(2, lastIndex)) classes.push('round-top-right')
+  if (index === lastRowStart) classes.push('round-bottom-left')
+  if (index === lastIndex) classes.push('round-bottom-right')
+  if (total % 3 !== 0 && index === lastIndex) classes.push('round-trailing-right')
+  return classes.join(' ')
+}
+
+function clampCoverValue(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function getCoverPreviewPlacement(
+  imageWidth: number,
+  imageHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  zoom: number,
+  offsetX: number,
+  offsetY: number,
+): CoverPreviewPlacement | null {
+  if (imageWidth <= 0 || imageHeight <= 0 || viewportWidth <= 0 || viewportHeight <= 0) return null
+  const scale = Math.max(viewportWidth / imageWidth, viewportHeight / imageHeight) * zoom
+  const width = imageWidth * scale
+  const height = imageHeight * scale
+  const maxShiftX = Math.max(0, (width - viewportWidth) / 2)
+  const maxShiftY = Math.max(0, (height - viewportHeight) / 2)
+  return {
+    width,
+    height,
+    shiftX: -(clampCoverValue(offsetX, -100, 100) / 100) * maxShiftX,
+    shiftY: -(clampCoverValue(offsetY, -100, 100) / 100) * maxShiftY,
+    maxShiftX,
+    maxShiftY,
+  }
+}
 
 function storyMedia(story: GatewayStory) {
   return story.__typename === 'NormalStory' ? story.media[0] ?? null : story.sharedSource.media
@@ -88,6 +225,41 @@ function getProfileZodiac(value: string | null): ProfileZodiac | null {
   return signs[day <= lastDay ? before : after]
 }
 
+function ProfileSkeletonBlock({ className = '' }: { className?: string }) {
+  return <span className={`profile-skeleton-block${className ? ` ${className}` : ''}`} aria-hidden="true" />
+}
+
+function ProfilePageSkeleton() {
+  const { t } = useI18n()
+  return <main className="profile-destination self-profile-page profile-page-skeleton" aria-busy="true" aria-label={t('loading')}>
+    <section className="self-profile-cover-card profile-skeleton-hero">
+      <ProfileSkeletonBlock className="profile-skeleton-cover" />
+      <div className="profile-skeleton-identity">
+        <ProfileSkeletonBlock className="profile-skeleton-avatar" />
+        <div className="profile-skeleton-title-lines">
+          <ProfileSkeletonBlock className="profile-skeleton-name" />
+          <ProfileSkeletonBlock className="profile-skeleton-meta" />
+          <ProfileSkeletonBlock className="profile-skeleton-meta short" />
+        </div>
+        <div className="profile-skeleton-actions"><ProfileSkeletonBlock /><ProfileSkeletonBlock /><ProfileSkeletonBlock /></div>
+      </div>
+      <div className="profile-skeleton-tabs">{Array.from({ length: 7 }, (_, index) => <ProfileSkeletonBlock key={index} />)}</div>
+    </section>
+    <div className="profile-destination-grid self-profile-destination-grid tab-posts profile-skeleton-content">
+      <aside className="self-profile-left-column profile-skeleton-left">
+        <section className="card profile-skeleton-side-card"><ProfileSkeletonBlock className="heading" />{Array.from({ length: 5 }, (_, index) => <ProfileSkeletonBlock className="line" key={index} />)}</section>
+        <section className="card profile-skeleton-side-card compact"><ProfileSkeletonBlock className="heading" /><ProfileSkeletonBlock className="feature" /></section>
+        <section className="card profile-skeleton-side-card"><ProfileSkeletonBlock className="heading" /><div className="profile-skeleton-square-grid">{Array.from({ length: 6 }, (_, index) => <ProfileSkeletonBlock key={index} />)}</div></section>
+      </aside>
+      <section className="profile-post-list profile-skeleton-posts">
+        <section className="card profile-skeleton-composer"><ProfileSkeletonBlock className="avatar" /><ProfileSkeletonBlock className="input" /><div>{Array.from({ length: 3 }, (_, index) => <ProfileSkeletonBlock key={index} />)}</div></section>
+        <section className="card profile-skeleton-tools"><ProfileSkeletonBlock className="title" /><div><ProfileSkeletonBlock /><ProfileSkeletonBlock /></div><footer><ProfileSkeletonBlock /><ProfileSkeletonBlock /></footer></section>
+        {Array.from({ length: 2 }, (_, index) => <section className="card profile-skeleton-post" key={index}><header><ProfileSkeletonBlock className="avatar" /><div><ProfileSkeletonBlock /><ProfileSkeletonBlock /></div></header><ProfileSkeletonBlock className="line" /><ProfileSkeletonBlock className="media" /></section>)}
+      </section>
+    </div>
+  </main>
+}
+
 export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit, onNavigate, onMessage }: { profile: SocialProfile | null; loading: boolean; error: string | null; canEdit: boolean; viewerId: string; onEdit: () => void; onNavigate: (path: string) => void; onMessage: (profileId: string) => Promise<void> }) {
   const { t, locale } = useI18n()
   const [posts, setPosts] = useState<GatewayPost[]>([])
@@ -105,8 +277,11 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
   const [groupsLoaded, setGroupsLoaded] = useState(false)
   const [groupsUnavailable, setGroupsUnavailable] = useState(false)
   const [myStories, setMyStories] = useState<StoryBucket | null>(null)
+  const [homeStoryBuckets, setHomeStoryBuckets] = useState<StoryBucket[]>([])
   const [storyCreatorOpen, setStoryCreatorOpen] = useState(false)
   const [storyViewerOpen, setStoryViewerOpen] = useState(false)
+  const [profileMediaViewer, setProfileMediaViewer] = useState<ProfileMediaViewerState | null>(null)
+  const [profileDetailPostId, setProfileDetailPostId] = useState<string | null>(null)
   const [postFilter, setPostFilter] = useState<ProfilePostFilter>('all')
   const [postView, setPostView] = useState<ProfilePostView>('list')
   const [manageMode, setManageMode] = useState(false)
@@ -119,9 +294,32 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
   const [coverCandidates, setCoverCandidates] = useState<SocialPhoto[]>([])
   const [coverCandidatesLoading, setCoverCandidatesLoading] = useState(false)
   const [coverPickerError, setCoverPickerError] = useState<string | null>(null)
-  const [coverCropTarget, setCoverCropTarget] = useState<{ file: File; fromExisting: boolean } | null>(null)
+  const [coverCropTarget, setCoverCropTarget] = useState<CoverEditTarget | null>(null)
+  const [coverZoom, setCoverZoom] = useState(1)
+  const [coverOffset, setCoverOffset] = useState({ x: 0, y: 0 })
+  const [coverImageSize, setCoverImageSize] = useState({ width: 0, height: 0 })
+  const [coverViewportSize, setCoverViewportSize] = useState({ width: 0, height: 0 })
+  const [coverSaving, setCoverSaving] = useState(false)
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
+  const [avatarViewMenuOpen, setAvatarViewMenuOpen] = useState(false)
+  const [avatarViewBusy, setAvatarViewBusy] = useState(false)
+  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false)
+  const [avatarCandidates, setAvatarCandidates] = useState<SocialPhoto[]>([])
+  const [avatarCandidatesLoading, setAvatarCandidatesLoading] = useState(false)
+  const [avatarPickerError, setAvatarPickerError] = useState<string | null>(null)
   const coverActionRef = useRef<HTMLDivElement>(null)
   const coverUploadInputRef = useRef<HTMLInputElement>(null)
+  const coverPickerRequestRef = useRef(0)
+  const coverPreviewRef = useRef<HTMLDivElement>(null)
+  const coverDragRef = useRef<{ pointerId: number; clientX: number; clientY: number; offsetX: number; offsetY: number } | null>(null)
+  const coverSavePendingRef = useRef(false)
+  const avatarActionRef = useRef<HTMLDivElement>(null)
+  const avatarViewMenuRef = useRef<HTMLDivElement>(null)
+  const avatarUploadInputRef = useRef<HTMLInputElement>(null)
+  const avatarPickerRequestRef = useRef(0)
+  const avatarSavePendingRef = useRef(false)
+  const locallyViewedStoryIdsRef = useRef<Set<string>>(new Set())
+  const avatarEditor = useInlineImageCrop(profile?.id)
   const profilePageRef = useRef<HTMLElement>(null)
   const profileTabsRef = useRef<HTMLElement>(null)
   const profileFirstTabRef = useRef<HTMLButtonElement>(null)
@@ -129,19 +327,27 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
   const profileContentGridRef = useRef<HTMLDivElement>(null)
   const profileInfoColumnRef = useRef<HTMLElement>(null)
   const profilePostColumnRef = useRef<HTMLElement>(null)
+  const coverPreviewPlacement = useMemo(() => getCoverPreviewPlacement(
+    coverImageSize.width,
+    coverImageSize.height,
+    coverViewportSize.width,
+    coverViewportSize.height,
+    coverZoom,
+    coverOffset.x,
+    coverOffset.y,
+  ), [coverImageSize, coverOffset, coverViewportSize, coverZoom])
 
   useEffect(() => {
-    if (!canEdit) return
     document.documentElement.classList.add('profile-page-scroll')
     document.body.classList.add('profile-page-scroll')
     return () => {
       document.documentElement.classList.remove('profile-page-scroll')
       document.body.classList.remove('profile-page-scroll')
     }
-  }, [canEdit])
+  }, [])
 
   useLayoutEffect(() => {
-    if (!canEdit || loading || !profile) return
+    if (loading || !profile) return
     const tabs = profileTabsRef.current
     const firstTab = profileFirstTabRef.current
     const groupsTab = profileGroupsTabRef.current
@@ -181,10 +387,10 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
       observer?.disconnect()
       grid.style.removeProperty('--self-profile-left-column-width')
     }
-  }, [canEdit, loading, locale, profile])
+  }, [loading, locale, profile])
 
   useEffect(() => {
-    if (!canEdit || tab !== 'posts') return
+    if (tab !== 'posts') return
     const page = profilePageRef.current
     const grid = profileContentGridRef.current
     const infoColumn = profileInfoColumnRef.current
@@ -320,7 +526,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
       page.removeEventListener('wheel', routeWheel)
       window.removeEventListener('resize', handleResize)
     }
-  }, [canEdit, profile?.id, tab])
+  }, [profile?.id, tab])
 
   useEffect(() => {
     setTab('posts')
@@ -328,34 +534,69 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
     setPostView('list')
     setManageMode(false)
     setProfileFriends([])
+    setProfileFriendMutualCounts({})
     setPhotos([])
     setProfileGroups([])
     setGroupsLoading(false)
     setGroupsLoaded(false)
     setGroupsUnavailable(false)
     setMyStories(null)
+    setHomeStoryBuckets([])
+    setStoryViewerOpen(false)
+    setProfileMediaViewer(null)
+    setProfileDetailPostId(null)
     setCoverMenuOpen(false)
     setCoverPickerOpen(false)
     setCoverCandidates([])
     setCoverPickerError(null)
     setCoverCropTarget(null)
+    setCoverZoom(1)
+    setCoverOffset({ x: 0, y: 0 })
+    setCoverImageSize({ width: 0, height: 0 })
+    setCoverSaving(false)
+    setAvatarMenuOpen(false)
+    setAvatarViewMenuOpen(false)
+    setAvatarViewBusy(false)
+    setAvatarPickerOpen(false)
+    setAvatarCandidates([])
+    setAvatarPickerError(null)
+    coverPickerRequestRef.current += 1
+    avatarPickerRequestRef.current += 1
+    locallyViewedStoryIdsRef.current = new Set()
   }, [profile?.id])
 
   useEffect(() => {
-    if (!coverMenuOpen) return
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      if (!coverActionRef.current?.contains(event.target as Node)) setCoverMenuOpen(false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setCoverMenuOpen(false)
-    }
-    document.addEventListener('mousedown', closeOnOutsideClick)
-    document.addEventListener('keydown', closeOnEscape)
+    const previewUrl = coverCropTarget?.previewUrl
     return () => {
-      document.removeEventListener('mousedown', closeOnOutsideClick)
-      document.removeEventListener('keydown', closeOnEscape)
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
     }
-  }, [coverMenuOpen])
+  }, [coverCropTarget?.previewUrl])
+
+  useLayoutEffect(() => {
+    if (!coverCropTarget || !coverPreviewRef.current) return
+    const preview = coverPreviewRef.current
+    const updateViewport = () => {
+      const bounds = preview.getBoundingClientRect()
+      setCoverViewportSize({ width: bounds.width, height: bounds.height })
+    }
+    updateViewport()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateViewport)
+      return () => window.removeEventListener('resize', updateViewport)
+    }
+    const observer = new ResizeObserver(updateViewport)
+    observer.observe(preview)
+    return () => observer.disconnect()
+  }, [coverCropTarget])
+
+  useEffect(() => {
+    if (!coverCropTarget || coverSaving) return
+    const cancelOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCoverCropTarget(null)
+    }
+    document.addEventListener('keydown', cancelOnEscape)
+    return () => document.removeEventListener('keydown', cancelOnEscape)
+  }, [coverCropTarget, coverSaving])
 
   useEffect(() => {
     if (!profile?.id) return
@@ -379,17 +620,20 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
   }, [canEdit, profile?.id, t, viewerId])
 
   useEffect(() => {
-    if (!profile?.id || !canEdit) return
+    if (!profile?.id) return
     let active = true
     setFriendsLoading(true)
     void (async () => {
       try {
-        const items = await socialApi.getFriendProfilesWithMutualCounts(profile.id, 100)
+        const items = canEdit
+          ? await socialApi.getFriendProfilesWithMutualCounts(profile.id, 100)
+          : await socialApi.getProfileFriends(profile.id, 100)
         if (!active) return
         setProfileFriends(items.map((item) => item.profile))
         setProfileFriendMutualCounts(Object.fromEntries(items.map((item) => [item.profile.id, item.mutualFriendCount])))
       } catch {
         try {
+          if (!canEdit) throw new Error('Target profile friend read failed')
           const fallbackProfiles = await socialApi.getRelationProfiles(profile.id, 0, 100)
           if (!active) return
           setProfileFriends(fallbackProfiles)
@@ -422,12 +666,18 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
   }, [profile?.id])
 
   useEffect(() => {
-    if (!canEdit || photos.length > 0) return
+    if (photos.length > 0) return
     void loadPhotos(null, false, 9)
-  }, [canEdit, loadPhotos, photos.length])
+  }, [loadPhotos, photos.length])
 
   useEffect(() => {
     if (tab !== 'groups' || !profile?.id || groupsLoaded) return
+    if (!canEdit) {
+      setProfileGroups([])
+      setGroupsUnavailable(false)
+      setGroupsLoaded(true)
+      return
+    }
     let active = true
     setGroupsLoading(true)
     setGroupsUnavailable(false)
@@ -442,7 +692,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
       setGroupsLoaded(true)
     }).finally(() => active && setGroupsLoading(false))
     return () => { active = false }
-  }, [groupsLoaded, profile?.id, tab])
+  }, [canEdit, groupsLoaded, profile?.id, tab])
 
   useEffect(() => {
     if (!canEdit || !profile?.id) {
@@ -450,15 +700,48 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
       return
     }
     let active = true
-    api.myStories(profile.id).then((bucket) => active && setMyStories(bucket)).catch(() => active && setMyStories(null))
+    api.myStories(profile.id).then((bucket) => {
+      if (!active) return
+      if (!bucket) {
+        reconcileOwnUnseenStories(profile.id, [])
+        setMyStories(null)
+        return
+      }
+      const locallyUnseen = reconcileOwnUnseenStories(profile.id, bucket.stories.map((story) => story.id))
+      const unseenCount = Math.max(Number(bucket.unseenCount ?? 0), locallyUnseen.size)
+      setMyStories({ ...bucket, hasUnseen: bucket.hasUnseen || unseenCount > 0, unseenCount })
+    }).catch(() => active && setMyStories(null))
     return () => { active = false }
   }, [canEdit, profile?.id])
+
+  useEffect(() => {
+    const canLoadStories = Boolean(profile?.id) && (canEdit || relationship.friendship === 'friend' || relationship.isFollowing)
+    if (!canLoadStories) {
+      setHomeStoryBuckets([])
+      return
+    }
+    let active = true
+    void (async () => {
+      const buckets: StoryBucket[] = []
+      let cursor: string | null = null
+      for (let pageIndex = 0; pageIndex < 20; pageIndex++) {
+        const page = await api.homeStories(viewerId, 50, cursor)
+        buckets.push(...page.items)
+        if (!page.hasNextPage || !page.endCursor) break
+        cursor = page.endCursor
+      }
+      if (!active) return
+      setHomeStoryBuckets([...new Map(buckets.map((bucket) => [bucket.author.id, bucket])).values()])
+    })().catch(() => { if (active) setHomeStoryBuckets([]) })
+    return () => { active = false }
+  }, [canEdit, profile?.id, relationship.friendship, relationship.isFollowing, viewerId])
 
   const filteredPosts = useMemo(() => posts.filter((post) => {
     const sharedMedia = post.__typename === 'FeedPostDetail' ? post.sharedSource?.media ?? [] : []
     const hasMedia = post.media.length > 0 || sharedMedia.length > 0
     return postFilter === 'all' || (postFilter === 'media' ? hasMedia : !hasMedia)
   }), [postFilter, posts])
+  const profilePostMonthGroups = useMemo(() => groupProfilePostsByMonth(filteredPosts, locale), [filteredPosts, locale])
 
   async function friendAction(action: 'send' | 'cancel' | 'accept' | 'reject' | 'unfriend') {
     if (!profile) return
@@ -541,66 +824,376 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
     }
   }
 
+  function startCoverEdit(file: File, fromExisting: boolean) {
+    if (avatarEditor.busy) return
+    coverPickerRequestRef.current += 1
+    avatarEditor.cancel()
+    setCoverMenuOpen(false)
+    setCoverPickerOpen(false)
+    setCoverZoom(1)
+    setCoverOffset({ x: 0, y: 0 })
+    setCoverImageSize({ width: 0, height: 0 })
+    setActionError(null)
+    setCoverCropTarget({ file, fromExisting, previewUrl: URL.createObjectURL(file) })
+  }
+
+  function cancelCoverEdit() {
+    if (coverSaving) return
+    coverDragRef.current = null
+    setCoverCropTarget(null)
+    setCoverZoom(1)
+    setCoverOffset({ x: 0, y: 0 })
+    setCoverImageSize({ width: 0, height: 0 })
+  }
+
+  function beginCoverDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (coverSaving) return
+    event.preventDefault()
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    coverDragRef.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      offsetX: coverOffset.x,
+      offsetY: coverOffset.y,
+    }
+    event.currentTarget.classList.add('dragging')
+  }
+
+  function moveCoverDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = coverDragRef.current
+    if (!drag || drag.pointerId !== event.pointerId || !coverPreviewPlacement) return
+    const deltaX = event.clientX - drag.clientX
+    const deltaY = event.clientY - drag.clientY
+    setCoverOffset({
+      x: coverPreviewPlacement.maxShiftX > .01
+        ? clampCoverValue(drag.offsetX - deltaX / coverPreviewPlacement.maxShiftX * 100, -100, 100)
+        : drag.offsetX,
+      y: coverPreviewPlacement.maxShiftY > .01
+        ? clampCoverValue(drag.offsetY - deltaY / coverPreviewPlacement.maxShiftY * 100, -100, 100)
+        : drag.offsetY,
+    })
+  }
+
+  function endCoverDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (coverDragRef.current?.pointerId !== event.pointerId) return
+    coverDragRef.current = null
+    event.currentTarget.classList.remove('dragging')
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  function moveCoverWithKeyboard(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (coverSaving || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return
+    event.preventDefault()
+    const amount = event.shiftKey ? 12 : 4
+    setCoverOffset((current) => ({
+      x: clampCoverValue(current.x + (event.key === 'ArrowLeft' ? amount : event.key === 'ArrowRight' ? -amount : 0), -100, 100),
+      y: clampCoverValue(current.y + (event.key === 'ArrowUp' ? amount : event.key === 'ArrowDown' ? -amount : 0), -100, 100),
+    }))
+  }
+
+  function changeCoverZoom(delta: number) {
+    setCoverZoom((current) => Math.round(clampCoverValue(current + delta, 1, 3) * 100) / 100)
+  }
+
+  function startAvatarEdit(file: File, fromExisting: boolean, source: { contentId: string; mediaId: string } | null = null) {
+    if (coverSaving) return
+    avatarPickerRequestRef.current += 1
+    cancelCoverEdit()
+    setAvatarMenuOpen(false)
+    setAvatarViewMenuOpen(false)
+    setAvatarPickerOpen(false)
+    setActionError(null)
+    avatarEditor.start(file, fromExisting, source)
+  }
+
+  async function openAvatarPicker() {
+    if (!profile) return
+    const requestId = ++avatarPickerRequestRef.current
+    setAvatarMenuOpen(false)
+    setAvatarViewMenuOpen(false)
+    setAvatarPickerOpen(true)
+    setAvatarCandidatesLoading(true)
+    setAvatarPickerError(null)
+    try {
+      const page = await socialApi.getMyFeedPhotoCandidates(60)
+      if (requestId !== avatarPickerRequestRef.current) return
+      setAvatarCandidates(page.items)
+    } catch {
+      if (requestId !== avatarPickerRequestRef.current) return
+      setAvatarCandidates([])
+      setAvatarPickerError(t('profileMediaLoadError'))
+    } finally {
+      if (requestId === avatarPickerRequestRef.current) setAvatarCandidatesLoading(false)
+    }
+  }
+
+  async function chooseExistingAvatar(photo: SocialPhoto) {
+    const requestId = ++avatarPickerRequestRef.current
+    setAvatarCandidatesLoading(true)
+    setAvatarPickerError(null)
+    try {
+      const response = await fetch(photo.media.url, { credentials: 'include' })
+      if (!response.ok) throw new Error('Could not fetch media')
+      const blob = await response.blob()
+      if (requestId !== avatarPickerRequestRef.current) return
+      const extension = blob.type.split('/')[1] || 'jpg'
+      startAvatarEdit(
+        new File([blob], `fakebook-avatar.${extension}`, { type: blob.type || 'image/jpeg' }),
+        true,
+        { contentId: photo.contentId, mediaId: photo.media.id },
+      )
+    } catch {
+      if (requestId === avatarPickerRequestRef.current) setAvatarPickerError(t('existingPhotoLoadError'))
+    } finally {
+      if (requestId === avatarPickerRequestRef.current) setAvatarCandidatesLoading(false)
+    }
+  }
+
+  async function openProfileAvatarViewer() {
+    if (!profile?.avatarUrl || avatarViewBusy) return
+    setAvatarViewMenuOpen(false)
+    setAvatarViewBusy(true)
+    const standaloneMedia = { id: `profile-avatar-${profile.id}`, type: 0, url: profile.avatarUrl }
+    const openStandalone = () => setProfileMediaViewer({
+      contentId: `profile-avatar-${profile.id}`,
+      mediaId: standaloneMedia.id,
+      mediaUrl: standaloneMedia.url,
+      entries: [{ post: null, media: standaloneMedia }],
+    })
+    try {
+      const source = await socialApi.getProfileAvatarSource(profile.id)
+      if (source) {
+        const detail = await api.postDetail(source.contentId)
+        const sourceMedia = detail?.__typename !== 'ReelDetail'
+          ? detail?.media.find((media) => media.id === source.mediaId && media.type === 0)
+          : null
+        if (detail && sourceMedia) {
+          const initialEntries = buildProfileMediaEntries([detail])
+          const selected = initialEntries.find((entry) => entry.media.id === source.mediaId)
+          if (!selected) {
+            openStandalone()
+            return
+          }
+          setProfileMediaViewer({
+            contentId: detail.id,
+            mediaId: selected.media.id,
+            mediaUrl: selected.media.url,
+            initialPost: detail,
+            entries: initialEntries,
+          })
+          void loadAllProfileFeedPosts(profile.id).then((feedPosts) => {
+            const entries = buildProfileMediaEntries(feedPosts)
+            setProfileMediaViewer((current) => current &&
+              current.contentId === detail.id &&
+              current.mediaId === selected.media.id
+              ? { ...current, entries: entries.length > 0 ? entries : current.entries }
+              : current)
+          }).catch(() => undefined)
+          return
+        }
+      }
+      openStandalone()
+    } catch {
+      openStandalone()
+    } finally {
+      setAvatarViewBusy(false)
+    }
+  }
+
+  async function openProfileMediaViewer(item: { contentId: string; mediaId: string; mediaUrl: string; mediaType: number }, suppliedEntries?: PostPhotoViewerMediaEntry[]) {
+    let entries = suppliedEntries ?? []
+    try {
+      if (entries.length === 0 && profile) entries = buildProfileMediaEntries(await loadAllProfileFeedPosts(profile.id))
+      let selected = entries.find((entry) => entry.media.id === item.mediaId || (entry.post?.id === item.contentId && entry.media.url === item.mediaUrl))
+      if (!selected) {
+        const detail = await api.postDetail(item.contentId)
+        if (detail && detail.__typename !== 'ReelDetail') {
+          const detailEntries = buildProfileMediaEntries([detail])
+          entries = [...entries.filter((entry) => entry.post?.id !== detail.id), ...detailEntries]
+          selected = detailEntries.find((entry) => entry.media.id === item.mediaId || entry.media.url === item.mediaUrl) ?? detailEntries[0]
+        }
+      }
+      if (selected) {
+        setProfileMediaViewer({
+          contentId: selected.post?.id ?? item.contentId,
+          mediaId: selected.media.id,
+          mediaUrl: selected.media.url,
+          initialPost: selected.post ?? undefined,
+          entries,
+        })
+        return
+      }
+    } catch {
+      // A visible media URL can still be viewed without inventing post metadata.
+    }
+    const standaloneMedia = { id: item.mediaId, type: item.mediaType, url: item.mediaUrl }
+    setProfileMediaViewer({
+      contentId: item.contentId,
+      mediaId: standaloneMedia.id,
+      mediaUrl: standaloneMedia.url,
+      entries: [{ post: null, media: standaloneMedia }],
+    })
+  }
+
+  async function saveCroppedAvatar() {
+    if (!profile || !avatarEditor.target || avatarEditor.busy || avatarSavePendingRef.current) return
+    avatarSavePendingRef.current = true
+    const target = avatarEditor.target
+    let uploads: MediaUpload[] = []
+    let persisted = false
+    avatarEditor.setBusy(true)
+    setActionError(null)
+    try {
+      const cropped = await avatarEditor.createCroppedFile(1024, 1)
+      uploads = await api.uploadMediaFiles(target.fromExisting ? [cropped] : [target.file, cropped])
+      const originalUpload = target.fromExisting ? null : uploads[0]
+      const croppedUpload = uploads[uploads.length - 1]
+      const updated = target.source
+        ? await socialApi.changeUserAvatar(profile.id, croppedUpload.url, originalUpload?.url ?? null, 0, target.source)
+        : await socialApi.changeUserAvatar(profile.id, croppedUpload.url, originalUpload?.url ?? null, 0)
+      if (!updated) throw new Error('Profile avatar update failed')
+      persisted = true
+      avatarEditor.clear()
+      setActionError(null)
+      window.dispatchEvent(new CustomEvent('fakebook:profile-updated', { detail: updated }))
+      if (originalUpload) {
+        void socialApi.getProfilePosts(profile.id, 20).then((page) => setPosts(page.items)).catch(() => undefined)
+      }
+    } catch {
+      if (!persisted) await Promise.allSettled(uploads.map((item) => api.cancelPendingMedia(item)))
+      setActionError(t('imageCropError'))
+    } finally {
+      avatarSavePendingRef.current = false
+      avatarEditor.setBusy(false)
+    }
+  }
+
   async function openCoverPicker() {
     if (!profile) return
+    const requestId = ++coverPickerRequestRef.current
     setCoverMenuOpen(false)
     setCoverPickerOpen(true)
     setCoverCandidatesLoading(true)
     setCoverPickerError(null)
     try {
       const page = await socialApi.getMyFeedPhotoCandidates(60)
+      if (requestId !== coverPickerRequestRef.current) return
       setCoverCandidates(page.items)
     } catch {
+      if (requestId !== coverPickerRequestRef.current) return
       setCoverCandidates([])
       setCoverPickerError(t('profileMediaLoadError'))
     } finally {
-      setCoverCandidatesLoading(false)
+      if (requestId === coverPickerRequestRef.current) setCoverCandidatesLoading(false)
     }
   }
 
   async function chooseExistingCover(photo: SocialPhoto) {
+    const requestId = ++coverPickerRequestRef.current
+    setCoverCandidatesLoading(true)
     setCoverPickerError(null)
     try {
       const response = await fetch(photo.media.url, { credentials: 'include' })
       if (!response.ok) throw new Error('Could not fetch media')
       const blob = await response.blob()
+      if (requestId !== coverPickerRequestRef.current) return
       const extension = blob.type.split('/')[1] || 'jpg'
-      setCoverCropTarget({ file: new File([blob], `fakebook-cover.${extension}`, { type: blob.type || 'image/jpeg' }), fromExisting: true })
-      setCoverPickerOpen(false)
+      startCoverEdit(new File([blob], `fakebook-cover.${extension}`, { type: blob.type || 'image/jpeg' }), true)
     } catch {
-      setCoverPickerError(t('existingPhotoLoadError'))
+      if (requestId === coverPickerRequestRef.current) setCoverPickerError(t('existingPhotoLoadError'))
+    } finally {
+      if (requestId === coverPickerRequestRef.current) setCoverCandidatesLoading(false)
     }
   }
 
-  async function saveCroppedCover(original: File, cropped: File) {
-    if (!profile || !coverCropTarget) return
+  async function saveCroppedCover() {
+    if (!profile || !coverCropTarget || coverSaving || coverSavePendingRef.current) return
+    coverSavePendingRef.current = true
+    const target = coverCropTarget
     let uploads: MediaUpload[] = []
     let persisted = false
+    setCoverSaving(true)
+    setActionError(null)
     try {
-      uploads = await api.uploadMediaFiles(coverCropTarget.fromExisting ? [cropped] : [original, cropped])
-      const originalUpload = coverCropTarget.fromExisting ? null : uploads[0]
+      const bounds = coverPreviewRef.current?.getBoundingClientRect()
+      const aspect = bounds && bounds.width > 0 && bounds.height > 0 ? bounds.width / bounds.height : 16 / 6
+      const cropped = await cropImageFile(target.file, aspect, coverZoom, coverOffset.x, coverOffset.y, 1600)
+      uploads = await api.uploadMediaFiles(target.fromExisting ? [cropped] : [target.file, cropped])
+      const originalUpload = target.fromExisting ? null : uploads[0]
       const croppedUpload = uploads[uploads.length - 1]
-      const updated = await socialApi.changeUserBackground(profile.id, croppedUpload.url, originalUpload?.url ?? null, readDefaultPostPrivacy(profile.id))
+      const updated = await socialApi.changeUserBackground(profile.id, croppedUpload.url, originalUpload?.url ?? null, 0)
       if (!updated) throw new Error('Profile cover update failed')
       persisted = true
       setCoverCropTarget(null)
       setActionError(null)
       window.dispatchEvent(new CustomEvent('fakebook:profile-updated', { detail: updated }))
-    } catch (error) {
+      if (originalUpload) {
+        void socialApi.getProfilePosts(profile.id, 20).then((page) => setPosts(page.items)).catch(() => undefined)
+      }
+    } catch {
       if (!persisted) await Promise.allSettled(uploads.map((item) => api.cancelPendingMedia(item)))
-      throw error
+      setActionError(t('imageCropError'))
+    } finally {
+      coverSavePendingRef.current = false
+      coverDragRef.current = null
+      setCoverSaving(false)
     }
   }
 
-  if (loading) return <main className="profile-destination"><div className="card state-card"><span className="spinner" /></div></main>
+  if (loading) return <ProfilePageSkeleton />
   if (!profile) return <main className="profile-destination"><div className="card state-card"><h2>{t('profileUnavailable')}</h2><p>{error || t('profileLoadError')}</p></div></main>
 
+  const activeProfileId = profile.id
+  const canViewProfileStories = canEdit || relationship.friendship === 'friend' || relationship.isFollowing
+  const profileStoryBucket = canViewProfileStories
+    ? canEdit
+      ? myStories
+      : homeStoryBuckets.find((bucket) => bucket.author.id === profile.id) ?? null
+    : null
+  const storyViewerBuckets = profileStoryBucket
+    ? [profileStoryBucket, ...homeStoryBuckets.filter((bucket) => bucket.author.id !== profileStoryBucket.author.id)]
+    : []
+  const storyRingClass = !profileStoryBucket?.stories.length
+    ? 'no-story'
+    : profileStoryBucket.hasUnseen || Number(profileStoryBucket.unseenCount ?? 0) > 0
+      ? 'has-unseen-story'
+      : 'has-seen-story'
+  const avatarViewMenuAvailable = Boolean(profileStoryBucket?.stories.length || profile.avatarUrl || canEdit)
+
+  function markProfileStoryViewed(storyId: string) {
+    if (locallyViewedStoryIdsRef.current.has(storyId)) return
+    locallyViewedStoryIdsRef.current = new Set(locallyViewedStoryIdsRef.current).add(storyId)
+    if (canEdit) {
+      if (!forgetOwnUnseenStory(activeProfileId, storyId)) return
+      setMyStories((current) => {
+        if (!current?.stories.some((story) => story.id === storyId)) return current
+        const unseenCount = Math.max(0, Number(current.unseenCount ?? 0) - 1)
+        return { ...current, unseenCount, hasUnseen: unseenCount > 0 }
+      })
+      return
+    }
+    setHomeStoryBuckets((current) => current.map((bucket) => {
+      if (!bucket.stories.some((story) => story.id === storyId)) return bucket
+      const unseenCount = Math.max(0, Number(bucket.unseenCount ?? (bucket.hasUnseen ? bucket.stories.length : 0)) - 1)
+      return { ...bucket, unseenCount, hasUnseen: unseenCount > 0 }
+    }))
+  }
+
   const coverStyle = profile.backgroundUrl ? { backgroundImage: `url(${profile.backgroundUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined
-  const selfProfileStats = canEdit ? [
+  const coverAmbientStyle = coverCropTarget
+    ? { backgroundImage: `url(${coverCropTarget.previewUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+    : coverStyle
+  const coverPreviewImageStyle = coverPreviewPlacement ? {
+    width: `${coverPreviewPlacement.width}px`,
+    height: `${coverPreviewPlacement.height}px`,
+    transform: `translate(calc(-50% + ${coverPreviewPlacement.shiftX}px), calc(-50% + ${coverPreviewPlacement.shiftY}px))`,
+  } : undefined
+  const profileStats = [
     { id: 'friends', count: profile.friendCount, label: t('profileFriendStat', { count: profile.friendCount }) },
     { id: 'followers', count: profile.followerCount, label: t('profileFollowerStat', { count: profile.followerCount }) },
     { id: 'following', count: profile.followingCount, label: t('profileFollowingStat', { count: profile.followingCount }) },
-  ].filter((item) => item.count > 0) : []
+  ].filter((item) => item.count > 0)
   const profileBirthDate = formatProfileBirthDate(profile.birthDate, locale)
   const profileZodiac = getProfileZodiac(profile.birthDate)
   const profileGender = profile.gender === 'male'
@@ -612,36 +1205,92 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
         : t('genderPreferNot')
 
   return <>
-    <main ref={profilePageRef} className={canEdit ? 'profile-destination self-profile-page' : 'profile-destination'}>
-      <section className={canEdit ? 'profile-cover-card self-profile-cover-card' : 'profile-cover-card'}>
-        {canEdit && <div className="self-profile-cover-ambient" style={coverStyle} aria-hidden="true" />}
-        <div className={canEdit ? 'self-profile-header-shell' : undefined}>
-          <div className="profile-cover" style={coverStyle}>
-            {canEdit && <div className="self-profile-cover-action" ref={coverActionRef}>
-              <button type="button" className="self-profile-edit-cover" aria-haspopup="menu" aria-expanded={coverMenuOpen} onClick={() => setCoverMenuOpen((open) => !open)}><ProfileCoverCameraIcon />{t(profile.backgroundUrl ? 'profileEditCover' : 'profileAddCover')}</button>
-              {coverMenuOpen && <div className="self-profile-cover-menu" role="menu">
+    <main ref={profilePageRef} className={`profile-destination self-profile-page${canEdit ? '' : ' visitor-profile-page'}`}>
+      <section className="profile-cover-card self-profile-cover-card">
+        <div className="self-profile-cover-ambient" style={coverAmbientStyle} aria-hidden="true" />
+        <div className="self-profile-header-shell">
+          <div className={`profile-cover${coverCropTarget ? ' is-editing-cover' : ''}`} style={coverStyle}>
+            {canEdit && coverCropTarget && <div
+              ref={coverPreviewRef}
+              className="self-profile-cover-preview"
+              role="group"
+              aria-label={t('cropBackground')}
+              tabIndex={0}
+              onPointerDown={beginCoverDrag}
+              onPointerMove={moveCoverDrag}
+              onPointerUp={endCoverDrag}
+              onPointerCancel={endCoverDrag}
+              onKeyDown={moveCoverWithKeyboard}
+            ><img src={coverCropTarget.previewUrl} alt="" draggable={false} style={coverPreviewImageStyle} onLoad={(event) => setCoverImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} /></div>}
+            {canEdit && <div className={`self-profile-cover-action${coverCropTarget ? ' editing' : ''}`} ref={coverActionRef}>
+              {coverCropTarget ? <div className="self-profile-cover-edit-controls">
+                <button type="button" className="cover-edit-icon" aria-label={t('storyZoomIn')} disabled={coverSaving || coverZoom >= 3} onClick={() => changeCoverZoom(.2)}><Icon name="plus" size={17} /></button>
+                <button type="button" className="cover-edit-icon" aria-label={t('storyZoomOut')} disabled={coverSaving || coverZoom <= 1} onClick={() => changeCoverZoom(-.2)}><span aria-hidden="true">−</span></button>
+                <button type="button" className="cover-edit-cancel" disabled={coverSaving} onClick={cancelCoverEdit}>{t('cancel')}</button>
+                <button type="button" className="cover-edit-confirm" disabled={coverSaving} onClick={() => void saveCroppedCover()}><Icon name="check" size={16} />{coverSaving ? t('uploading') : t('confirm')}</button>
+              </div> : <button type="button" className="self-profile-edit-cover" aria-haspopup="menu" aria-expanded={coverMenuOpen} onClick={() => setCoverMenuOpen((open) => !open)}><ProfileCoverCameraIcon />{t(profile.backgroundUrl ? 'profileEditCover' : 'profileAddCover')}</button>}
+              {!coverCropTarget && coverMenuOpen && <AnchoredMenuPortal anchor={coverActionRef.current} className="self-profile-cover-menu" matchAnchorWidth onRequestClose={() => setCoverMenuOpen(false)}>
                 <button type="button" role="menuitem" onClick={() => void openCoverPicker()}><ProfileCoverPhotoIcon />{t('profileChooseCover')}</button>
                 <button type="button" role="menuitem" onClick={() => { setCoverMenuOpen(false); coverUploadInputRef.current?.click() }}><ProfileCoverUploadIcon />{t('profileUploadCover')}</button>
-              </div>}
+              </AnchoredMenuPortal>}
               <input ref={coverUploadInputRef} className="self-profile-cover-file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
                 const file = event.target.files?.[0]
                 if (file) {
-                  setCoverMenuOpen(false)
-                  setCoverCropTarget({ file, fromExisting: false })
+                  startCoverEdit(file, false)
                 }
                 event.currentTarget.value = ''
               }} />
             </div>}
           </div>
           <div className="profile-destination-header">
-            {canEdit ? <div className={myStories?.stories.length ? 'self-profile-avatar-wrap has-story' : 'self-profile-avatar-wrap no-story'}><Avatar name={profile.displayName} src={profile.avatarUrl} size={138} /><button type="button" aria-label={t('profileEditAvatar')} onClick={onEdit}><ProfileCoverCameraIcon /></button></div> : <Avatar name={profile.displayName} src={profile.avatarUrl} size={164} />}
+            <div ref={avatarViewMenuRef} className={`self-profile-avatar-wrap ${storyRingClass}${avatarEditor.target ? ' editing-avatar' : ''}${canEdit ? '' : ' visitor-profile-avatar-wrap'}`}>
+              {avatarEditor.target ? <div
+                ref={avatarEditor.previewRef}
+                className="self-profile-avatar-preview"
+                role="group"
+                aria-label={t('cropAvatar')}
+                tabIndex={0}
+                onPointerDown={avatarEditor.beginDrag}
+                onPointerMove={avatarEditor.moveDrag}
+                onPointerUp={avatarEditor.endDrag}
+                onPointerCancel={avatarEditor.endDrag}
+                onKeyDown={avatarEditor.moveWithKeyboard}
+              ><img src={avatarEditor.target.previewUrl} alt="" draggable={false} style={avatarEditor.imageStyle} onLoad={(event) => avatarEditor.onImageLoad(event.currentTarget)} /></div> : avatarViewMenuAvailable ? <>
+                <button type="button" className="self-profile-avatar-view-trigger" aria-label={t('profileAvatarOptions')} aria-haspopup="menu" aria-expanded={avatarViewMenuOpen} disabled={avatarViewBusy} onClick={() => { setAvatarMenuOpen(false); setAvatarViewMenuOpen((open) => !open) }}><Avatar name={profile.displayName} src={profile.avatarUrl} size={138} /></button>
+                {avatarViewMenuOpen && <AnchoredMenuPortal anchor={avatarViewMenuRef.current} align="start" className="self-profile-cover-menu self-profile-avatar-view-menu" onRequestClose={() => setAvatarViewMenuOpen(false)}>
+                  {Boolean(profileStoryBucket?.stories.length) && <button type="button" role="menuitem" onClick={() => { setAvatarViewMenuOpen(false); setStoryViewerOpen(true) }}><ProfileViewStoryIcon />{t('profileViewStory')}</button>}
+                  {profile.avatarUrl && <button type="button" role="menuitem" disabled={avatarViewBusy} onClick={() => void openProfileAvatarViewer()}><ProfileViewAvatarIcon />{t('profileViewAvatar')}</button>}
+                  {canEdit && <button type="button" role="menuitem" onClick={() => void openAvatarPicker()}><ProfileCoverPhotoIcon />{t('profileChooseAvatar')}</button>}
+                  {canEdit && <button type="button" role="menuitem" onClick={() => { setAvatarViewMenuOpen(false); avatarUploadInputRef.current?.click() }}><ProfileCoverUploadIcon />{t('profileUploadAvatar')}</button>}
+                </AnchoredMenuPortal>}
+              </> : <Avatar name={profile.displayName} src={profile.avatarUrl} size={138} />}
+              {canEdit && !avatarEditor.target && <div className="self-profile-avatar-action" ref={avatarActionRef}>
+                <button type="button" className="self-profile-avatar-camera" aria-label={t('profileEditAvatar')} aria-haspopup="menu" aria-expanded={avatarMenuOpen} onClick={() => { setAvatarViewMenuOpen(false); setAvatarMenuOpen((open) => !open) }}><ProfileCoverCameraIcon /></button>
+                {avatarMenuOpen && <AnchoredMenuPortal anchor={avatarActionRef.current} align="start" className="self-profile-cover-menu self-profile-avatar-menu" onRequestClose={() => setAvatarMenuOpen(false)}>
+                  <button type="button" role="menuitem" onClick={() => void openAvatarPicker()}><ProfileCoverPhotoIcon />{t('profileChooseAvatar')}</button>
+                  <button type="button" role="menuitem" onClick={() => { setAvatarMenuOpen(false); setAvatarViewMenuOpen(false); avatarUploadInputRef.current?.click() }}><ProfileCoverUploadIcon />{t('profileUploadAvatar')}</button>
+                </AnchoredMenuPortal>}
+                <input ref={avatarUploadInputRef} className="self-profile-cover-file-input self-profile-avatar-file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) startAvatarEdit(file, false)
+                  event.currentTarget.value = ''
+                }} />
+              </div>}
+            </div>
             <div className="profile-destination-title">
-              <h1>{profile.displayName}<VerifiedBadge verified={profile.isVerified} size={canEdit ? 17 : 20} /></h1>
-              {canEdit ? <div className="self-profile-summary-copy">
-                {selfProfileStats.length > 0 && <div className="self-profile-summary-line self-profile-stats">{selfProfileStats.map((item) => <span key={item.id}>{item.label}</span>)}</div>}
+              <h1>{profile.displayName}<VerifiedBadge verified={profile.isVerified} size={17} /></h1>
+              <div className="self-profile-summary-copy">
+                {profileStats.length > 0 && <div className="self-profile-summary-line self-profile-stats">{profileStats.map((item) => <span key={item.id}>{item.label}</span>)}</div>}
+                {!canEdit && relationship.followsViewer && <p className="self-profile-summary-line visitor-profile-follows-you">{t('followsYou')}</p>}
                 {profile.bio && <p className="self-profile-summary-line self-profile-detail-line"><ProfileBioIcon /><span>{profile.bio}</span></p>}
                 {profile.location && <p className="self-profile-summary-line self-profile-detail-line"><Icon className="self-profile-summary-icon" name="location" size={15} /><span>{profile.location}</span></p>}
-              </div> : <><p>{profile.friendCount} {t('friends')} · {profile.followerCount} {t('followers')}</p>{relationship.followsViewer && <small>{t('followsYou')}</small>}</>}
+              </div>
+              {canEdit && avatarEditor.target && <div className="self-profile-cover-edit-controls self-profile-avatar-edit-controls">
+                <button type="button" className="cover-edit-icon" aria-label={t('storyZoomIn')} disabled={avatarEditor.busy || avatarEditor.zoom >= 3} onClick={() => avatarEditor.changeZoom(.2)}><Icon name="plus" size={17} /></button>
+                <button type="button" className="cover-edit-icon" aria-label={t('storyZoomOut')} disabled={avatarEditor.busy || avatarEditor.zoom <= 1} onClick={() => avatarEditor.changeZoom(-.2)}><span aria-hidden="true">−</span></button>
+                <button type="button" className="cover-edit-cancel" disabled={avatarEditor.busy} onClick={avatarEditor.cancel}>{t('cancel')}</button>
+                <button type="button" className="cover-edit-confirm" disabled={avatarEditor.busy} onClick={() => void saveCroppedAvatar()}><Icon name="check" size={16} />{avatarEditor.busy ? t('uploading') : t('confirm')}</button>
+              </div>}
             </div>
             {canEdit ? <div className="self-profile-header-actions">
               <button type="button" className="btn-primary" onClick={() => setStoryCreatorOpen(true)}><ProfileAddStoryIcon />{t('profileAddStory')}</button>
@@ -650,30 +1299,25 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
             </div> : <ProfileActions profile={profile} relationship={relationship} loading={relationshipLoading} busyAction={busyAction} onFriend={friendAction} onFollow={followAction} onBlock={blockAction} onMessage={messageAction} />}
           </div>
           {actionError && <p className="inline-alert profile-action-error">{actionError}</p>}
-          <nav ref={profileTabsRef} className={canEdit ? 'profile-tabs self-profile-tabs' : 'profile-tabs'}>
-            {canEdit ? <>
-              <button ref={profileFirstTabRef} type="button" className={`self-profile-tab-option${tab === 'posts' ? ' active' : ''}`} onClick={() => setTab('posts')}>{t('profileTabAll')}</button>
-              <button type="button" className={`self-profile-tab-option${tab === 'about' ? ' active' : ''}`} onClick={() => setTab('about')}>{t('profileTabAbout')}</button>
-              <button type="button" className={`self-profile-tab-option${tab === 'photos' ? ' active' : ''}`} onClick={() => setTab('photos')}>{t('profileTabPhotos')}</button>
-              <button type="button" className={`self-profile-tab-option${tab === 'friends' ? ' active' : ''}`} onClick={() => setTab('friends')}>{t('profileTabFriends')}</button>
-              <button type="button" className={`self-profile-tab-option${tab === 'reels' ? ' active' : ''}`} onClick={() => setTab('reels')}>{t('profileTabReels')}</button>
-              <button ref={profileGroupsTabRef} type="button" className={`self-profile-tab-option${tab === 'groups' ? ' active' : ''}`} onClick={() => setTab('groups')}>{t('profileTabGroups')}</button>
-              <button type="button" className="self-profile-tab-more" aria-label={t('more')} onClick={() => undefined}><Icon name="more" size={20} /></button>
-            </> : <>
-              <button type="button" className={tab === 'posts' ? 'active' : ''} onClick={() => setTab('posts')}>{t('postsLabel')}</button>
-              <button type="button" className={tab === 'about' ? 'active' : ''} onClick={() => setTab('about')}>{t('about')}</button>
-              <button type="button" className={tab === 'friends' ? 'active' : ''} onClick={() => setTab('friends')}>{t('friends')}</button>
-              <button type="button" className={tab === 'photos' ? 'active' : ''} onClick={() => setTab('photos')}>{t('photos')}</button>
-            </>}
+          <nav ref={profileTabsRef} className="profile-tabs self-profile-tabs">
+            <button ref={profileFirstTabRef} type="button" className={`self-profile-tab-option${tab === 'posts' ? ' active' : ''}`} onClick={() => setTab('posts')}>{t('profileTabAll')}</button>
+            <button type="button" className={`self-profile-tab-option${tab === 'about' ? ' active' : ''}`} onClick={() => setTab('about')}>{t('profileTabAbout')}</button>
+            <button type="button" className={`self-profile-tab-option${tab === 'photos' ? ' active' : ''}`} onClick={() => setTab('photos')}>{t('profileTabPhotos')}</button>
+            <button type="button" className={`self-profile-tab-option${tab === 'friends' ? ' active' : ''}`} onClick={() => setTab('friends')}>{t('profileTabFriends')}</button>
+            <button type="button" className={`self-profile-tab-option${tab === 'reels' ? ' active' : ''}`} onClick={() => setTab('reels')}>{t('profileTabReels')}</button>
+            <button ref={profileGroupsTabRef} type="button" className={`self-profile-tab-option${tab === 'groups' ? ' active' : ''}`} onClick={() => setTab('groups')}>{t('profileTabGroups')}</button>
+            {canEdit
+              ? <button type="button" className="self-profile-tab-more" aria-label={t('more')} onClick={() => undefined}><Icon name="more" size={20} /></button>
+              : <ProfileMoreActions relationship={relationship} busyAction={busyAction} onBlock={blockAction} />}
           </nav>
         </div>
       </section>
 
-      <div ref={profileContentGridRef} className={`profile-destination-grid${canEdit ? ` self-profile-destination-grid tab-${tab}` : ''}`}>
-        {canEdit && tab === 'posts' ? <aside ref={profileInfoColumnRef} className="self-profile-left-column">
+      <div ref={profileContentGridRef} className={`profile-destination-grid self-profile-destination-grid tab-${tab}`}>
+        {tab === 'posts' && <aside ref={profileInfoColumnRef} className="self-profile-left-column">
           <section className="card self-profile-side-card self-profile-intro-card">
             <div className="self-profile-info-section">
-              <header><h2>{t('profilePersonalInfo')}</h2><button type="button" aria-label={t('editDetails')} onClick={onEdit}><ProfileInfoEditIcon /></button></header>
+              <header><h2>{t('profilePersonalInfo')}</h2>{canEdit && <button type="button" aria-label={t('editDetails')} onClick={onEdit}><ProfileInfoEditIcon /></button>}</header>
               <div className="self-profile-info-rows">
                 {profile.location && <p className="prominent"><ProfileLocationIcon /><span>{t('livesIn', { location: profile.location })}</span></p>}
                 {profileBirthDate && <p className="prominent"><ProfileZodiacIcon zodiac={profileZodiac} /><span>{t('profileBornLabel')} <time dateTime={profile.birthDate ?? undefined}>{profileBirthDate}</time></span></p>}
@@ -681,39 +1325,39 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
               </div>
             </div>
             <div className="self-profile-info-section">
-              <header><h2>{t('profileContactInfo')}</h2><button type="button" aria-label={t('editDetails')} onClick={onEdit}><ProfileInfoEditIcon /></button></header>
-              <div className="self-profile-info-rows"><p><ProfileEmailIcon /><a href={`mailto:${profile.email}`}>{profile.email}</a></p></div>
+              <header><h2>{t('profileContactInfo')}</h2>{canEdit && <button type="button" aria-label={t('editDetails')} onClick={onEdit}><ProfileInfoEditIcon /></button>}</header>
+              <div className="self-profile-info-rows"><p><ProfileEmailIcon />{profile.email ? <a href={`mailto:${profile.email}`}>{profile.email}</a> : <span>{t('notAvailable')}</span>}</p></div>
             </div>
           </section>
 
           <section className="card self-profile-side-card self-profile-featured-card">
             <header><h2>{t('profileFeatured')}</h2></header>
-            {myStories?.stories.length ? <div className="self-profile-featured-list">{myStories.stories.slice(0, 3).map((story) => <ProfileStoryTile key={story.id} story={story} onOpen={() => setStoryViewerOpen(true)} />)}</div> : <button type="button" className="self-profile-featured-empty" onClick={() => setStoryCreatorOpen(true)}>{t('profileAddFeatured')}</button>}
+            {profileStoryBucket?.stories.length ? <div className="self-profile-featured-list">{profileStoryBucket.stories.slice(0, 3).map((story) => <ProfileStoryTile key={story.id} story={story} onOpen={() => setStoryViewerOpen(true)} />)}</div> : canEdit ? <button type="button" className="self-profile-featured-empty" onClick={() => setStoryCreatorOpen(true)}>{t('profileAddFeatured')}</button> : <p className="self-profile-featured-unavailable muted">{t('noStories')}</p>}
           </section>
 
           <section className="card self-profile-side-card self-profile-friends-card">
             <header><div><h2>{t('friends')}</h2><small>{t('profileFriendStat', { count: profile.friendCount })}</small></div><button type="button" onClick={() => setTab('friends')}>{t('profileViewAllFriends')}</button></header>
-            {friendsLoading ? <div className="self-profile-side-loading"><span className="spinner" /></div> : <div className="self-profile-friend-preview">{profileFriends.slice(0, 9).map((friend) => <button type="button" key={friend.id} onClick={() => onNavigate(`/profile/${friend.id}`)}><Avatar name={friend.displayName} src={friend.avatarUrl} size={96} /><strong>{friend.displayName}</strong>{(profileFriendMutualCounts[friend.id] ?? 0) > 0 && <small>{t('mutualFriendsCount', { count: profileFriendMutualCounts[friend.id] })}</small>}</button>)}</div>}
+            {friendsLoading ? <div className="self-profile-side-loading"><span className="spinner" /></div> : profileFriends.length > 0 ? <div className="self-profile-friend-preview">{profileFriends.slice(0, 9).map((friend) => <button type="button" key={friend.id} onClick={() => onNavigate(`/profile/${friend.id}`)}><Avatar name={friend.displayName} src={friend.avatarUrl} size={96} /><strong>{friend.displayName}</strong>{(profileFriendMutualCounts[friend.id] ?? 0) > 0 && <small>{t('mutualFriendsCount', { count: profileFriendMutualCounts[friend.id] })}</small>}</button>)}</div> : <p className="self-profile-side-private muted">{t('friendListEmpty')}</p>}
           </section>
 
           <section className="card self-profile-side-card self-profile-photos-card">
             <header><div><h2>{t('photos')}</h2><small>{t(photosHaveMore ? 'profilePhotoStatMore' : 'profilePhotoStat', { count: photos.length })}</small></div><button type="button" onClick={() => setTab('photos')}>{t('profileSeeAllPhotos')}</button></header>
-            {photosLoading && photos.length === 0 ? <div className="self-profile-side-loading"><span className="spinner" /></div> : <div className="self-profile-photo-preview">{photos.slice(0, 9).map((photo) => <button type="button" key={`${photo.contentId}-${photo.media.id}`} onClick={() => onNavigate(`/content/${photo.contentId}`)}><img src={photo.media.url} alt="" loading="lazy" /></button>)}</div>}
+            {photosLoading && photos.length === 0 ? <div className="self-profile-side-loading"><span className="spinner" /></div> : <div className="self-profile-photo-preview">{photos.slice(0, 9).map((photo, index, previewPhotos) => <button type="button" className={profilePhotoPreviewCornerClass(index, previewPhotos.length)} key={`${photo.contentId}-${photo.media.id}`} onClick={() => void openProfileMediaViewer({ contentId: photo.contentId, mediaId: photo.media.id, mediaUrl: photo.media.url, mediaType: photo.media.type })}><img src={photo.media.url} alt="" loading="lazy" /></button>)}</div>}
           </section>
-        </aside> : !canEdit && <aside className="card profile-intro"><h2>{t('intro')}</h2>{profile.bio && <p>{profile.bio}</p>}{profile.location && <p><Icon name="location" size={18} />{t('livesIn', { location: profile.location })}</p>}<p><Icon name="friends" size={18} />{t('followingCount', { count: profile.followingCount })}</p></aside>}
+        </aside>}
 
         <section ref={profilePostColumnRef} className="profile-post-list">
-          {tab === 'posts' && canEdit && <PostComposer variant="profile" userId={profile.id} displayName={profile.displayName} avatarUrl={profile.avatarUrl} isVerified={profile.isVerified} friends={profileFriends} onReel={() => onNavigate('/reels')} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
-          {tab === 'posts' && canEdit && <section className="card self-profile-post-tools">
-            <header><h2>{t('profilePostsTitle')}</h2><div><details><summary><ProfilePostFilterIcon />{t('profilePostFilters')}</summary><div>{(['all', 'media', 'text'] as ProfilePostFilter[]).map((filter) => <button type="button" key={filter} className={postFilter === filter ? 'active' : ''} onClick={() => setPostFilter(filter)}>{t(filter === 'all' ? 'profileAllPosts' : filter === 'media' ? 'profileMediaPosts' : 'profileTextPosts')}</button>)}</div></details><button type="button" className={manageMode ? 'active' : ''} onClick={() => setManageMode((value) => !value)}><ProfilePostManageIcon />{t(manageMode ? 'done' : 'profileManagePosts')}</button></div></header>
-            {manageMode && <p>{t('profileManagePostsHint')}</p>}
+          {tab === 'posts' && canEdit && <PostComposer variant="profile" userId={profile.id} displayName={profile.displayName} avatarUrl={profile.avatarUrl} isVerified={profile.isVerified} friends={profileFriends} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
+          {tab === 'posts' && <section className="card self-profile-post-tools">
+            <header><h2>{t('profilePostsTitle')}</h2><div><details><summary><ProfilePostFilterIcon />{t('profilePostFilters')}</summary><div>{(['all', 'media', 'text'] as ProfilePostFilter[]).map((filter) => <button type="button" key={filter} className={postFilter === filter ? 'active' : ''} onClick={() => setPostFilter(filter)}>{t(filter === 'all' ? 'profileAllPosts' : filter === 'media' ? 'profileMediaPosts' : 'profileTextPosts')}</button>)}</div></details>{canEdit && <button type="button" className={manageMode ? 'active' : ''} onClick={() => setManageMode((value) => !value)}><ProfilePostManageIcon />{t(manageMode ? 'done' : 'profileManagePosts')}</button>}</div></header>
+            {canEdit && manageMode && <p>{t('profileManagePostsHint')}</p>}
             <div className="self-profile-post-view-tabs"><button type="button" className={postView === 'list' ? 'active' : ''} onClick={() => setPostView('list')}><ProfilePostListIcon /><span>{t('profileListView')}</span></button><button type="button" className={postView === 'grid' ? 'active' : ''} onClick={() => setPostView('grid')}><ProfilePostGridIcon /><span>{t('profileGridView')}</span></button></div>
           </section>}
 
-          {tab === 'posts' && (postsLoading ? <div className="card state-card"><span className="spinner" /></div> : filteredPosts.length > 0 ? postView === 'grid' && canEdit ? <div className="self-profile-post-grid">{filteredPosts.map((post) => <ProfilePostGridCard key={post.id} post={post} onOpen={() => onNavigate(`/content/${post.id}`)} />)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} />) : <div className="card state-card"><h2>{postsUnavailable ? t('unableToLoad') : t('profileNoPosts')}</h2><p>{postsUnavailable ? t('profilePostsLoadError') : canEdit ? t('yourPostsEmpty') : t('userPostsEmpty', { name: profile.displayName.split(' ')[0] })}</p></div>)}
+          {tab === 'posts' && (postsLoading ? <div className="card state-card"><span className="spinner" /></div> : filteredPosts.length > 0 ? postView === 'grid' ? <div className="self-profile-post-months">{profilePostMonthGroups.map((group) => <section className="card self-profile-post-month" key={group.id}><h3>{group.label}</h3><div className="self-profile-post-grid">{group.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} onOpenDetail={() => setProfileDetailPostId(post.id)} onOpenMedia={(item) => void openProfileMediaViewer(item)} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} />) : <div className="card state-card"><h2>{postsUnavailable ? t('unableToLoad') : t('profileNoPosts')}</h2><p>{postsUnavailable ? t('profilePostsLoadError') : canEdit ? t('yourPostsEmpty') : t('userPostsEmpty', { name: profile.displayName.split(' ')[0] })}</p></div>)}
           {tab === 'about' && <div className="card profile-tab-card"><h2>{t('about')}</h2><dl><div><dt>{t('bio')}</dt><dd>{profile.bio || t('notAvailable')}</dd></div><div><dt>{t('location')}</dt><dd>{profile.location || t('notAvailable')}</dd></div><div><dt>{t('birthDate')}</dt><dd>{profile.birthDate || t('notAvailable')}</dd></div><div><dt>{t('createdAt')}</dt><dd>{profile.createdAt || t('notAvailable')}</dd></div></dl></div>}
-          {tab === 'friends' && (canEdit ? <ProfileConnectionsTab profile={profile} viewerId={viewerId} onNavigate={onNavigate} /> : <div className="card profile-tab-card"><h2>{t('friends')}</h2><p className="muted">{t('friendListPrivate')}</p></div>)}
-          {tab === 'photos' && <ProfileMediaTab profile={profile} canEdit={canEdit} friends={profileFriends} onNavigate={onNavigate} onPostCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
+          {tab === 'friends' && <ProfileConnectionsTab profile={profile} viewerId={viewerId} canManage={canEdit} onNavigate={onNavigate} />}
+          {tab === 'photos' && <ProfileMediaTab profile={profile} canEdit={canEdit} friends={profileFriends} onOpenMedia={(item, entries) => void openProfileMediaViewer(item, entries)} onPostCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
           {tab === 'reels' && <ProfileReelsTab profile={profile} canEdit={canEdit} onNavigate={onNavigate} />}
           {tab === 'groups' && <div className="card profile-tab-card"><h2>{t('groups')}</h2>{groupsLoading ? <div className="state-card"><span className="spinner" /></div> : profileGroups.length === 0 ? <p className="muted">{groupsUnavailable ? t('groupsLoadError') : t('joinedGroupsEmpty')}</p> : <div className="group-grid self-profile-group-grid">{profileGroups.map((group) => <button type="button" className="card group-card" key={group.id} onClick={() => onNavigate(`/groups/${group.id}`)}><div className="group-card-cover" style={group.backgroundUrl ? { backgroundImage: `url(${group.backgroundUrl})` } : undefined} /><Avatar name={group.name} src={group.avatarUrl} size={64} /><strong>{group.name}</strong><small>{group.memberCount == null ? t('groupResult') : t('membersCount', { count: group.memberCount })}</small></button>)}</div>}</div>}
         </section>
@@ -721,6 +1365,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
     </main>
 
     {canEdit && storyCreatorOpen && <Suspense fallback={<div className="modal-backdrop"><span className="spinner" /></div>}><StoryCreatorModal open authorId={profile.id} onClose={() => setStoryCreatorOpen(false)} onCreated={(story) => {
+      rememberOwnUnseenStory(profile.id, story.id)
       setMyStories((current) => ({
         author: { id: profile.id, name: profile.displayName, avatar: profile.avatarUrl ?? '', isVerified: Boolean(profile.isVerified) },
         latestCreate: story.create,
@@ -729,13 +1374,30 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
         stories: [story, ...(current?.stories ?? []).filter((item) => item.id !== story.id)],
       }))
     }} /></Suspense>}
-    {canEdit && storyViewerOpen && myStories && <Suspense fallback={<div className="story-viewer-backdrop"><span className="spinner" /></div>}><StoryViewerPage buckets={[myStories]} initialBucketId={profile.id} viewerId={viewerId} onClose={() => setStoryViewerOpen(false)} onNavigate={onNavigate} onCreateStory={() => { setStoryViewerOpen(false); setStoryCreatorOpen(true) }} onStoryDeleted={(storyId) => setMyStories((current) => {
-      if (!current) return null
-      const stories = current.stories.filter((story) => story.id !== storyId)
-      return stories.length ? { ...current, stories, latestCreate: stories[0].create } : null
-    })} /></Suspense>}
-    {canEdit && coverPickerOpen && <ProfileCoverPhotoPicker images={coverCandidates} loading={coverCandidatesLoading} error={coverPickerError} onClose={() => setCoverPickerOpen(false)} onSelect={(photo) => void chooseExistingCover(photo)} />}
-    {canEdit && coverCropTarget && <ImageCropModal file={coverCropTarget.file} kind="background" onClose={() => setCoverCropTarget(null)} onConfirm={saveCroppedCover} />}
+    {storyViewerOpen && profileStoryBucket && <Suspense fallback={<div className="story-viewer-backdrop"><span className="spinner" /></div>}><StoryViewerPage buckets={storyViewerBuckets} initialBucketId={profile.id} viewerId={viewerId} onClose={() => setStoryViewerOpen(false)} onNavigate={onNavigate} onViewed={markProfileStoryViewed} onCreateStory={canEdit ? () => { setStoryViewerOpen(false); setStoryCreatorOpen(true) } : undefined} onStoryDeleted={canEdit ? (storyId) => {
+      const wasUnseen = forgetOwnUnseenStory(activeProfileId, storyId)
+      setMyStories((current) => {
+        if (!current) return null
+        const stories = current.stories.filter((story) => story.id !== storyId)
+        if (stories.length === 0) return null
+        if (!wasUnseen) return { ...current, stories, latestCreate: stories[0].create }
+        const unseenCount = Math.max(0, Number(current.unseenCount ?? 0) - 1)
+        return { ...current, stories, latestCreate: stories[0].create, unseenCount, hasUnseen: unseenCount > 0 }
+      })
+    } : undefined} /></Suspense>}
+    {profileDetailPostId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={profileDetailPostId} onClose={() => setProfileDetailPostId(null)} onNavigate={onNavigate} onMessage={onMessage} onOpenImage={(detailPost, media) => {
+      if (detailPost.__typename === 'ReelDetail') return
+      setProfileMediaViewer({
+        contentId: detailPost.id,
+        mediaId: media.id,
+        mediaUrl: media.url,
+        initialPost: detailPost,
+        entries: buildProfileMediaEntries([detailPost]),
+      })
+    }} /></Suspense>}
+    {profileMediaViewer && <Suspense fallback={<div className="post-photo-viewer"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={profileMediaViewer.contentId} initialMediaId={profileMediaViewer.mediaId} initialMediaUrl={profileMediaViewer.mediaUrl} initialPost={profileMediaViewer.initialPost} mediaEntries={profileMediaViewer.entries} onClose={() => setProfileMediaViewer(null)} onNavigate={onNavigate} onMessage={onMessage} /></Suspense>}
+    {canEdit && coverPickerOpen && <ProfileImagePhotoPicker kind="cover" images={coverCandidates} loading={coverCandidatesLoading} error={coverPickerError} onClose={() => { coverPickerRequestRef.current += 1; setCoverCandidatesLoading(false); setCoverPickerOpen(false) }} onSelect={(photo) => void chooseExistingCover(photo)} />}
+    {canEdit && avatarPickerOpen && <ProfileImagePhotoPicker kind="avatar" images={avatarCandidates} loading={avatarCandidatesLoading} error={avatarPickerError} onClose={() => { avatarPickerRequestRef.current += 1; setAvatarCandidatesLoading(false); setAvatarPickerOpen(false) }} onSelect={(photo) => void chooseExistingAvatar(photo)} />}
   </>
 }
 
@@ -745,14 +1407,19 @@ type ProfileConnectionSection = 'friends' | 'following' | 'followers'
 interface ProfileMediaItem {
   id: string
   contentId: string
+  mediaId: string
   type: number
   url: string
   createdAt: string
 }
 
-async function loadProfileMediaItems(userId: string): Promise<ProfileMediaItem[]> {
+interface ProfileMediaData {
+  items: ProfileMediaItem[]
+  entries: PostPhotoViewerMediaEntry[]
+}
+
+async function loadProfileMediaData(userId: string): Promise<ProfileMediaData> {
   const photoItems: ProfileMediaItem[] = []
-  const videoItems: ProfileMediaItem[] = []
   const collectPhotos = async () => {
     let cursor: string | null = null
     for (let pageIndex = 0; pageIndex < 6; pageIndex++) {
@@ -760,6 +1427,7 @@ async function loadProfileMediaItems(userId: string): Promise<ProfileMediaItem[]
       photoItems.push(...page.items.map((item) => ({
         id: `${item.contentId}:${item.media.id}`,
         contentId: item.contentId,
+        mediaId: item.media.id,
         type: 0,
         url: item.media.url,
         createdAt: item.createdAt,
@@ -768,59 +1436,48 @@ async function loadProfileMediaItems(userId: string): Promise<ProfileMediaItem[]
       cursor = page.endCursor
     }
   }
-  const collectPostVideos = async () => {
-    let cursor: string | null = null
-    for (let pageIndex = 0; pageIndex < 8; pageIndex++) {
-      const page = await socialApi.getProfilePosts(userId, 25, cursor)
-      for (const post of page.items) {
-        for (const media of post.media.filter((item) => item.type === 1)) {
-          videoItems.push({ id: `${post.id}:${media.id}`, contentId: post.id, type: 1, url: media.url, createdAt: post.create })
-        }
-      }
-      if (!page.hasNextPage || !page.endCursor) break
-      cursor = page.endCursor
-    }
-  }
-  const collectReelVideos = async () => {
-    let cursor: string | null = null
-    for (let pageIndex = 0; pageIndex < 8; pageIndex++) {
-      const page = await socialApi.getProfileReels(userId, 25, cursor)
-      for (const reel of page.items) {
-        for (const media of reel.media.filter((item) => item.type === 1)) {
-          videoItems.push({ id: `${reel.id}:${media.id}`, contentId: reel.id, type: 1, url: media.url, createdAt: reel.createdAt })
-        }
-      }
-      if (!page.hasNextPage || !page.endCursor) break
-      cursor = page.endCursor
-    }
-  }
 
-  await Promise.all([collectPhotos(), collectPostVideos(), collectReelVideos()])
+  const [, posts] = await Promise.all([collectPhotos(), loadAllProfileFeedPosts(userId)])
+  const entries = buildProfileMediaEntries(posts)
+  const videoItems = entries.flatMap((entry) => entry.post && entry.media.type === 1 ? [{
+    id: `${entry.post.id}:${entry.media.id}`,
+    contentId: entry.post.id,
+    mediaId: entry.media.id,
+    type: 1,
+    url: entry.media.url,
+    createdAt: entry.post.create,
+  }] : [])
   const unique = new Map<string, ProfileMediaItem>()
   for (const item of [...photoItems, ...videoItems]) unique.set(item.id, item)
-  return [...unique.values()].sort((left, right) => {
+  const items = [...unique.values()].sort((left, right) => {
     const timeDifference = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
     return Number.isFinite(timeDifference) && timeDifference !== 0 ? timeDifference : right.id.localeCompare(left.id)
   })
+  return { items, entries }
 }
 
-function ProfileMediaTab({ profile, canEdit, friends, onNavigate, onPostCreated }: { profile: SocialProfile; canEdit: boolean; friends: SocialProfile[]; onNavigate: (path: string) => void; onPostCreated: (post: GatewayPost) => void }) {
+function ProfileMediaTab({ profile, canEdit, friends, onOpenMedia, onPostCreated }: { profile: SocialProfile; canEdit: boolean; friends: SocialProfile[]; onOpenMedia: (item: { contentId: string; mediaId: string; mediaUrl: string; mediaType: number }, entries: PostPhotoViewerMediaEntry[]) => void; onPostCreated: (post: GatewayPost) => void }) {
   const { t } = useI18n()
   const [filter, setFilter] = useState<ProfileMediaFilter>('all')
   const [items, setItems] = useState<ProfileMediaItem[]>([])
+  const [viewerEntries, setViewerEntries] = useState<PostPhotoViewerMediaEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [composerRequest, setComposerRequest] = useState(0)
   const [menuId, setMenuId] = useState<string | null>(null)
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
     setError(false)
     try {
-      setItems(await loadProfileMediaItems(profile.id))
+      const data = await loadProfileMediaData(profile.id)
+      setItems(data.items)
+      setViewerEntries(data.entries)
     } catch {
       setItems([])
+      setViewerEntries([])
       setError(true)
     } finally {
       setLoading(false)
@@ -828,25 +1485,23 @@ function ProfileMediaTab({ profile, canEdit, friends, onNavigate, onPostCreated 
   }, [profile.id])
 
   useEffect(() => { void reload() }, [reload])
-  useEffect(() => {
-    if (!menuId) return
-    const close = (event: PointerEvent) => {
-      if (!(event.target instanceof Element) || !event.target.closest(`[data-profile-media-menu="${menuId}"]`)) setMenuId(null)
-    }
-    document.addEventListener('pointerdown', close)
-    return () => document.removeEventListener('pointerdown', close)
-  }, [menuId])
-
   const filteredItems = items.filter((item) => filter === 'all' || (filter === 'photos' ? item.type === 0 : item.type === 1))
 
   async function setAsProfileImage(item: ProfileMediaItem, kind: 'avatar' | 'cover') {
     setBusyId(item.id)
     try {
       const updated = kind === 'avatar'
-        ? await socialApi.changeUserAvatar(profile.id, item.url, null, readDefaultPostPrivacy(profile.id))
-        : await socialApi.changeUserBackground(profile.id, item.url, null, readDefaultPostPrivacy(profile.id))
+        ? await socialApi.changeUserAvatar(
+            profile.id,
+            item.url,
+            null,
+            0,
+            { contentId: item.contentId, mediaId: item.mediaId },
+          )
+        : await socialApi.changeUserBackground(profile.id, item.url, null, 0)
       if (updated) window.dispatchEvent(new CustomEvent('fakebook:profile-updated', { detail: updated }))
       setMenuId(null)
+      setMenuAnchor(null)
     } finally {
       setBusyId(null)
     }
@@ -857,11 +1512,16 @@ function ProfileMediaTab({ profile, canEdit, friends, onNavigate, onPostCreated 
     const additions = post.media.map((media) => ({
       id: `${post.id}:${media.id}`,
       contentId: post.id,
+      mediaId: media.id,
       type: media.type,
       url: media.url,
       createdAt: post.create,
     }))
     setItems((current) => [...additions, ...current.filter((item) => !additions.some((addition) => addition.id === item.id))])
+    if (post.__typename !== 'ReelDetail') {
+      const additionsForViewer = buildProfileMediaEntries([post])
+      setViewerEntries((current) => [...additionsForViewer, ...current.filter((entry) => !additionsForViewer.some((addition) => addition.post?.id === entry.post?.id && addition.media.id === entry.media.id))])
+    }
   }
 
   return <section className="card self-profile-collection-card self-profile-media-tab">
@@ -870,35 +1530,54 @@ function ProfileMediaTab({ profile, canEdit, friends, onNavigate, onPostCreated 
       {(['all', 'photos', 'videos'] as ProfileMediaFilter[]).map((value) => <button type="button" key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{t(value === 'all' ? 'profileMediaAll' : value === 'photos' ? 'photos' : 'videos')}</button>)}
     </nav>
     {loading ? <div className="self-profile-collection-state"><span className="spinner" /></div> : error ? <div className="self-profile-collection-state muted">{t('profileMediaLoadError')}</div> : filteredItems.length === 0 ? <div className="self-profile-collection-state muted">{t('photosEmpty')}</div> : <div className="self-profile-media-grid">{filteredItems.map((item) => <article key={item.id}>
-      <button type="button" className="self-profile-media-open" onClick={() => onNavigate(`/content/${item.contentId}`)}>{item.type === 1 ? <><video src={item.url} muted playsInline preload="metadata" /><span className="self-profile-media-play"><Icon name="play" size={20} /></span></> : <img src={item.url} alt="" loading="lazy" />}</button>
-      {canEdit && item.type === 0 && <div className="self-profile-media-edit" data-profile-media-menu={item.id}><button type="button" aria-label={t('edit')} onClick={() => setMenuId((current) => current === item.id ? null : item.id)}><Icon name="edit" size={16} /></button>{menuId === item.id && <div role="menu"><button type="button" role="menuitem" disabled={busyId === item.id} onClick={() => void setAsProfileImage(item, 'avatar')}><Icon name="user" size={18} />{t('profileSetAsAvatar')}</button><button type="button" role="menuitem" disabled={busyId === item.id} onClick={() => void setAsProfileImage(item, 'cover')}><Icon name="photo" size={18} />{t('profileSetAsCover')}</button></div>}</div>}
+      <button type="button" className="self-profile-media-open" onClick={() => onOpenMedia({ contentId: item.contentId, mediaId: item.mediaId, mediaUrl: item.url, mediaType: item.type }, viewerEntries)}>{item.type === 1 ? <><video src={item.url} muted playsInline preload="metadata" /><span className="self-profile-media-play"><Icon name="play" size={20} /></span></> : <img src={item.url} alt="" loading="lazy" />}</button>
+      {canEdit && item.type === 0 && <div className="self-profile-media-edit" data-profile-media-menu={item.id}><button type="button" aria-label={t('edit')} onClick={(event) => { const nextOpen = menuId !== item.id; setMenuId(nextOpen ? item.id : null); setMenuAnchor(nextOpen ? event.currentTarget : null) }}><Icon name="edit" size={16} /></button>{menuId === item.id && <AnchoredMenuPortal anchor={menuAnchor} className="self-profile-media-menu-popover" onRequestClose={() => { setMenuId(null); setMenuAnchor(null) }}><button type="button" role="menuitem" disabled={busyId === item.id} onClick={() => void setAsProfileImage(item, 'avatar')}><Icon name="user" size={18} />{t('profileSetAsAvatar')}</button><button type="button" role="menuitem" disabled={busyId === item.id} onClick={() => void setAsProfileImage(item, 'cover')}><Icon name="photo" size={18} />{t('profileSetAsCover')}</button></AnchoredMenuPortal>}</div>}
     </article>)}</div>}
-    {canEdit && <PostComposer triggerOnly externalOpenRequest={composerRequest} variant="profile" userId={profile.id} displayName={profile.displayName} avatarUrl={profile.avatarUrl} isVerified={profile.isVerified} friends={friends} onReel={() => onNavigate('/reels')} onCreated={handleCreated} />}
+    {canEdit && <PostComposer triggerOnly externalOpenRequest={composerRequest} variant="profile" userId={profile.id} displayName={profile.displayName} avatarUrl={profile.avatarUrl} isVerified={profile.isVerified} friends={friends} onCreated={handleCreated} />}
   </section>
 }
 
-function ProfileConnectionsTab({ profile, viewerId, onNavigate }: { profile: SocialProfile; viewerId: string; onNavigate: (path: string) => void }) {
+function ProfileConnectionsTab({ profile, viewerId, canManage, onNavigate }: { profile: SocialProfile; viewerId: string; canManage: boolean; onNavigate: (path: string) => void }) {
   const { t } = useI18n()
   const [section, setSection] = useState<ProfileConnectionSection>('friends')
   const [query, setQuery] = useState('')
   const [items, setItems] = useState<Array<{ profile: SocialProfile; mutualFriendCount: number }>>([])
   const [loading, setLoading] = useState(true)
   const [menuId, setMenuId] = useState<string | null>(null)
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [unfollowedIds, setUnfollowedIds] = useState<Set<string>>(() => new Set())
   const [requestedIds, setRequestedIds] = useState<Set<string>>(() => new Set())
   const mutualCountsRef = useRef(new Map<string, number>())
   const sections: Array<{ id: ProfileConnectionSection; label: string }> = [
     { id: 'friends', label: t('profileAllFriends') },
-    ...(profile.followingCount > 0 ? [{ id: 'following' as const, label: t('following') }] : []),
-    ...(profile.followerCount > 0 ? [{ id: 'followers' as const, label: t('profileFollowers') }] : []),
+    ...(canManage && profile.followingCount > 0 ? [{ id: 'following' as const, label: t('following') }] : []),
+    ...(canManage && profile.followerCount > 0 ? [{ id: 'followers' as const, label: t('profileFollowers') }] : []),
   ]
 
   useEffect(() => {
     setQuery('')
     setMenuId(null)
+    setMenuAnchor(null)
   }, [section])
+
   useEffect(() => {
+    if (canManage) return
+    setSection('friends')
+    let active = true
+    setLoading(true)
+    socialApi.getProfileFriends(profile.id, 200).then((connections) => {
+      if (active) setItems(connections)
+    }).catch(() => {
+      if (active) setItems([])
+    }).finally(() => {
+      if (active) setLoading(false)
+    })
+    return () => { active = false }
+  }, [canManage, profile.id])
+
+  useEffect(() => {
+    if (!canManage) return
     let active = true
     const timer = window.setTimeout(() => {
       setLoading(true)
@@ -920,31 +1599,39 @@ function ProfileConnectionsTab({ profile, viewerId, onNavigate }: { profile: Soc
       })
     }, query ? 220 : 0)
     return () => { active = false; window.clearTimeout(timer) }
-  }, [profile.id, query, section])
-  useEffect(() => {
-    if (!menuId) return
-    const close = (event: PointerEvent) => {
-      if (!(event.target instanceof Element) || !event.target.closest(`[data-profile-connection-menu="${menuId}"]`)) setMenuId(null)
-    }
-    document.addEventListener('pointerdown', close)
-    return () => document.removeEventListener('pointerdown', close)
-  }, [menuId])
+  }, [canManage, profile.id, query, section])
+
+  const visibleItems = useMemo(() => {
+    if (canManage || !query.trim()) return items
+    const normalizedQuery = query.trim().toLocaleLowerCase()
+    return items.filter(({ profile: itemProfile }) =>
+      itemProfile.displayName.toLocaleLowerCase().includes(normalizedQuery) ||
+      itemProfile.username.toLocaleLowerCase().includes(normalizedQuery))
+  }, [canManage, items, query])
+
+  const closeMenu = () => {
+    setMenuId(null)
+    setMenuAnchor(null)
+  }
 
   async function removeFriend(targetId: string) {
+    if (!canManage) return
     setBusyId(targetId)
     try {
       if (await socialApi.unfriend(viewerId, targetId)) setItems((current) => current.filter((item) => item.profile.id !== targetId))
-      setMenuId(null)
+      closeMenu()
     } finally { setBusyId(null) }
   }
   async function block(targetId: string) {
+    if (!canManage) return
     setBusyId(targetId)
     try {
       if (await socialApi.blockUser(viewerId, targetId)) setItems((current) => current.filter((item) => item.profile.id !== targetId))
-      setMenuId(null)
+      closeMenu()
     } finally { setBusyId(null) }
   }
   async function toggleFollowing(targetId: string) {
+    if (!canManage) return
     setBusyId(targetId)
     try {
       const currentlyFollowing = !unfollowedIds.has(targetId)
@@ -958,22 +1645,23 @@ function ProfileConnectionsTab({ profile, viewerId, onNavigate }: { profile: Soc
     } finally { setBusyId(null) }
   }
   async function addFriend(targetId: string) {
+    if (!canManage) return
     setBusyId(targetId)
     try {
       if (await socialApi.sendFriendRequest(viewerId, targetId)) setRequestedIds((current) => new Set(current).add(targetId))
-      setMenuId(null)
+      closeMenu()
     } finally { setBusyId(null) }
   }
 
   return <section className="card self-profile-collection-card self-profile-connections-tab">
     <header className="self-profile-collection-head"><h2>{t('friends')}</h2><label className="self-profile-connections-search"><Icon name="search" size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label></header>
     <nav className="self-profile-collection-tabs" aria-label={t('friends')}>{sections.map((item) => <button type="button" key={item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}>{item.label}</button>)}</nav>
-    {loading ? <div className="self-profile-collection-state"><span className="spinner" /></div> : items.length === 0 ? <div className="self-profile-collection-state muted">{query ? t('noSearchResults') : t('friendListEmpty')}</div> : <div className="self-profile-connections-grid">{items.map((item) => {
+    {loading ? <div className="self-profile-collection-state"><span className="spinner" /></div> : visibleItems.length === 0 ? <div className="self-profile-collection-state muted">{query ? t('noSearchResults') : t('friendListEmpty')}</div> : <div className="self-profile-connections-grid">{visibleItems.map((item) => {
       const person = item.profile
       const isUnfollowed = unfollowedIds.has(person.id)
       return <article key={person.id}>
         <button type="button" className="self-profile-connection-person" onClick={() => onNavigate(`/profile/${person.id}`)}><Avatar name={person.displayName} src={person.avatarUrl} size={90} /><span><strong>{person.displayName}<VerifiedBadge verified={person.isVerified} size={13} /></strong>{section === 'friends' && item.mutualFriendCount > 0 && <small>{t('mutualFriendsCount', { count: item.mutualFriendCount })}</small>}</span></button>
-        {section === 'following' ? <button type="button" className={isUnfollowed ? 'self-profile-follow-toggle follow' : 'self-profile-follow-toggle'} disabled={busyId === person.id} onClick={() => void toggleFollowing(person.id)}>{t(isUnfollowed ? 'follow' : 'following')}</button> : <div className="self-profile-connection-menu" data-profile-connection-menu={person.id}><button type="button" aria-label={t('more')} onClick={() => setMenuId((current) => current === person.id ? null : person.id)}><Icon name="more" size={18} /></button>{menuId === person.id && <div role="menu">{section === 'friends' ? <button type="button" role="menuitem" disabled={busyId === person.id} onClick={() => void removeFriend(person.id)}><Icon name="userMinus" size={18} />{t('removeFriend')}</button> : <button type="button" role="menuitem" disabled={busyId === person.id || requestedIds.has(person.id)} onClick={() => void addFriend(person.id)}><Icon name="userPlus" size={18} />{t(requestedIds.has(person.id) ? 'requestSent' : 'addFriend')}</button>}<button type="button" role="menuitem" disabled={busyId === person.id} onClick={() => void block(person.id)}><Icon name="block" size={18} />{t('block')}</button></div>}</div>}
+        {canManage && (section === 'following' ? <button type="button" className={isUnfollowed ? 'self-profile-follow-toggle follow' : 'self-profile-follow-toggle'} disabled={busyId === person.id} onClick={() => void toggleFollowing(person.id)}>{t(isUnfollowed ? 'follow' : 'following')}</button> : <div className="self-profile-connection-menu" data-profile-connection-menu={person.id}><button type="button" aria-label={t('more')} aria-haspopup="menu" aria-expanded={menuId === person.id} onClick={(event) => { const nextOpen = menuId !== person.id; setMenuId(nextOpen ? person.id : null); setMenuAnchor(nextOpen ? event.currentTarget : null) }}><Icon name="more" size={18} /></button>{menuId === person.id && <AnchoredMenuPortal anchor={menuAnchor} className="self-profile-connection-menu-popover" onRequestClose={closeMenu}>{section === 'friends' ? <button type="button" role="menuitem" disabled={busyId === person.id} onClick={() => void removeFriend(person.id)}><Icon name="userMinus" size={18} />{t('removeFriend')}</button> : <button type="button" role="menuitem" disabled={busyId === person.id || requestedIds.has(person.id)} onClick={() => void addFriend(person.id)}><Icon name="userPlus" size={18} />{t(requestedIds.has(person.id) ? 'requestSent' : 'addFriend')}</button>}<button type="button" role="menuitem" disabled={busyId === person.id} onClick={() => void block(person.id)}><Icon name="block" size={18} />{t('block')}</button></AnchoredMenuPortal>}</div>)}
       </article>
     })}</div>}
   </section>
@@ -1047,6 +1735,14 @@ function ProfileCoverCameraIcon() {
   </svg>
 }
 
+function ProfileViewStoryIcon() {
+  return <svg className="profile-avatar-menu-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="M3.25 5.25c2.85-1.1 5.75-.7 8.75 1.15v13.1c-3-1.85-5.9-2.25-8.75-1.15V5.25Z" /><path d="M20.75 5.25C17.9 4.15 15 4.55 12 6.4v13.1c3-1.85 5.9-2.25 8.75-1.15V5.25Z" /></svg>
+}
+
+function ProfileViewAvatarIcon() {
+  return <svg className="profile-avatar-menu-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><rect x="3.4" y="2.8" width="17.2" height="18.4" rx="5" /><circle cx="12" cy="9" r="2.5" /><path d="M7.65 17.1c.55-2.45 2-3.65 4.35-3.65s3.8 1.2 4.35 3.65" /></svg>
+}
+
 function ProfileInfoEditIcon() {
   return <svg className="self-profile-info-edit-icon" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="m4.2 19.8 1.05-4.15L15.7 5.2a2.05 2.05 0 0 1 2.9 0l.2.2a2.05 2.05 0 0 1 0 2.9L8.35 18.75 4.2 19.8Z" /><path d="m13.85 7.05 3.1 3.1" /></svg>
 }
@@ -1106,9 +1802,18 @@ function ProfileHeaderChevronIcon() {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="m7 9.5 5 5 5-5" /></svg>
 }
 
-function ProfileCoverPhotoPicker({ images, loading, error, onClose, onSelect }: { images: SocialPhoto[]; loading: boolean; error: string | null; onClose: () => void; onSelect: (photo: SocialPhoto) => void }) {
+function ProfileFriendStatusIcon() {
+  return <svg className="visitor-profile-status-icon" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M9.25 12.15a4.15 4.15 0 1 0 0-8.3 4.15 4.15 0 0 0 0 8.3ZM1.9 20.15v-.95c0-3.25 3.65-5.25 7.35-5.25 1.55 0 3.1.35 4.35 1.02a5.95 5.95 0 0 0-.25 5.18H1.9Zm18.86-6.42 1.25 1.22-5.2 5.38-2.8-2.72 1.22-1.27 1.55 1.5 3.98-4.11Z" /></svg>
+}
+
+function ProfileCancelRequestIcon() {
+  return <svg className="visitor-profile-status-icon" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M9.1 12.1a4.1 4.1 0 1 0 0-8.2 4.1 4.1 0 0 0 0 8.2ZM1.8 20.15v-.95c0-3.2 3.65-5.2 7.3-5.2 1.45 0 2.9.3 4.08.9a5.95 5.95 0 0 0 .38 5.25H1.8Zm13.45-5.4 1.35-1.35 1.65 1.65 1.65-1.65 1.35 1.35-1.65 1.65 1.65 1.65-1.35 1.35-1.65-1.65-1.65 1.65-1.35-1.35 1.65-1.65-1.65-1.65Z" /></svg>
+}
+
+function ProfileImagePhotoPicker({ kind, images, loading, error, onClose, onSelect }: { kind: 'avatar' | 'cover'; images: SocialPhoto[]; loading: boolean; error: string | null; onClose: () => void; onSelect: (photo: SocialPhoto) => void }) {
   const { t } = useI18n()
-  return <div className="modal-backdrop existing-photo-backdrop" role="presentation" onClick={onClose}><section className="modal existing-photo-modal" role="dialog" aria-modal="true" aria-label={t('profileChooseCover')} onClick={(event) => event.stopPropagation()}><header className="modal-head"><div><h2>{t('profileChooseCover')}</h2><p>{t('chooseBackgroundPhotoDesc')}</p></div><button type="button" className="icon-circle subtle" aria-label={t('close')} onClick={onClose}><Icon name="close" /></button></header>{loading ? <div className="settings-loading"><span className="spinner" /></div> : error ? <p className="form-error existing-photo-state">{error}</p> : images.length > 0 ? <div className="existing-photo-grid">{images.map((photo) => <button type="button" key={`${photo.contentId}-${photo.media.id}`} onClick={() => onSelect(photo)}><img src={photo.media.url} alt="" loading="lazy" /></button>)}</div> : <p className="muted existing-photo-state">{t('photosEmpty')}</p>}</section></div>
+  const title = t(kind === 'avatar' ? 'profileChooseAvatar' : 'profileChooseCover')
+  return <div className="modal-backdrop existing-photo-backdrop" role="presentation" onClick={onClose}><section className="modal existing-photo-modal" role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()}><header className="modal-head"><div><h2>{title}</h2><p>{t(kind === 'avatar' ? 'chooseAvatarPhotoDesc' : 'chooseBackgroundPhotoDesc')}</p></div><button type="button" className="icon-circle subtle" aria-label={t('close')} onClick={onClose}><Icon name="close" /></button></header>{loading ? <div className="settings-loading"><span className="spinner" /></div> : error ? <p className="form-error existing-photo-state">{error}</p> : images.length > 0 ? <div className="existing-photo-grid">{images.map((photo) => <button type="button" key={`${photo.contentId}-${photo.media.id}`} onClick={() => onSelect(photo)}><img src={photo.media.url} alt="" loading="lazy" /></button>)}</div> : <p className="muted existing-photo-state">{t('photosEmpty')}</p>}</section></div>
 }
 
 function ProfileStoryTile({ story, onOpen }: { story: GatewayStory; onOpen: () => void }) {
@@ -1123,29 +1828,98 @@ function ProfileStoryTile({ story, onOpen }: { story: GatewayStory; onOpen: () =
   </button>
 }
 
-function ProfilePostGridCard({ post, onOpen }: { post: GatewayPost; onOpen: () => void }) {
+function ProfilePostGridCard({ post, locale, onOpenDetail, onOpenMedia }: { post: GatewayPost; locale: string; onOpenDetail: () => void; onOpenMedia: (item: { contentId: string; mediaId: string; mediaUrl: string; mediaType: number }) => void }) {
   const decoded = decodePostContent(post.content)
-  const background = post.media.length === 0 ? getPostBackgroundPreset(decoded.backgroundId) : null
-  const sharedMedia = post.__typename === 'FeedPostDetail' ? post.sharedSource?.media[0] ?? null : null
-  const media = post.media[0] ?? sharedMedia
-  return <button type="button" onClick={onOpen}>
-    {media ? media.type === 1 ? <video src={media.url} muted playsInline preload="metadata" /> : <img src={media.url} alt="" loading="lazy" /> : <span style={background ? { background: background.background } : undefined}>{decoded.text}</span>}
-    <small>{post.create}</small>
-  </button>
+  const source = profileGridMediaSource(post)
+  const visibleMedia = source.media.slice(0, 4)
+  const background = source.media.length === 0 ? getPostBackgroundPreset(decoded.backgroundId) : null
+  const timestamp = formatPostTimestamp(post.create, locale)
+  const privacy = normalizePostPrivacy(post.privacy)
+  const openMedia = (media: GatewayPost['media'][number]) => {
+    if (post.__typename === 'ReelDetail') return
+    onOpenMedia({ contentId: source.contentId, mediaId: media.id, mediaUrl: media.url, mediaType: media.type })
+  }
+
+  return <article className={`profile-post-grid-card${post.__typename === 'ReelDetail' ? ' is-reel' : ''}`} data-post-id={post.id}>
+    {visibleMedia.length > 0 ? <div className={`profile-post-grid-media media-count-${Math.min(visibleMedia.length, 4)}`}>{visibleMedia.map((media, index) => <button type="button" className="profile-post-grid-media-item" key={media.id} aria-label={decoded.text || post.author.name} onMouseEnter={(event) => {
+      const video = event.currentTarget.querySelector('video')
+      if (video) void video.play().catch(() => undefined)
+    }} onMouseLeave={(event) => {
+      const video = event.currentTarget.querySelector('video')
+      if (!video) return
+      video.pause()
+      try { video.currentTime = 0 } catch { /* Metadata may not be ready yet. */ }
+    }} onClick={() => openMedia(media)}>
+      {media.type === 1 ? <video src={media.url} muted loop playsInline preload="metadata" /> : <img src={media.url} alt="" loading="lazy" />}
+      {media.type === 1 && <span className="profile-post-grid-video-mark" aria-hidden="true"><Icon name="play" size={18} /></span>}
+      {index === 3 && source.media.length > 4 && <strong className="profile-post-grid-media-more">+{source.media.length - 4}</strong>}
+    </button>)}</div> : <button type="button" className={`profile-post-grid-media profile-post-grid-text${background ? ' has-background' : ' plain-text'}`} style={background ? { background: background.background } : undefined} onClick={onOpenDetail}><span><MentionContent content={decoded.text} mentions={post.mentions} /></span></button>}
+    <button type="button" className="profile-post-grid-footer" onClick={onOpenDetail}>
+      <Avatar name={post.author.name} src={post.author.avatar} size={38} />
+      <span className="profile-post-grid-footer-copy">
+        {decoded.text && <span className="profile-post-grid-caption"><MentionContent content={decoded.text} mentions={post.mentions} /></span>}
+        <span className="profile-post-grid-meta"><time dateTime={post.create} title={timestamp.detail}>{timestamp.display}</time><PostPrivacyIcon privacy={privacy} size={12} /></span>
+      </span>
+    </button>
+  </article>
 }
 
 function ProfileActions({ profile, relationship, loading, busyAction, onFriend, onFollow, onBlock, onMessage }: { profile: SocialProfile; relationship: ProfileRelationshipState; loading: boolean; busyAction: string | null; onFriend: (action: 'send' | 'cancel' | 'accept' | 'reject' | 'unfriend') => void; onFollow: () => void; onBlock: () => void; onMessage: () => void }) {
   const { t } = useI18n()
-  if (loading) return <div className="profile-relationship-actions"><span className="spinner" /></div>
-  if (relationship.isBlockedBy) return <div className="profile-relationship-actions"><span className="role-pill muted-pill">{t('profileRestricted')}</span></div>
+  const [menu, setMenu] = useState<'following' | 'friend' | null>(null)
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
+
+  useEffect(() => { setMenu(null); setMenuAnchor(null) }, [profile.id, relationship.friendship, relationship.isBlocked, relationship.isFollowing])
+
+  if (loading) return <div className="self-profile-header-actions visitor-profile-header-actions"><span className="spinner" /></div>
+  if (relationship.isBlocked || relationship.isBlockedBy) return <div className="self-profile-header-actions visitor-profile-header-actions"><span className="role-pill muted-pill">{t('profileRestricted')}</span></div>
+
   const busy = busyAction != null
-  return <div className="profile-relationship-actions">
-    {!relationship.isBlocked && profile.privacy === 0 && relationship.friendship === 'none' && <button type="button" className="btn-primary" disabled={busy} onClick={() => onFriend('send')}><Icon name="userPlus" size={17} />{t('addFriend')}</button>}
-    {!relationship.isBlocked && relationship.friendship === 'outgoing' && <button type="button" className="btn-soft" disabled={busy} onClick={() => onFriend('cancel')}><Icon name="clock" size={17} />{t('cancelRequest')}</button>}
-    {!relationship.isBlocked && relationship.friendship === 'incoming' && <><button type="button" className="btn-primary" disabled={busy} onClick={() => onFriend('accept')}><Icon name="friends" size={17} />{t('confirm')}</button><button type="button" className="btn-soft" disabled={busy} onClick={() => onFriend('reject')}>{t('decline')}</button></>}
-    {!relationship.isBlocked && relationship.friendship === 'friend' && <button type="button" className="btn-primary" disabled={busy} onClick={onMessage}><Icon name="messenger" size={17} />{t('messageUser')}</button>}
-    {!relationship.isBlocked && relationship.friendship === 'friend' && <button type="button" className="btn-soft" disabled={busy} onClick={() => onFriend('unfriend')}><Icon name="friends" size={17} />{t('removeFriend')}</button>}
-    {!relationship.isBlocked && relationship.friendship !== 'friend' && (profile.privacy !== 0 || relationship.isFollowing) && <button type="button" className={relationship.isFollowing ? 'btn-soft' : 'btn-primary'} disabled={busy} onClick={onFollow}><Icon name="friends" size={17} />{relationship.isFollowing ? t('unfollow') : t('follow')}</button>}
-    <button type="button" className="btn-soft danger-text" disabled={busy} onClick={onBlock}><Icon name="lock" size={17} />{relationship.isBlocked ? t('unblock') : t('block')}</button>
+  const followEnabled = profile.privacy === 1
+  const messageIsPrimary = relationship.isFollowing || relationship.friendship !== 'none'
+
+  const closeMenu = () => { setMenu(null); setMenuAnchor(null) }
+  const relationshipMenu = (kind: 'following' | 'friend') => <AnchoredMenuPortal anchor={menuAnchor} className="visitor-profile-action-menu" onRequestClose={closeMenu}>
+    <button type="button" role="menuitem" disabled={busy} onClick={() => {
+      closeMenu()
+      if (kind === 'following') onFollow()
+      else onFriend('unfriend')
+    }}><Icon name="userMinus" size={18} />{t(kind === 'following' ? 'profileUnfollow' : 'removeFriend')}</button>
+    <button type="button" role="menuitem" disabled={busy} onClick={() => { closeMenu(); onBlock() }}><Icon name="block" size={18} />{t('block')}</button>
+  </AnchoredMenuPortal>
+
+  return <div className="self-profile-header-actions visitor-profile-header-actions">
+    {followEnabled && relationship.friendship !== 'friend' && (relationship.isFollowing
+      ? <div className="visitor-profile-action-menu-host" data-profile-relationship-menu>
+        <button type="button" className="btn-soft" aria-haspopup="menu" aria-expanded={menu === 'following'} disabled={busy} onClick={(event) => { const nextOpen = menu !== 'following'; setMenu(nextOpen ? 'following' : null); setMenuAnchor(nextOpen ? event.currentTarget : null) }}><Icon name="bell" size={16} />{t('following')}</button>
+        {menu === 'following' && relationshipMenu('following')}
+      </div>
+      : <button type="button" className="btn-primary" disabled={busy} onClick={onFollow}><Icon name="bell" size={16} />{t('follow')}</button>)}
+
+    {relationship.friendship === 'none' && <button type="button" className="btn-primary" disabled={busy} onClick={() => onFriend('send')}><Icon name="userPlus" size={17} />{t('profileAddFriend')}</button>}
+    {relationship.friendship === 'outgoing' && <button type="button" className="btn-soft" disabled={busy} onClick={() => onFriend('cancel')}><ProfileCancelRequestIcon />{t('profileCancelRequest')}</button>}
+    {relationship.friendship === 'incoming' && <>
+      <button type="button" className="btn-primary" disabled={busy} onClick={() => onFriend('accept')}><ProfileFriendStatusIcon />{t('confirm')}</button>
+      <button type="button" className="btn-soft" disabled={busy} onClick={() => onFriend('reject')}>{t('decline')}</button>
+    </>}
+    {relationship.friendship === 'friend' && <div className="visitor-profile-action-menu-host" data-profile-relationship-menu>
+      <button type="button" className="btn-soft" aria-haspopup="menu" aria-expanded={menu === 'friend'} disabled={busy} onClick={(event) => { const nextOpen = menu !== 'friend'; setMenu(nextOpen ? 'friend' : null); setMenuAnchor(nextOpen ? event.currentTarget : null) }}><ProfileFriendStatusIcon />{t('profileFriendsButton')}</button>
+      {menu === 'friend' && relationshipMenu('friend')}
+    </div>}
+
+    <button type="button" className={messageIsPrimary ? 'btn-primary' : 'btn-soft'} disabled={busy} onClick={onMessage}><Icon name="messenger" size={17} />{t('messageUser')}</button>
+  </div>
+}
+
+function ProfileMoreActions({ relationship, busyAction, onBlock }: { relationship: ProfileRelationshipState; busyAction: string | null; onBlock: () => void }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => setOpen(false), [relationship.isBlocked])
+
+  return <div className="visitor-profile-tab-menu">
+    <button ref={buttonRef} type="button" className="self-profile-tab-more" aria-label={t('more')} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><Icon name="more" size={20} /></button>
+    {open && <AnchoredMenuPortal anchor={buttonRef.current} className="visitor-profile-tab-menu-popover" onRequestClose={() => setOpen(false)}><button type="button" role="menuitem" disabled={busyAction != null || relationship.isBlockedBy} onClick={() => { setOpen(false); onBlock() }}><Icon name="block" size={18} />{t(relationship.isBlocked ? 'unblock' : 'block')}</button></AnchoredMenuPortal>}
   </div>
 }

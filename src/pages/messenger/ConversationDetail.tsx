@@ -11,10 +11,11 @@ interface ConversationDetailProps {
   conversation: MessengerConversationDto
   presence?: MessengerPresenceDto
   onOpenProfile: (id: string) => void
+  onOpenGroup?: () => void
   onLeave?: () => void
 }
 
-export function ConversationDetail({ me, conversation, presence, onOpenProfile, onLeave }: ConversationDetailProps) {
+export function ConversationDetail({ me, conversation, presence, onOpenProfile, onOpenGroup, onLeave }: ConversationDetailProps) {
   const { t } = useI18n()
   const name = conversationName(conversation, me)
   const avatar = conversationAvatar(conversation, me)
@@ -22,14 +23,14 @@ export function ConversationDetail({ me, conversation, presence, onOpenProfile, 
 
   return (
     <aside className="messenger-detail" aria-label={t('conversationDetails')}>
-      <Avatar name={name} src={avatar} size={84} online={conversation.type === 'DIRECT' && Boolean(presence?.isOnline)} />
+      <Avatar name={name} src={avatar} size={84} online={conversation.type === 'DIRECT' && Boolean(presence?.isOnline)} onClick={conversation.type === 'GROUP' ? onOpenGroup : otherParticipant ? () => onOpenProfile(otherParticipant.id) : undefined} />
       <h2>{name}<VerifiedBadge verified={otherParticipant?.isVerified} /></h2>
       <p className="muted small">{conversation.type === 'GROUP' ? t('groupConversation') : t('fakebookFriend')}</p>
 
       <div className="messenger-detail-actions">
-        <button type="button" onClick={() => otherParticipant && onOpenProfile(otherParticipant.id)}>
-          <Icon name="friends" size={16} />
-          <span>{t('profile')}</span>
+        <button type="button" onClick={() => conversation.type === 'GROUP' ? onOpenGroup?.() : otherParticipant && onOpenProfile(otherParticipant.id)}>
+          <Icon name={conversation.type === 'GROUP' ? 'groups' : 'friends'} size={16} />
+          <span>{conversation.type === 'GROUP' ? 'Quản lý nhóm' : t('profile')}</span>
         </button>
       </div>
 

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_SINGLE_MEDIA_ASPECT_RATIO,
-  MIN_SINGLE_MEDIA_ASPECT_RATIO,
+  PORTRAIT_SINGLE_MEDIA_FRAME_ASPECT_RATIO,
   classifyMediaDimensions,
   getAdaptiveMediaLayout,
   getSingleMediaPresentation,
@@ -15,12 +14,12 @@ describe('mediaLayout', () => {
     expect(classifyMediaDimensions({ width: 0, height: 900 })).toBe('unknown')
   })
 
-  it('keeps normal single-media ratios and clamps extreme ratios with a backdrop', () => {
-    expect(getSingleMediaPresentation({ width: 1000, height: 1000 })).toMatchObject({ frameAspectRatio: 1, needsBackdrop: false })
-    expect(getSingleMediaPresentation({ width: 800, height: 1000 })).toMatchObject({ frameAspectRatio: MIN_SINGLE_MEDIA_ASPECT_RATIO, needsBackdrop: false })
-    expect(getSingleMediaPresentation({ width: 1910, height: 1000 })).toMatchObject({ frameAspectRatio: MAX_SINGLE_MEDIA_ASPECT_RATIO, needsBackdrop: false })
-    expect(getSingleMediaPresentation({ width: 900, height: 1600 })).toMatchObject({ frameAspectRatio: MIN_SINGLE_MEDIA_ASPECT_RATIO, needsBackdrop: true })
-    expect(getSingleMediaPresentation({ width: 2400, height: 900 })).toMatchObject({ frameAspectRatio: MAX_SINGLE_MEDIA_ASPECT_RATIO, needsBackdrop: true })
+  it('uses the 4:3 sample frame only for portrait media and preserves every non-portrait ratio', () => {
+    expect(getSingleMediaPresentation({ width: 1000, height: 1000 })).toMatchObject({ frameAspectRatio: 1, needsLetterbox: false })
+    expect(getSingleMediaPresentation({ width: 800, height: 1000 })).toMatchObject({ frameAspectRatio: PORTRAIT_SINGLE_MEDIA_FRAME_ASPECT_RATIO, needsLetterbox: true })
+    expect(getSingleMediaPresentation({ width: 1910, height: 1000 })).toMatchObject({ frameAspectRatio: 1.91, needsLetterbox: false })
+    expect(getSingleMediaPresentation({ width: 900, height: 1600 })).toMatchObject({ frameAspectRatio: PORTRAIT_SINGLE_MEDIA_FRAME_ASPECT_RATIO, needsLetterbox: true })
+    expect(getSingleMediaPresentation({ width: 2400, height: 900 })).toMatchObject({ frameAspectRatio: 2400 / 900, needsLetterbox: false })
   })
 
   it('chooses orientation-aware layouts for two and three media items', () => {
