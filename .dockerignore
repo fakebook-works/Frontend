@@ -1,2 +1,15 @@
+.git/
+.github/
+.idea/
+.vscode/
 node_modules/
 dist/
+coverage/
+TestResults/
+test-results/
+playwright-report/
+*.log
+npm-debug.log*
+.env
+.env.*
+.DS_Store
