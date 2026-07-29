@@ -884,7 +884,10 @@ describe('ProfilePage messaging', () => {
     cropMocks.cropImageFile.mockResolvedValue(cropped)
     apiMocks.uploadMediaFiles.mockResolvedValue([{ url: '/media/existing-cropped.jpg', type: 'image', contentType: 'image/jpeg', size: 16, name: 'existing-cropped.jpg' }])
     socialMocks.changeUserAvatar.mockResolvedValue({ ...profile, avatarUrl: '/media/existing-cropped.jpg' })
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Blob(['existing'], { type: 'image/jpeg' }), { status: 200 }))
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      Uint8Array.from([101, 120, 105, 115, 116, 105, 110, 103]),
+      { status: 200, headers: { 'Content-Type': 'image/jpeg' } },
+    ))
     const { container } = render(<ProfilePage profile={profile} loading={false} error={null} canEdit viewerId="me" onEdit={vi.fn()} onNavigate={vi.fn()} onMessage={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'profileEditAvatar' }))
