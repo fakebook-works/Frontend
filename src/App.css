@@ -5325,7 +5325,7 @@ select {
 .post-tagged-users button:hover { text-decoration: underline; }
 .post-inline-action { flex: 0 0 auto; padding: 0; border: 0; color: color-mix(in srgb, var(--blue) 72%, #fff 28%); background: transparent; font: inherit; font-size: .84rem; font-weight: 600; }
 .post-inline-action::before { content: '·'; margin-right: 5px; color: var(--secondary); }
-.post-inline-action > span { font-size: 1.08rem; font-weight: 620; }
+.gateway-post > header .post-inline-action > span { color: inherit; font-size: .9rem; font-weight: 620; }
 .post-inline-action:not(.is-settled) { color: color-mix(in srgb, var(--blue) 72%, #fff 28%); }
 .post-inline-action.is-settled { color: var(--secondary); }
 .post-inline-action:hover > span { text-decoration: underline; }
