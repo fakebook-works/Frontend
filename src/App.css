@@ -5323,10 +5323,10 @@ select {
 .gateway-post > header .post-tagged-users > span,
 .gateway-post > header .post-tagged-users button { font-size: 1rem; }
 .post-tagged-users button:hover { text-decoration: underline; }
-.post-inline-action { flex: 0 0 auto; padding: 0; border: 0; color: #6498d2; background: transparent; font: inherit; font-size: .84rem; font-weight: 600; }
+.post-inline-action { flex: 0 0 auto; padding: 0; border: 0; color: color-mix(in srgb, var(--blue) 72%, #fff 28%); background: transparent; font: inherit; font-size: .84rem; font-weight: 600; }
 .post-inline-action::before { content: '·'; margin-right: 5px; color: var(--secondary); }
-.post-inline-action > span { font-size: 1rem; font-weight: 610; }
-.post-inline-action:not(.is-settled) { color: #6498d2; }
+.post-inline-action > span { font-size: 1.08rem; font-weight: 620; }
+.post-inline-action:not(.is-settled) { color: color-mix(in srgb, var(--blue) 72%, #fff 28%); }
 .post-inline-action.is-settled { color: var(--secondary); }
 .post-inline-action:hover > span { text-decoration: underline; }
 .post-inline-action:disabled { opacity: 1; cursor: wait; }
