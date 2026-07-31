@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
+import { Activity } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GatewayPost } from '../api/gatewayTypes'
@@ -51,7 +52,9 @@ const searchMocks = vi.hoisted(() => ({
   searchDirectContacts: vi.fn(),
   searchFriends: vi.fn(),
 }))
-const translate = vi.hoisted(() => (key: string) => key)
+const translate = vi.hoisted(() => (key: string, params?: Record<string, unknown>) => (
+  key === 'visitedTime' ? `visited:${String(params?.time ?? '')}` : key
+))
 type PresenceEvent = { kind: string; userId: string | null; expiresAt: string | null }
 let presenceListener: ((event: PresenceEvent) => void) | null = null
 
@@ -141,6 +144,8 @@ describe('GatewayHomePage', () => {
     const { container, unmount } = render(<GatewayHomePage />)
 
     expect(container.querySelector('.contacts-module > .spinner')).not.toBeInTheDocument()
+    expect(container.querySelector('.gateway-left-rail > .spinner')).not.toBeInTheDocument()
+    expect(container.querySelector('.group-conversations-module > .spinner')).not.toBeInTheDocument()
 
     expect(await screen.findByText('noRecommendedPosts')).toBeInTheDocument()
     expect(screen.getByText('noStories')).toBeInTheDocument()
@@ -152,6 +157,21 @@ describe('GatewayHomePage', () => {
     unmount()
     expect(document.documentElement).not.toHaveClass('home-page-scroll')
     expect(document.body).not.toHaveClass('home-page-scroll')
+  })
+
+  it('renders recently visited groups as square shortcuts with their visit time', async () => {
+    apiMocks.visitedGroups.mockResolvedValue({
+      items: [{ id: '81', name: 'Recent group', avatar: '/group.png', visitedAt: new Date(Date.now() - (3 * 60 + 15) * 60_000).toISOString() }],
+      endCursor: null,
+      hasNextPage: false,
+    })
+
+    const { container } = render(<GatewayHomePage />)
+
+    expect(await screen.findByText('Recent group')).toBeInTheDocument()
+    expect(screen.getByText('visited:about 3 hours ago')).toBeInTheDocument()
+    expect(container.querySelector('.group-shortcuts .avatar')).toHaveStyle({ width: '36px', height: '36px' })
+    expect(container.querySelector('.group-shortcuts .home-visited-group-copy')).toBeInTheDocument()
   })
 
   it('reloads Home data and resets its scroll regions when refreshToken changes', async () => {
@@ -173,6 +193,20 @@ describe('GatewayHomePage', () => {
     expect(document.body.scrollTop).toBe(0)
     expect(leftRail.scrollTop).toBe(0)
     expect(rightRail.scrollTop).toBe(0)
+  })
+
+  it('does not reload Home data when an Activity restores the preserved tab', async () => {
+    const { rerender } = render(<Activity mode="visible"><GatewayHomePage refreshToken={0} /></Activity>)
+    await screen.findByText('noRecommendedPosts')
+    expect(apiMocks.recommendedFeed).toHaveBeenCalledTimes(1)
+    expect(apiMocks.homeStories).toHaveBeenCalledTimes(1)
+
+    rerender(<Activity mode="hidden"><GatewayHomePage refreshToken={0} /></Activity>)
+    rerender(<Activity mode="visible"><GatewayHomePage refreshToken={0} /></Activity>)
+
+    expect(apiMocks.recommendedFeed).toHaveBeenCalledTimes(1)
+    expect(apiMocks.homeStories).toHaveBeenCalledTimes(1)
+    expect(apiMocks.visitedGroups).toHaveBeenCalledTimes(1)
   })
 
   it('keeps desktop wheel movement inside the hovered side rail', async () => {
@@ -982,6 +1016,25 @@ describe('GatewayHomePage', () => {
     fireEvent.click(within(feedCard).getByRole('button', { name: 'hidePost' }))
     expect(screen.queryByText('Public author post')).not.toBeInTheDocument()
     expect(screen.getByText('Public group post')).toBeInTheDocument()
+  })
+
+  it('uses group-derived privacy labels and the group icon for private group posts', async () => {
+    apiMocks.recommendedFeed.mockResolvedValue([{ postId: 'private-group-post', post: {
+      __typename: 'GroupPostDetail', id: 'private-group-post', type: 3, content: 'Private group content', privacy: 1,
+      create: '2026-07-17T08:01:00Z', author: { id: '3', name: 'Group Author', avatar: '', isVerified: false, canFollow: false },
+      group: { id: '18', name: 'Private Design Group', avatar: '', canJoin: false }, media: [],
+    } }])
+    const { container } = render(<GatewayHomePage />)
+
+    const card = (await screen.findByText('Private group content')).closest('article')!
+    const privateGroupIcon = card.querySelector('.post-privacy-hover .group-private-privacy-icon')
+    expect(privateGroupIcon).toBeInTheDocument()
+    expect(privateGroupIcon?.querySelector('circle')).toHaveAttribute('fill', '#b0b3b8')
+    expect(privateGroupIcon?.querySelector('.group-private-privacy-glyph')).toHaveAttribute('fill', '#2b2d30')
+    expect(card.querySelector('.post-privacy-hover .privacy-1')).not.toBeInTheDocument()
+    fireEvent.mouseEnter(card.querySelector('.post-privacy-hover')!)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('privateGroup')
+    expect(container.querySelector('.group-post-avatar-stack')).toBeInTheDocument()
   })
 
   it('lets the feed post owner change privacy directly from the metadata icon', async () => {

@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { socialApi, type SocialProfile } from '../api/social'
 import type { UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
+import { FriendPeopleGlyph, FriendPersonShape } from '../components/FriendPeopleGlyph'
 import { Icon } from '../components/Icon'
+import { SidebarSettingsIcon } from '../components/SidebarSettingsIcon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 
-export type FriendSection = 'home' | 'incoming' | 'outgoing' | 'friends' | 'blocked'
+export type FriendSection = 'home' | 'outgoing' | 'incoming' | 'suggestions' | 'friends' | 'blocked'
 
-const ASSOCIATION: Record<Exclude<FriendSection, 'home'>, number> = {
+const ASSOCIATION: Record<Exclude<FriendSection, 'home' | 'suggestions'>, number> = {
   friends: 0,
   incoming: 2,
   outgoing: 1,
@@ -37,14 +39,17 @@ export function FriendsPage({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const loadedRequestRef = useRef<string | null>(null)
 
   useEffect(() => {
+    const requestKey = `${userId}:${section}`
+    if (loadedRequestRef.current === requestKey) return
     let active = true
     setLoading(true)
     setError(null)
     async function load() {
       try {
-        if (section === 'home') {
+        if (section === 'home' || section === 'suggestions') {
           const suggestions = await socialApi.getFriendSuggestions(userId, 36)
           if (active) setPeople(suggestions)
         } else {
@@ -57,7 +62,10 @@ export function FriendsPage({
           setError(t('friendsLoadError'))
         }
       } finally {
-        if (active) setLoading(false)
+        if (active) {
+          loadedRequestRef.current = requestKey
+          setLoading(false)
+        }
       }
     }
 
@@ -115,17 +123,19 @@ export function FriendsPage({
     }
   }
 
-  const sections: Array<{ id: FriendSection; path: string; label: string; icon: 'home' | 'userPlus' | 'clock' | 'friends' | 'block' }> = [
+  const sections: Array<{ id: FriendSection; path: string; label: string; icon: FriendNavIconName }> = [
     { id: 'home', path: '/friends', label: t('friendsHome'), icon: 'home' },
-    { id: 'incoming', path: '/friends/incoming', label: t('incomingRequests'), icon: 'userPlus' },
-    { id: 'outgoing', path: '/friends/outgoing', label: t('sentRequests'), icon: 'clock' },
+    { id: 'outgoing', path: '/friends/outgoing', label: t('sentRequests'), icon: 'request-sent' },
+    { id: 'incoming', path: '/friends/incoming', label: t('incomingRequests'), icon: 'request-received' },
+    { id: 'suggestions', path: '/friends/suggestions', label: t('friendSuggestionsNav'), icon: 'suggestions' },
     { id: 'friends', path: '/friends/friends', label: t('allFriends'), icon: 'friends' },
-    { id: 'blocked', path: '/friends/blocked', label: t('blockedPeople'), icon: 'block' },
   ]
-  const title = section === 'home'
+  const title = section === 'home' || section === 'suggestions'
     ? t('friendSuggestionsTitle')
-    : sections.find((item) => item.id === section)?.label ?? t('friends')
-  const emptyState = section === 'home'
+    : section === 'blocked'
+      ? t('blockedPeople')
+      : sections.find((item) => item.id === section)?.label ?? t('friends')
+  const emptyState = section === 'home' || section === 'suggestions'
     ? { title: t('friendSuggestionsEmpty'), description: t('friendSuggestionsEmptyDesc') }
     : section === 'incoming'
       ? { title: t('incomingRequestsEmpty'), description: t('incomingRequestsEmptyDesc') }
@@ -134,13 +144,12 @@ export function FriendsPage({
         : section === 'friends'
           ? { title: t('allFriendsEmpty'), description: t('allFriendsEmptyDesc') }
           : { title: t('blockedPeopleEmpty'), description: t('blockedPeopleEmptyDesc') }
-
   return <main className="friends-page-layout">
     <aside className="friends-page-sidebar">
-      <header><h1>{t('friends')}</h1></header>
+      <header><h1>{t('friends')}</h1><button type="button" className="friends-settings-button" aria-label={t('settingsPrivacy')}><SidebarSettingsIcon /></button></header>
       <nav aria-label={t('friends')}>
         {sections.map((item) => <button type="button" key={item.id} className={section === item.id ? 'active' : ''} onClick={() => onNavigate(item.path)}>
-          <span><Icon name={item.icon} size={21} /></span><strong>{item.label}</strong>
+          <span><FriendNavIcon name={item.icon} /></span><strong>{item.label}</strong>
         </button>)}
       </nav>
     </aside>
@@ -164,6 +173,25 @@ export function FriendsPage({
       </div>}
     </section>
   </main>
+}
+
+type FriendNavIconName = 'home' | 'request-sent' | 'request-received' | 'suggestions' | 'friends'
+
+function FriendNavIcon({ name }: { name: FriendNavIconName }) {
+  if (name === 'home') return <FriendPeopleGlyph className="friend-nav-glyph" filled />
+
+  const symbolPath = name === 'suggestions'
+    ? 'M15.8 16.1v6.2m-3.1-3.1h6.2'
+    : name === 'friends'
+      ? 'M12.3 17.7h6.4m-6.4 3.15h4.1'
+      : name === 'request-sent'
+        ? 'M12.1 19.2h6.7m-2.35-2.35 2.35 2.35-2.35 2.35'
+        : 'M18.8 19.2h-6.7m2.35-2.35-2.35 2.35 2.35 2.35'
+  return <svg className="friend-nav-glyph" viewBox="0 0 24 24" aria-hidden="true">
+    <FriendPersonShape transform="translate(12 13)" />
+    <path className="friend-nav-symbol-outline" d={symbolPath} />
+    <path className="friend-nav-symbol" d={symbolPath} />
+  </svg>
 }
 
 function FriendCard({
@@ -198,11 +226,11 @@ function FriendCard({
     <div className="friend-card-body">
       <div className="friend-card-name-area">
         <button type="button" className="friend-card-name" onClick={() => onNavigate(profilePath)}><strong>{profile.displayName}<VerifiedBadge verified={profile.isVerified} size={14} /></strong></button>
-        <FriendProfilePopover profile={profile} mutualFriendCount={mutualFriendCount} mutualFriends={mutualFriends} showAdd={section === 'home'} busy={busy} onAdd={onAdd} onMessage={onMessage} onNavigate={onNavigate} />
+        <FriendProfilePopover profile={profile} mutualFriendCount={mutualFriendCount} mutualFriends={mutualFriends} showAdd={section === 'home' || section === 'suggestions'} busy={busy} onAdd={onAdd} onMessage={onMessage} onNavigate={onNavigate} />
       </div>
       <MutualFriendsLine count={mutualFriendCount} friends={mutualFriends} followerCount={profile.followerCount} />
       <div className="friend-card-actions">
-        {section === 'home' && <><button type="button" className="primary" disabled={busy} onClick={onAdd}><Icon name="userPlus" size={18} />{t('addFriend')}</button><button type="button" disabled={busy} onClick={onDismiss}>{t('dismiss')}</button></>}
+        {(section === 'home' || section === 'suggestions') && <><button type="button" className="primary" disabled={busy} onClick={onAdd}><Icon name="userPlus" size={18} />{t('addFriend')}</button><button type="button" disabled={busy} onClick={onDismiss}>{t('dismiss')}</button></>}
         {section === 'incoming' && <><button type="button" className="primary" disabled={busy} onClick={onAccept}>{t('confirm')}</button><button type="button" disabled={busy} onClick={() => onRemove('reject')}>{t('decline')}</button></>}
         {section === 'outgoing' && <button type="button" disabled={busy} onClick={() => onRemove('cancel')}>{t('cancel')}</button>}
         {section === 'friends' && <button type="button" disabled={busy} onClick={() => onRemove('unfriend')}>{t('removeFriend')}</button>}

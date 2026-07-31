@@ -390,6 +390,29 @@ describe('ContentActions refreshed overlays', () => {
     expect(metrics[metrics.length - 1]).toHaveClass('content-view-summary')
   })
 
+  it('renders Reel comments in the reusable photo-viewer sidebar without opening a modal', async () => {
+    const reel: GatewayPost = {
+      __typename: 'ReelDetail', id: 'reel-sidebar-9007199254740993', type: 3, content: 'Reel discussion', privacy: 0,
+      create: '2026-07-20T01:00:00Z', author: { id: '2', name: 'Reel Author', avatar: '', isVerified: false },
+      media: [{ id: 'rm-sidebar', type: 1, url: 'https://uploads.example.com/reel-sidebar.mp4' }],
+    }
+    const onCommentsOpenChange = vi.fn()
+    const { container, rerender } = render(<ContentActions viewerId="1" contentId={reel.id} post={reel} variant="reel" commentsPresentation="sidebar" commentsOpen={false} onCommentsOpenChange={onCommentsOpenChange} />)
+    const reelActions = container.querySelector<HTMLElement>('.reel-actions')!
+
+    fireEvent.click(within(reelActions).getByRole('button', { name: 'commentAction' }))
+    expect(onCommentsOpenChange).toHaveBeenCalledWith(true)
+
+    rerender(<ContentActions viewerId="1" contentId={reel.id} post={reel} variant="reel" commentsPresentation="sidebar" commentsOpen onCommentsOpenChange={onCommentsOpenChange} />)
+    expect(container.querySelector('.reels-comments-sidebar .photo-detail-discussion')).toBeInTheDocument()
+    expect(container.querySelector('.reels-comments-sidebar')).toHaveAttribute('aria-label', 'comments')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(await screen.findByText('Reel discussion')).toBeInTheDocument()
+
+    fireEvent.click(within(reelActions).getByRole('button', { name: 'commentAction' }))
+    expect(onCommentsOpenChange).toHaveBeenLastCalledWith(false)
+  })
+
   it('sends the canonical content link through a direct Messenger conversation', async () => {
     const friend = { id: '3', username: 'friend', email: '', displayName: 'Friend Name', avatarUrl: null, isVerified: false, bio: null, birthDate: null, gender: null, location: null, createdAt: '', friendCount: 1, postCount: 0 }
     socialMocks.getRelationProfiles.mockResolvedValue([friend])

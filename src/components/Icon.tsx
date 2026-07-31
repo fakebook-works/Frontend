@@ -210,11 +210,13 @@ export function ReelIcon({
   className,
   filled = false,
   gradient = false,
+  dividerColor,
 }: {
   size?: number
   className?: string
   filled?: boolean
   gradient?: boolean
+  dividerColor?: string
 }) {
   const id = useId().replace(/:/g, '')
   const gradientId = `reel-gradient-${id}`
@@ -236,6 +238,7 @@ export function ReelIcon({
           </mask>
         </defs>
         <rect width="24" height="24" fill={gradient ? `url(#${gradientId})` : 'currentColor'} mask={`url(#${maskId})`} />
+        {dividerColor && <path className="reel-icon-divider" d="M2.9 8.7h18.2M7.4 2.9l3.3 5.8m2.8-5.8 3.3 5.8" fill="none" stroke={dividerColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
       </svg>
     )
   }

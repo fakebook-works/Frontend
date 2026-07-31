@@ -84,7 +84,7 @@ function groupConversation(friendIds: string[]): MessengerConversationDto {
   }
 }
 
-function Harness({ onOpenProfile = () => undefined, hidden = false, showComposeRail = false, friends = [] }: { onOpenProfile?: (id: string) => void; hidden?: boolean; showComposeRail?: boolean; friends?: UserSummary[] } = {}) {
+function Harness({ onOpenProfile = () => undefined, hidden = false, showComposeRail = false, layout = 'default', friends = [] }: { onOpenProfile?: (id: string) => void; hidden?: boolean; showComposeRail?: boolean; layout?: 'default' | 'media-viewer'; friends?: UserSummary[] } = {}) {
   const dock = useRef<MessengerDockHandle>(null)
   return <>
     {['2', '3', '4', '5'].map((id) => <button key={id} type="button" onClick={() => void dock.current?.openDirect(id)}>open-{id}</button>)}
@@ -95,6 +95,7 @@ function Harness({ onOpenProfile = () => undefined, hidden = false, showComposeR
       panelOpen={false}
       hidden={hidden}
       showComposeRail={showComposeRail}
+      layout={layout}
       onPanelClose={() => undefined}
       onOpenAll={() => undefined}
       onOpenProfile={onOpenProfile}
@@ -164,7 +165,7 @@ describe('MessengerDock overflow windows', () => {
 
   afterEach(() => {
     cleanup()
-    document.body.classList.remove('post-photo-viewer-open', 'mini-chat-bubble-rail-open')
+    document.body.classList.remove('post-photo-viewer-open', 'reels-comments-open', 'mini-chat-bubble-rail-open')
     vi.unstubAllGlobals()
   })
 
@@ -318,6 +319,8 @@ describe('MessengerDock overflow windows', () => {
   it('keeps one full chat and shows the compose rail while the photo viewer is open', async () => {
     document.body.classList.add('post-photo-viewer-open')
     const { container } = render(<Harness />)
+    expect(container.querySelector('.mini-chat-bubble-rail')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'newMessage' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
     expect(await screen.findByRole('region', { name: 'Friend 2' })).toBeInTheDocument()
@@ -329,6 +332,43 @@ describe('MessengerDock overflow windows', () => {
     expect(await screen.findByRole('region', { name: 'Friend 3' })).toBeInTheDocument()
     expect(container.querySelectorAll('.mini-chat-window')).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'messages: Friend 2' })).toBeInTheDocument()
+  })
+
+  it('uses the same one-window compose rail when a media route requests the photo-viewer layout', async () => {
+    const { container } = render(<Harness layout="media-viewer" />)
+
+    expect(container.querySelector('.mini-chat-region')).toHaveClass('media-viewer-compose-rail')
+    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('has-bubble-rail')
+    expect(container.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'media-viewer')
+    expect(screen.queryByRole('button', { name: 'newMessage' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    expect(await screen.findByRole('region', { name: 'Friend 2' })).toBeInTheDocument()
+    await waitFor(() => expect(container.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail'))
+    expect(screen.getByRole('button', { name: 'newMessage' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'open-3' }))
+    expect(await screen.findByRole('region', { name: 'Friend 3' })).toBeInTheDocument()
+    expect(container.querySelectorAll('.mini-chat-window')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'messages: Friend 2' })).toBeInTheDocument()
+  })
+
+  it('adds and removes the media chat rail together with the Reel comments sidebar', async () => {
+    const { container } = render(<Harness />)
+    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('media-viewer-compose-rail')
+
+    document.body.classList.add('reels-comments-open')
+    await waitFor(() => expect(container.querySelector('.mini-chat-region')).toHaveClass('media-viewer-compose-rail'))
+    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('has-bubble-rail')
+    expect(screen.queryByRole('button', { name: 'newMessage' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    expect(await screen.findByRole('region', { name: 'Friend 2' })).toBeInTheDocument()
+    await waitFor(() => expect(container.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail'))
+    expect(screen.getByRole('button', { name: 'newMessage' })).toBeInTheDocument()
+
+    document.body.classList.remove('reels-comments-open')
+    await waitFor(() => expect(container.querySelector('.mini-chat-region')).not.toHaveClass('has-bubble-rail', 'media-viewer-compose-rail'))
+    expect(screen.queryByRole('button', { name: 'newMessage' })).not.toBeInTheDocument()
   })
 
   it('shows the current friendship state in the conversation introduction', async () => {
@@ -484,6 +524,86 @@ describe('MessengerDock overflow windows', () => {
 
     fireEvent.click(within(chat).getByRole('button', { name: 'minimize' }))
     expect(messengerMocks.markRead).not.toHaveBeenCalled()
+  })
+
+  it('shows unread state and a rich hover preview on a bubble and lets the bubble be closed directly', async () => {
+    const incomingMessage: MessengerMessageDto = {
+      id: 'message-bubble', conversationId: 'conversation-2', sequence: '9', sender: friend('2'), body: 'Nội dung mới nhất',
+      createdAt: '2026-07-18T00:00:00Z', status: 'delivered', attachments: [], reactions: [], deleted: false,
+    }
+    const incomingConversation = { ...directConversation('2'), unreadCount: 3, lastMessage: incomingMessage }
+    messengerMocks.conversations.mockResolvedValue([incomingConversation])
+    messengerMocks.messages.mockResolvedValue([incomingMessage])
+    render(<Harness />)
+    await waitFor(() => expect(inboxListener).not.toBeNull())
+
+    await act(async () => {
+      inboxListener?.({
+        eventId: 'incoming-bubble', kind: 'MESSAGE_ADDED', conversationId: incomingConversation.id,
+        messageId: incomingMessage.id, userId: '2', sequence: '9', occurredAt: incomingMessage.createdAt, expiresAt: null,
+      })
+    })
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    fireEvent.click(within(chat).getByRole('button', { name: 'minimize' }))
+
+    const bubble = await screen.findByRole('button', { name: 'messages: Friend 2' })
+    const bubbleItem = bubble.closest('.mini-chat-bubble-item') as HTMLElement
+    expect(bubbleItem).toHaveClass('has-unread')
+    expect(within(bubbleItem).getByText('3')).toHaveClass('mini-chat-bubble-unread-count')
+    expect(bubble.querySelector('.avatar')).not.toHaveAttribute('title')
+
+    fireEvent.mouseEnter(bubbleItem)
+    const preview = document.querySelector('.mini-chat-bubble-preview') as HTMLElement
+    expect(preview).toHaveTextContent('Friend 2')
+    expect(preview).toHaveTextContent('Nội dung mới nhất')
+    expect(preview.querySelector('.mini-chat-bubble-preview-unread')).toBeInTheDocument()
+
+    const dismiss = within(bubbleItem).getByRole('button', { name: 'close: Friend 2' })
+    expect(dismiss.querySelector('.mini-chat-bubble-close-circle')).toBeInTheDocument()
+    fireEvent.click(dismiss)
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'messages: Friend 2' })).not.toBeInTheDocument())
+    expect(document.querySelector('.mini-chat-bubble-preview')).not.toBeInTheDocument()
+    expect(document.querySelector('.mini-chat-bubble-rail')).not.toBeInTheDocument()
+    expect(document.body).not.toHaveClass('mini-chat-bubble-rail-open')
+    expect(messengerMocks.markRead).not.toHaveBeenCalled()
+  })
+
+  it('summarizes own media and reaction activity in the bubble preview without bolding the prefix', async () => {
+    const mediaMessage: MessengerMessageDto = {
+      id: 'own-media', conversationId: 'conversation-2', sequence: '10', sender: me, body: '',
+      createdAt: '2026-07-18T00:00:00Z', status: 'sent', reactions: [], deleted: false,
+      attachments: [{ url: '/photo.jpg', type: 'image', contentType: 'image/jpeg', size: 12, name: 'photo.jpg' }],
+    }
+    messengerMocks.createDirectConversation.mockResolvedValue({ ...directConversation('2'), lastMessage: mediaMessage })
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    fireEvent.click(within(chat).getByRole('button', { name: 'minimize' }))
+    const mediaBubbleItem = (await screen.findByRole('button', { name: 'messages: Friend 2' })).closest('.mini-chat-bubble-item') as HTMLElement
+    fireEvent.mouseEnter(mediaBubbleItem)
+    let preview = document.querySelector('.mini-chat-bubble-preview') as HTMLElement
+    expect(preview.querySelector('.mini-chat-bubble-preview-own')).toHaveTextContent('you:')
+    expect(preview.querySelector('.mini-chat-bubble-preview-message')).toHaveTextContent('sentPhotoPreview')
+    fireEvent.mouseLeave(mediaBubbleItem)
+
+    const reactedMessage: MessengerMessageDto = {
+      ...mediaMessage,
+      id: 'reacted-message',
+      conversationId: 'conversation-3',
+      body: 'Original message',
+      sender: friend('3'),
+      reactions: [{ userId: me.id, emoji: '❤️', updatedAt: '2026-07-18T00:01:00Z' }],
+    }
+    messengerMocks.createDirectConversation.mockResolvedValue({ ...directConversation('3'), lastMessage: reactedMessage })
+    fireEvent.click(screen.getByRole('button', { name: 'open-3' }))
+    const reactedChat = await screen.findByRole('region', { name: 'Friend 3' })
+    fireEvent.click(within(reactedChat).getByRole('button', { name: 'minimize' }))
+    const reactionBubbleItem = (await screen.findByRole('button', { name: 'messages: Friend 3' })).closest('.mini-chat-bubble-item') as HTMLElement
+    fireEvent.mouseEnter(reactionBubbleItem)
+    preview = document.querySelector('.mini-chat-bubble-preview') as HTMLElement
+    expect(preview.querySelector('.mini-chat-bubble-preview-own')).toHaveTextContent('you:')
+    expect(preview.querySelector('.mini-chat-bubble-preview-message')).toHaveTextContent('reactedToMessagePreview')
   })
 
   it('does not mark an automatically opened incoming chat read from close', async () => {

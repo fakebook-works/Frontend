@@ -80,6 +80,31 @@ export function relativeTime(value: string, locale = 'vi-VN', now = Date.now()):
   return formatter.format(-Math.max(1, years), 'year')
 }
 
+export function groupVisitRelativeTime(value: string, locale = 'vi-VN', now = Date.now()): string {
+  const visitedAt = new Date(value).getTime()
+  if (!Number.isFinite(visitedAt)) return ''
+  const elapsedMinutes = Math.max(0, Math.floor((now - visitedAt) / 60_000))
+  if (elapsedMinutes < 60 || elapsedMinutes >= 24 * 60) return relativeTime(value, locale, now)
+
+  const completedHours = Math.floor(elapsedMinutes / 60)
+  const extraMinutes = elapsedMinutes % 60
+  const isVietnamese = locale.toLowerCase().startsWith('vi')
+  if (extraMinutes < 15) {
+    return isVietnamese
+      ? `${completedHours} giờ trước`
+      : `${completedHours} ${completedHours === 1 ? 'hour' : 'hours'} ago`
+  }
+  if (extraMinutes < 45) {
+    return isVietnamese
+      ? `khoảng ${completedHours} giờ trước`
+      : `about ${completedHours} ${completedHours === 1 ? 'hour' : 'hours'} ago`
+  }
+  const nextHour = completedHours + 1
+  return isVietnamese
+    ? `gần ${nextHour} giờ trước`
+    : `nearly ${nextHour} ${nextHour === 1 ? 'hour' : 'hours'} ago`
+}
+
 export function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { relativeTime } from './format'
+import { groupVisitRelativeTime, relativeTime } from './format'
 
 describe('relativeTime', () => {
   const now = new Date('2026-07-20T12:00:00Z').getTime()
@@ -15,5 +15,13 @@ describe('relativeTime', () => {
   it('keeps the same relative units in English', () => {
     expect(relativeTime('2026-07-20T11:59:45Z', 'en', now)).toBe('Just now')
     expect(relativeTime('2025-07-20T12:00:00Z', 'en', now)).toBe('1 year ago')
+  })
+
+  it('qualifies partially elapsed hours for group visit timestamps', () => {
+    expect(groupVisitRelativeTime('2026-07-20T08:46:00Z', 'vi-VN', now)).toBe('3 giờ trước')
+    expect(groupVisitRelativeTime('2026-07-20T08:45:00Z', 'vi-VN', now)).toBe('khoảng 3 giờ trước')
+    expect(groupVisitRelativeTime('2026-07-20T08:16:00Z', 'vi-VN', now)).toBe('khoảng 3 giờ trước')
+    expect(groupVisitRelativeTime('2026-07-20T08:15:00Z', 'vi-VN', now)).toBe('gần 4 giờ trước')
+    expect(groupVisitRelativeTime('2026-07-20T08:45:00Z', 'en', now)).toBe('about 3 hours ago')
   })
 })

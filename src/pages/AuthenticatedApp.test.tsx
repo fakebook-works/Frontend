@@ -23,7 +23,11 @@ vi.mock('../api/notifications', () => ({ notificationApi: {
   notifications: vi.fn().mockResolvedValue({ items: [], unreadCount: 0 }),
   subscribeNotifications: vi.fn(() => vi.fn()),
 } }))
-vi.mock('../api/search', () => ({ searchApi: { fastSearch, recordSearchResultView } }))
+vi.mock('../api/search', () => ({ searchApi: {
+  fastSearch,
+  recordSearchResultView,
+  search: vi.fn().mockResolvedValue({ tab: 'posts', page: 1, hasNextPage: false, users: [], groups: [], posts: [], reels: [] }),
+} }))
 vi.mock('../api/messenger', () => ({ messengerApi: {
   heartbeatPresence,
   conversations: vi.fn().mockResolvedValue([]),
@@ -44,6 +48,9 @@ vi.mock('../i18n', () => ({
 }))
 
 vi.mock('./GatewayHomePage', () => ({ GatewayHomePage: ({ refreshToken = 0 }: { refreshToken?: number }) => <div data-testid="home-page" data-refresh-token={refreshToken}>home-page</div>, GatewayPostCard: () => <div>post-card</div> }))
+vi.mock('./FriendsPage', () => ({ FriendsPage: () => <div>friends-page</div> }))
+vi.mock('./GroupsPage', () => ({ GroupsPage: () => <div>groups-page</div>, GroupProfilePage: () => <div>group-profile-page</div> }))
+vi.mock('./ReelsPage', () => ({ ReelsPage: () => <div>reels-page</div> }))
 vi.mock('./SavedPage', () => ({ SavedPage: () => <div>saved-page</div> }))
 vi.mock('./SettingsPage', () => ({ SettingsPage: ({ initialSection }: { initialSection: string }) => <div>settings-{initialSection}</div> }))
 
@@ -79,6 +86,28 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(container.querySelector('.mini-chat-new-button')).toBeInTheDocument()
   })
 
+  it.each(['/friends', '/groups'])('uses the Home chat-window and bubble layout on %s', (path) => {
+    window.history.replaceState({}, '', path)
+    const { container } = render(<AuthenticatedApp />)
+
+    expect(container.querySelector('.authenticated-app')).toHaveClass(path === '/friends' ? 'friends-route' : 'groups-route')
+    expect(container.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail', 'home-compose-rail')
+    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('media-viewer-compose-rail')
+    expect(container.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'default')
+    expect(screen.getByRole('button', { name: 'newMessage' })).toBeInTheDocument()
+  })
+
+  it('does not reserve the photo-viewer chat rail on Reels until its comments are open', () => {
+    window.history.replaceState({}, '', '/reels')
+    const { container } = render(<AuthenticatedApp />)
+
+    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('has-bubble-rail', 'media-viewer-compose-rail')
+    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('home-compose-rail')
+    expect(container.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'default')
+    expect(screen.queryByRole('button', { name: 'newMessage' })).not.toBeInTheDocument()
+    expect(container.querySelector('.app-shell-nav button.active .reel-icon-divider')).toHaveAttribute('stroke', 'var(--card)')
+  })
+
   it('uses a filled icon for the active destination and outlines for the others', () => {
     render(<AuthenticatedApp />)
     const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
@@ -90,8 +119,16 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(home).toHaveClass('active')
     expect(home.querySelector('svg')).toHaveAttribute('fill', 'currentColor')
     expect(friends.querySelector('svg')).toHaveAttribute('fill', 'none')
+    expect(friends.querySelector('svg')).toHaveAttribute('stroke', 'currentColor')
+    expect(friends.querySelector('svg')).toHaveAttribute('stroke-width', '2')
     expect(reels.querySelector('svg')).toHaveAttribute('fill', 'none')
     expect(groups.querySelector('svg')).toHaveAttribute('fill', 'none')
+    const groupGlyph = groups.querySelector<SVGElement>('.shell-nav-group-glyph')!
+    expect(groupGlyph).toHaveAttribute('stroke-width', '1.9')
+    expect(groupGlyph.querySelector('clipPath circle')).toBeInTheDocument()
+    expect(groupGlyph.querySelectorAll('g[clip-path] circle')).toHaveLength(3)
+    expect(Array.from(groupGlyph.querySelectorAll('g[clip-path] circle'), (circle) => circle.getAttribute('r'))).toEqual(['2.35', '2.75', '2.75'])
+    expect(groupGlyph.querySelectorAll('g[clip-path] path')).toHaveLength(1)
   })
 
   it('refreshes the current Home from either the active Home tab or the Fakebook logo', () => {
@@ -104,6 +141,47 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(homePage).toHaveAttribute('data-refresh-token', '1')
     fireEvent.click(container.querySelector<HTMLButtonElement>('.app-brand')!)
     expect(homePage).toHaveAttribute('data-refresh-token', '2')
+  })
+
+  it('keeps each visited primary destination mounted and restores its own scroll position', () => {
+    render(<AuthenticatedApp />)
+    const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
+    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const homePage = screen.getByTestId('home-page')
+
+    scrollRoot.scrollTop = 640
+    fireEvent.scroll(window)
+    fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="friends"]')!)
+    const friendsPage = screen.getByText('friends-page')
+    expect(scrollRoot.scrollTop).toBe(0)
+
+    scrollRoot.scrollTop = 175
+    fireEvent.scroll(window)
+    fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="home"]')!)
+    expect(screen.getByTestId('home-page')).toBe(homePage)
+    expect(scrollRoot.scrollTop).toBe(640)
+
+    fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="friends"]')!)
+    expect(screen.getByText('friends-page')).toBe(friendsPage)
+    expect(scrollRoot.scrollTop).toBe(175)
+  })
+
+  it.each([
+    { path: '/reels', label: 'reels', pageText: 'reels-page' },
+    { path: '/groups', label: 'groups', pageText: 'groups-page' },
+  ])('refreshes and returns to the top when clicking the active $label destination', ({ path, label, pageText }) => {
+    window.history.replaceState({}, '', path)
+    render(<AuthenticatedApp />)
+    const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
+    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const originalPage = screen.getByText(pageText)
+    scrollRoot.scrollTop = 480
+    fireEvent.scroll(window)
+
+    fireEvent.click(navigation.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!)
+
+    expect(screen.getByText(pageText)).not.toBe(originalPage)
+    expect(scrollRoot.scrollTop).toBe(0)
   })
 
   it('opens account destinations from the avatar menu', () => {
@@ -174,13 +252,15 @@ describe('AuthenticatedApp routing and navigation', () => {
   it('records a quick-search result view without blocking profile navigation', async () => {
     fastSearch.mockResolvedValue([{ kind: 'user', id: '10', referenceId: '10', profile: {
       id: '10', displayName: 'Lan Nguyen', username: 'lan', avatarUrl: null, isVerified: false, followerCount: 2,
-    } }])
+    }, viewerIsSelf: false, viewerIsFriend: true, viewerIsFollowing: false }])
     render(<AuthenticatedApp />)
 
     const input = screen.getByRole('textbox', { name: 'searchPlaceholder' })
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: 'Lan' } })
     const result = await screen.findByRole('button', { name: /Lan Nguyen/ })
+    expect(result).toHaveTextContent('friends')
+    expect(screen.queryByText('seeAllResults')).not.toBeInTheDocument()
     fireEvent.mouseDown(result)
     fireEvent.click(result)
 
@@ -196,6 +276,74 @@ describe('AuthenticatedApp routing and navigation', () => {
     fireEvent.change(input, { target: { value: 'L' } })
 
     await waitFor(() => expect(fastSearch).toHaveBeenCalledWith('L'))
-    expect(await screen.findByText('noSearchResults')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'L' })).toBeInTheDocument()
+  })
+
+  it('shows the recent-search empty state before a keyword is entered', () => {
+    const { container } = render(<AuthenticatedApp />)
+
+    fireEvent.focus(screen.getByRole('textbox', { name: 'searchPlaceholder' }))
+
+    expect(screen.getByText('noRecentSearches')).toBeInTheDocument()
+    expect(container.querySelector('.shell-brand-search')).toHaveClass('has-recent-empty')
+    expect(container.querySelector('.quick-search-results')).toHaveClass('is-recent-empty')
+  })
+
+  it('labels viewer relationships and renders group search avatars as rounded squares', async () => {
+    fastSearch.mockResolvedValue([
+      { kind: 'user', id: '1', referenceId: '1', viewerIsSelf: true, viewerIsFriend: false, viewerIsFollowing: false, profile: { id: '1', displayName: 'Test User', avatarUrl: null, isVerified: false } },
+      { kind: 'group', id: '20', referenceId: '20', viewerIsMember: true, group: { id: '20', name: 'Fakebook Group', avatarUrl: null, memberCount: 12 } },
+    ])
+    render(<AuthenticatedApp />)
+
+    const input = screen.getByRole('textbox', { name: 'searchPlaceholder' })
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'F' } })
+
+    expect(await screen.findByRole('button', { name: /Test User/ })).toHaveTextContent('searchSelf')
+    const group = screen.getByRole('button', { name: /Fakebook Group/ })
+    expect(group).toHaveTextContent('searchYourGroup · membersCount')
+    expect(group.querySelector('.quick-search-group-avatar')).toBeInTheDocument()
+  })
+
+  it('adds the entered keyword as a slow-search result when fast search is not full', async () => {
+    fastSearch.mockResolvedValue([{ kind: 'user', id: '10', referenceId: '10', viewerIsSelf: false, viewerIsFriend: false, viewerIsFollowing: true, profile: {
+      id: '10', displayName: 'Lan Nguyen', avatarUrl: null, isVerified: false, followerCount: 2,
+    } }])
+    render(<AuthenticatedApp />)
+
+    const input = screen.getByRole('textbox', { name: 'searchPlaceholder' })
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'Lan' } })
+
+    expect(await screen.findByRole('button', { name: /Lan Nguyen/ })).toHaveTextContent('following')
+    expect(document.querySelector('.shell-brand-search')).not.toHaveClass('has-recent-empty')
+    expect(document.querySelector('.quick-search-results')).not.toHaveClass('is-recent-empty')
+    fireEvent.click(screen.getByRole('button', { name: 'Lan' }))
+
+    expect(window.location.pathname).toBe('/search')
+    expect(new URLSearchParams(window.location.search).get('q')).toBe('Lan')
+  })
+
+  it('swaps the Fakebook logo for a back button while search is focused', () => {
+    const { container } = render(<AuthenticatedApp />)
+    const input = screen.getByRole('textbox', { name: 'searchPlaceholder' })
+
+    expect(container.querySelector('.shell-search-glyph')).toBeInTheDocument()
+    fireEvent.focus(input)
+
+    expect(container.querySelector('.shell-search-wrap')).toHaveClass('is-active')
+    expect(container.querySelector('.shell-search-glyph')).toHaveClass('is-hidden')
+    expect(container.querySelector('.app-brand')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByRole('button', { name: 'back' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }))
+
+    expect(container.querySelector('.shell-search-wrap')).not.toHaveClass('is-active')
+    expect(container.querySelector('.shell-search-wrap')).toHaveClass('is-closing')
+    expect(container.querySelector('.shell-brand-search')).toHaveClass('is-closing')
+    expect(container.querySelector('.shell-search-glyph')).not.toHaveClass('is-hidden')
+    expect(container.querySelector('.app-brand')).toHaveAttribute('aria-hidden', 'false')
+    expect(input).not.toHaveFocus()
   })
 })

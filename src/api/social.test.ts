@@ -233,6 +233,44 @@ describe('SocialGraph Gateway adapter', () => {
     })
   })
 
+  it('loads friend-derived public and private group suggestions without a caller ID input', async () => {
+    gatewayGraphQl.mockResolvedValue({ groupSuggestions: [{
+      group: {
+        id: '41', avatar: '/private.png', background: '', name: 'Private friends group', bio: '',
+        privacy: 1, create: '2026-07-31T00:00:00Z', memberCount: 12, adminCount: 1,
+      },
+      friendMemberCount: 4,
+      friendMembers: [
+        { id: '2', name: 'First friend', avatar: '/friend-1.png' },
+        { id: '3', name: 'Second friend', avatar: '/friend-2.png' },
+        { id: '4', name: 'Third friend', avatar: '/friend-3.png' },
+      ],
+      yesterdayPostCount: 7,
+    }] })
+
+    const suggestions = await socialApi.getGroupSuggestions(24)
+
+    const [query, variables] = gatewayGraphQl.mock.calls[0]
+    expect(query).toContain('groupSuggestions(limit: $limit)')
+    expect(query).toContain('friendMemberCount')
+    expect(query).toContain('friendMembers { id name avatar }')
+    expect(query).toContain('yesterdayPostCount')
+    expect(query).not.toContain('userId')
+    expect(variables).toEqual({ limit: 24 })
+    expect(suggestions[0]).toMatchObject({
+      group: {
+        id: '41',
+        name: 'Private friends group',
+        privacy: 1,
+        memberCount: 12,
+      },
+      friendMemberCount: 4,
+      yesterdayPostCount: 7,
+    })
+    expect(suggestions[0].friendMembers).toHaveLength(3)
+    expect(suggestions[0].friendMembers[0]).toMatchObject({ id: '2', displayName: 'First friend' })
+  })
+
   it('hydrates Recommendation reel IDs through the composed reel field', async () => {
     gatewayGraphQl.mockResolvedValueOnce({ recommendReels: [{ reelId: '8', reel: {
       id: '8', type: 4, content: 'Reel', privacy: 0, create: '2026-01-01', authorId: '1', media: [],

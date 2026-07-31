@@ -7,16 +7,17 @@ interface AvatarProps {
   online?: boolean
   className?: string
   onClick?: () => void
+  title?: string | false
 }
 
-export function Avatar({ name, src, size = 40, online = false, className, onClick }: AvatarProps) {
+export function Avatar({ name, src, size = 40, online = false, className, onClick, title = name }: AvatarProps) {
   const style = { width: size, height: size, fontSize: Math.round(size * 0.42) }
   const classes = ['avatar', className, onClick ? 'avatar-clickable' : null].filter(Boolean).join(' ')
   const inner = src ? <img src={src} alt="" /> : <span>{initials(name)}</span>
 
   if (onClick) {
     return (
-      <button type="button" className={classes} style={style} onClick={onClick} aria-label={name} title={name}>
+      <button type="button" className={classes} style={style} onClick={onClick} aria-label={name} title={title || undefined}>
         {inner}
         {online && <i className="avatar-dot" aria-hidden="true" />}
       </button>
@@ -24,7 +25,7 @@ export function Avatar({ name, src, size = 40, online = false, className, onClic
   }
 
   return (
-    <span className={classes} style={style} aria-label={name} title={name}>
+    <span className={classes} style={style} aria-label={name} title={title || undefined}>
       {inner}
       {online && <i className="avatar-dot" aria-hidden="true" />}
     </span>

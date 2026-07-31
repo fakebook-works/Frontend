@@ -136,6 +136,7 @@ export interface VisitedGroup {
   id: string
   avatar: string
   name: string
+  visitedAt: string
 }
 
 export interface VisitedGroupPage {

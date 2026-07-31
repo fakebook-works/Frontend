@@ -6,8 +6,9 @@ export type SearchTab = 'posts' | 'people' | 'reels' | 'groups'
 export type ProfileConnectionSearchType = 'friends' | 'following' | 'followers'
 
 export type QuickSearchItem =
-  | { kind: 'user'; id: string; referenceId: string; profile: SocialProfile }
-  | { kind: 'group'; id: string; referenceId: string; group: SocialGroup }
+  | { kind: 'user'; id: string; referenceId: string; profile: SocialProfile; viewerIsSelf: boolean; viewerIsFriend: boolean; viewerIsFollowing: boolean }
+  | { kind: 'group'; id: string; referenceId: string; group: SocialGroup; viewerIsMember: boolean }
+export type QuickGroupSearchItem = Extract<QuickSearchItem, { kind: 'group' }>
 
 export type SearchProfile = SocialProfile & { searchReferenceId: string }
 export type SearchGroup = SocialGroup & { searchReferenceId: string }
@@ -22,6 +23,13 @@ export interface SearchPageResult {
   groups: SearchGroup[]
   posts: SearchPost[]
   reels: SearchReel[]
+}
+
+export interface GroupScopedSearchResult {
+  page: number
+  hasNextPage: boolean
+  groups: SearchGroup[]
+  posts: SearchPost[]
 }
 
 interface PageInfo {
@@ -138,15 +146,15 @@ export async function fastSearch(keyword: string): Promise<QuickSearchItem[]> {
   const normalized = keyword.trim()
   if (normalized.length < 1) return []
   const data = await gatewayGraphQl<{ fastSearch: Array<
-    | { __typename: 'UserSearchResult'; user: SearchUserGraphQl }
-    | { __typename: 'GroupSearchResult'; group: SearchGroupGraphQl }
+    | { __typename: 'UserSearchResult'; viewerIsSelf: boolean; viewerIsFriend: boolean; viewerIsFollowing: boolean; user: SearchUserGraphQl }
+    | { __typename: 'GroupSearchResult'; viewerIsMember: boolean; group: SearchGroupGraphQl }
     | null
   > }>(
     `query FastSearch($keyword: String!) {
       fastSearch(keyword: $keyword) {
         __typename
-        ... on UserSearchResult { user { ${SEARCH_USER_FIELDS} } }
-        ... on GroupSearchResult { group { ${SEARCH_GROUP_FIELDS} } }
+        ... on UserSearchResult { viewerIsSelf viewerIsFriend viewerIsFollowing user { ${SEARCH_USER_FIELDS} } }
+        ... on GroupSearchResult { viewerIsMember group { ${SEARCH_GROUP_FIELDS} } }
       }
     }`,
     { keyword: normalized },
@@ -155,11 +163,74 @@ export async function fastSearch(keyword: string): Promise<QuickSearchItem[]> {
     if (!item) return []
     if (item.__typename === 'UserSearchResult') {
       const id = String(item.user.id)
-      return [{ kind: 'user', id, referenceId: id, profile: userFromSearch(item.user) }]
+      return [{ kind: 'user', id, referenceId: id, profile: userFromSearch(item.user), viewerIsSelf: item.viewerIsSelf, viewerIsFriend: item.viewerIsFriend, viewerIsFollowing: item.viewerIsFollowing }]
     }
     const id = String(item.group.id)
-    return [{ kind: 'group', id, referenceId: id, group: groupFromSearch(item.group) }]
+    return [{ kind: 'group', id, referenceId: id, group: groupFromSearch(item.group), viewerIsMember: item.viewerIsMember }]
   }).slice(0, 8)
+}
+
+export async function fastSearchGroups(keyword: string, pageSize = 8): Promise<QuickGroupSearchItem[]> {
+  const normalized = keyword.trim()
+  if (normalized.length < 1) return []
+  const size = Math.max(1, Math.min(8, Math.trunc(pageSize)))
+  const data = await gatewayGraphQl<{
+    searchGroups: {
+      items: Array<{ viewerIsMember: boolean; group: SearchGroupGraphQl } | null>
+    }
+  }>(
+    `query FastSearchGroups($keyword: String!, $size: Int!) {
+      searchGroups(keyword: $keyword, pageNumber: 1, pageSize: $size) {
+        items { viewerIsMember group { ${SEARCH_GROUP_FIELDS} } }
+      }
+    }`,
+    { keyword: normalized, size },
+  )
+  return data.searchGroups.items.flatMap((item): QuickGroupSearchItem[] => {
+    if (!item) return []
+    const group = groupFromSearch(item.group)
+    return [{ kind: 'group', id: group.id, referenceId: group.id, group, viewerIsMember: item.viewerIsMember }]
+  }).slice(0, size)
+}
+
+export async function searchGroupScope(keyword: string, page = 1, pageSize = 20): Promise<GroupScopedSearchResult> {
+  const normalized = keyword.trim()
+  const safePage = Math.max(1, Math.min(1_000_000, Math.trunc(page)))
+  const size = Math.max(1, Math.min(50, Math.trunc(pageSize)))
+  const empty: GroupScopedSearchResult = { page: safePage, hasNextPage: false, groups: [], posts: [] }
+  if (normalized.length < 1) return empty
+
+  const data = await gatewayGraphQl<{
+    searchGroups: { items: Array<{ group: SearchGroupGraphQl } | null>; pageInfo: PageInfo }
+    searchGroupPosts: { items: Array<{ post: GatewayPost | null } | null>; pageInfo: PageInfo }
+  }>(
+    `query SearchGroupScope($keyword: String!, $page: Int!, $size: Int!) {
+      searchGroups(keyword: $keyword, pageNumber: $page, pageSize: $size) {
+        items { group { ${SEARCH_GROUP_FIELDS} } }
+        pageInfo { hasNextPage }
+      }
+      searchGroupPosts(keyword: $keyword, pageNumber: $page, pageSize: $size) {
+        items { post { ${GROUP_POST_FIELDS} } }
+        pageInfo { hasNextPage }
+      }
+    }`,
+    { keyword: normalized, page: safePage, size },
+  )
+  const groups = data.searchGroups.items.flatMap((item): SearchGroup[] => {
+    if (!item) return []
+    const group = groupFromSearch(item.group)
+    return [{ ...group, searchReferenceId: group.id }]
+  })
+  const posts = data.searchGroupPosts.items.flatMap((item): SearchPost[] => {
+    if (!item?.post || item.post.__typename !== 'GroupPostDetail') return []
+    return [{ ...normalizePost(item.post), searchReferenceId: String(item.post.id) }]
+  })
+  return {
+    page: safePage,
+    hasNextPage: data.searchGroups.pageInfo.hasNextPage || data.searchGroupPosts.pageInfo.hasNextPage,
+    groups,
+    posts,
+  }
 }
 
 export async function search(keyword: string, tab: SearchTab, page = 1, pageSize = 20): Promise<SearchPageResult> {
@@ -228,8 +299,8 @@ export async function search(keyword: string, tab: SearchTab, page = 1, pageSize
   }
 
   const data = await gatewayGraphQl<{
-    searchFeedPosts: { items: Array<{ post: GatewayPost | null }>; pageInfo: PageInfo }
-    searchGroupPosts: { items: Array<{ post: GatewayPost | null }>; pageInfo: PageInfo }
+    searchFeedPosts: { items: Array<{ post: GatewayPost | null } | null>; pageInfo: PageInfo }
+    searchGroupPosts: { items: Array<{ post: GatewayPost | null } | null>; pageInfo: PageInfo }
   }>(
     `query SearchPosts($keyword: String!, $page: Int!, $size: Int!) {
       searchFeedPosts(keyword: $keyword, pageNumber: $page, pageSize: $size) { items { post { ${FEED_POST_FIELDS} } } pageInfo { hasNextPage } }
@@ -237,7 +308,7 @@ export async function search(keyword: string, tab: SearchTab, page = 1, pageSize
     }`,
     { keyword: normalized, page, size: Math.max(1, Math.ceil(pageSize / 2)) },
   )
-  const posts = [...data.searchFeedPosts.items, ...data.searchGroupPosts.items].flatMap((item): SearchPost[] => item.post ? [{ ...normalizePost(item.post), searchReferenceId: String(item.post.id) }] : [])
+  const posts = [...data.searchFeedPosts.items, ...data.searchGroupPosts.items].flatMap((item): SearchPost[] => item?.post ? [{ ...normalizePost(item.post), searchReferenceId: String(item.post.id) }] : [])
   return {
     ...empty,
     hasNextPage: data.searchFeedPosts.pageInfo.hasNextPage || data.searchGroupPosts.pageInfo.hasNextPage,
@@ -307,4 +378,4 @@ export async function recordSearchResultView(referenceId: string): Promise<boole
   return data.recordSearchResultView
 }
 
-export const searchApi = { fastSearch, search, searchDirectContacts, searchFriends, searchProfileConnections, recordSearchResultView }
+export const searchApi = { fastSearch, fastSearchGroups, search, searchGroupScope, searchDirectContacts, searchFriends, searchProfileConnections, recordSearchResultView }

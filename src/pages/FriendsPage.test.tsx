@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
+import { Activity } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SocialProfile } from '../api/social'
@@ -46,6 +47,17 @@ describe('FriendsPage redesign', () => {
 
   afterEach(cleanup)
 
+  it('restores the Friends tab without loading the same section again', async () => {
+    const { rerender } = render(<Activity mode="visible"><FriendsPage userId="1" section="home" onNavigate={vi.fn()} /></Activity>)
+    await screen.findAllByText('Candidate User')
+    expect(socialMocks.getFriendSuggestions).toHaveBeenCalledTimes(1)
+
+    rerender(<Activity mode="hidden"><FriendsPage userId="1" section="home" onNavigate={vi.fn()} /></Activity>)
+    rerender(<Activity mode="visible"><FriendsPage userId="1" section="home" onNavigate={vi.fn()} /></Activity>)
+
+    expect(socialMocks.getFriendSuggestions).toHaveBeenCalledTimes(1)
+  })
+
   it('renders the requested sidebar and suggestion home without a see-all link', async () => {
     const onNavigate = vi.fn()
     const onMessage = vi.fn().mockResolvedValue(undefined)
@@ -53,8 +65,10 @@ describe('FriendsPage redesign', () => {
 
     await waitFor(() => expect(socialMocks.getFriendSuggestions).toHaveBeenCalledWith('1', 36))
     const labels = [...container.querySelectorAll('.friends-page-sidebar nav strong')].map((item) => item.textContent)
-    expect(labels).toEqual(['friendsHome', 'incomingRequests', 'sentRequests', 'allFriends', 'blockedPeople'])
-    expect(container.querySelector('.friends-page-sidebar > header button')).not.toBeInTheDocument()
+    expect(labels).toEqual(['friendsHome', 'sentRequests', 'incomingRequests', 'friendSuggestionsNav', 'allFriends'])
+    expect(container.querySelectorAll('.friend-nav-glyph')).toHaveLength(5)
+    expect(screen.getByRole('button', { name: 'settingsPrivacy' })).toBeInTheDocument()
+    expect(container.querySelector('.friends-settings-button .sidebar-settings-glyph')).toBeInTheDocument()
     expect(container.querySelector('.friends-page-sidebar nav > button > svg')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'friendSuggestionsTitle' })).toBeInTheDocument()
     expect(screen.queryByText('seeAll')).not.toBeInTheDocument()
@@ -68,6 +82,14 @@ describe('FriendsPage redesign', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /sentRequests/ }))
     expect(onNavigate).toHaveBeenCalledWith('/friends/outgoing')
+  })
+
+  it('loads the dedicated suggestions route through the suggestion API', async () => {
+    const { container } = render(<FriendsPage userId="1" section="suggestions" onNavigate={vi.fn()} />)
+
+    await waitFor(() => expect(socialMocks.getFriendSuggestions).toHaveBeenCalledWith('1', 36))
+    expect(container.querySelector('.friends-page-sidebar nav > button.active')).toHaveTextContent('friendSuggestionsNav')
+    expect(container.querySelector('.friend-card-actions .primary')).toHaveTextContent('addFriend')
   })
 
   it('loads received requests and confirms them from their card', async () => {

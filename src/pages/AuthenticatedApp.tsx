@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Activity, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api/client'
 import { notificationApi, type AppNotification } from '../api/notifications'
@@ -8,6 +8,7 @@ import { socialApi, type SocialProfile } from '../api/social'
 import type { GatewayPost } from '../api/gatewayTypes'
 import type { UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
+import { FriendPeopleGlyph } from '../components/FriendPeopleGlyph'
 import { Icon, ReelIcon, type IconName } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
@@ -29,6 +30,7 @@ import { UserInGroupProfilePage } from './UserInGroupProfilePage'
 import { MessengerDock, MessengerPage, type MessengerDockHandle } from './messenger'
 
 const SETTINGS = new Set<SettingsSection>(['overview', 'profile', 'security', 'privacy', 'sessions', 'language', 'appearance', 'premium'])
+type PrimaryDestination = 'home' | 'friends' | 'reels' | 'groups'
 
 export function AuthenticatedApp() {
   const { user, logout } = useAuth()
@@ -36,7 +38,14 @@ export function AuthenticatedApp() {
   const { t } = useI18n()
   const [location, navigate] = useAppLocation()
   const isHomeRoute = location.pathname === '/' || location.pathname === '/home'
+  const isFriendsRoute = location.pathname.startsWith('/friends')
+  const isReelsRoute = location.pathname.startsWith('/reels')
+  const isGroupsRoute = location.pathname.startsWith('/groups')
+  const activePrimaryDestination = primaryDestinationForPath(location.pathname)
   const [homeRefreshToken, setHomeRefreshToken] = useState(0)
+  const [reelsRefreshToken, setReelsRefreshToken] = useState(0)
+  const [groupsRefreshToken, setGroupsRefreshToken] = useState(0)
+  const [mountedDestinations, setMountedDestinations] = useState<Set<PrimaryDestination>>(() => activePrimaryDestination ? new Set([activePrimaryDestination]) : new Set())
   const [menuOpen, setMenuOpen] = useState(false)
   const [appsMenuOpen, setAppsMenuOpen] = useState(false)
   const [menuView, setMenuView] = useState<'root' | 'settings'>('root')
@@ -54,16 +63,49 @@ export function AuthenticatedApp() {
   const [quickResults, setQuickResults] = useState<QuickSearchItem[]>([])
   const [quickLoading, setQuickLoading] = useState(false)
   const [quickOpen, setQuickOpen] = useState(false)
+  const [quickClosing, setQuickClosing] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const appsMenuRef = useRef<HTMLDivElement>(null)
   const menuTriggerRef = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLFormElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const quickCloseTimerRef = useRef<number | null>(null)
   const messengerDockRef = useRef<MessengerDockHandle>(null)
   const seenNotificationIds = useRef(new Set<string>())
+  const destinationScrollRef = useRef<Partial<Record<PrimaryDestination, number>>>({})
+  const lastFriendsSectionRef = useRef(normalizeFriendSection(isFriendsRoute ? pathSegment(location.pathname, 1) : null))
+  const lastReelModeRef = useRef(normalizeReelMode(isReelsRoute ? pathSegment(location.pathname, 1) : null))
+  const lastHomeDetailPostIdRef = useRef<string | null>(isHomeRoute ? location.params.get('post') : null)
+
+  useEffect(() => {
+    if (!activePrimaryDestination) return
+    setMountedDestinations((current) => {
+      if (current.has(activePrimaryDestination)) return current
+      const next = new Set(current)
+      next.add(activePrimaryDestination)
+      return next
+    })
+  }, [activePrimaryDestination])
+
+  useLayoutEffect(() => {
+    if (!activePrimaryDestination) return
+    setDocumentScrollTop(destinationScrollRef.current[activePrimaryDestination] ?? 0)
+  }, [activePrimaryDestination])
+
+  useEffect(() => {
+    if (!activePrimaryDestination) return
+    const capture = () => { destinationScrollRef.current[activePrimaryDestination] = documentScrollTop() }
+    window.addEventListener('scroll', capture, { passive: true })
+    return () => window.removeEventListener('scroll', capture)
+  }, [activePrimaryDestination])
 
   useEffect(() => {
     if (location.pathname === '/search') setSearchText(new URLSearchParams(location.search).get('q') ?? '')
   }, [location.pathname, location.search])
+
+  useEffect(() => () => {
+    if (quickCloseTimerRef.current !== null) window.clearTimeout(quickCloseTimerRef.current)
+  }, [])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -219,27 +261,87 @@ export function AuthenticatedApp() {
   const groupMemberProfileId = memberRoute?.profileId ?? null
   const groupId = groupMemberProfileId ? null : groupRouteId
   const homeDetailPostId = isHomeRoute ? location.params.get('post') : null
+  if (isHomeRoute) lastHomeDetailPostIdRef.current = homeDetailPostId
+  if (isFriendsRoute) lastFriendsSectionRef.current = normalizeFriendSection(pathSegment(location.pathname, 1))
+  if (isReelsRoute) lastReelModeRef.current = normalizeReelMode(pathSegment(location.pathname, 1))
+  const quickShellOpen = quickOpen || quickClosing
+
+  function resetQuickSearch() {
+    if (quickCloseTimerRef.current !== null) window.clearTimeout(quickCloseTimerRef.current)
+    quickCloseTimerRef.current = null
+    setQuickClosing(false)
+    setQuickOpen(false)
+  }
+
+  function openQuickSearch() {
+    if (quickCloseTimerRef.current !== null) window.clearTimeout(quickCloseTimerRef.current)
+    quickCloseTimerRef.current = null
+    setQuickClosing(false)
+    setQuickOpen(true)
+  }
+
+  function beginQuickSearchClose() {
+    if (isGroupsRoute || isFriendsRoute) {
+      resetQuickSearch()
+      return
+    }
+    setQuickOpen(false)
+    if (quickCloseTimerRef.current !== null) return
+    setQuickClosing(true)
+    quickCloseTimerRef.current = window.setTimeout(() => {
+      quickCloseTimerRef.current = null
+      setQuickClosing(false)
+    }, 220)
+  }
 
   function go(path: string) {
+    if (activePrimaryDestination) destinationScrollRef.current[activePrimaryDestination] = documentScrollTop()
     setMenuOpen(false)
     setAppsMenuOpen(false)
     setMessengerPanelOpen(false)
     setNotificationPanelOpen(false)
     setMenuView('root')
-    setQuickOpen(false)
+    resetQuickSearch()
     navigate(path)
   }
 
   function goHome() {
     const refreshCurrentHome = isHomeRoute
+    if (refreshCurrentHome) {
+      destinationScrollRef.current.home = 0
+      setDocumentScrollTop(0)
+    }
     go('/home')
     if (refreshCurrentHome) setHomeRefreshToken((value) => value + 1)
+  }
+
+  function goReels() {
+    if (isReelsRoute) {
+      destinationScrollRef.current.reels = 0
+      setDocumentScrollTop(0)
+      setReelsRefreshToken((value) => value + 1)
+    }
+    go('/reels')
+  }
+
+  function goGroups() {
+    if (location.pathname === '/groups') {
+      destinationScrollRef.current.groups = 0
+      setDocumentScrollTop(0)
+      setGroupsRefreshToken((value) => value + 1)
+    }
+    go('/groups')
   }
 
   function runSearch() {
     const query = searchText.trim()
     if (query.length < 1) return
     go(`/search?q=${encodeURIComponent(query)}&tab=posts`)
+  }
+
+  function closeQuickSearch() {
+    beginQuickSearchClose()
+    searchInputRef.current?.blur()
   }
 
   async function openDirectMessage(profileId: string) {
@@ -281,21 +383,26 @@ export function AuthenticatedApp() {
     go(item.kind === 'user' ? `/profile/${item.id}` : `/groups/${item.id}`)
   }
 
-  return <div className="authenticated-app">
+  return <div className={isGroupsRoute ? 'authenticated-app groups-route' : isFriendsRoute ? 'authenticated-app friends-route' : 'authenticated-app'}>
     <header className="app-shell-topbar">
-      <div className="shell-brand-search">
-        <button type="button" className="app-brand" onClick={goHome} aria-label={t('home')}><img src="/brand/fakebook-minimal-cropped.png" alt="Fakebook" /></button>
-        <form ref={searchRef} className="shell-search-wrap" onSubmit={submitSearch} onFocus={() => setQuickOpen(true)} onBlur={() => window.setTimeout(() => { if (!searchRef.current?.contains(document.activeElement)) setQuickOpen(false) }, 0)}>
-          <label className="shell-search"><svg className="shell-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder={t('searchPlaceholder')} aria-label={t('searchPlaceholder')} /></label>
-          {quickOpen && searchText.trim().length >= 1 && <QuickSearchDropdown items={quickResults} loading={quickLoading} onOpen={openQuickResult} onSeeAll={runSearch} />}
+      <div className="shell-brand-search-anchor">
+        <div className={quickShellOpen ? `shell-brand-search is-searching${quickClosing ? ' is-closing' : ''}${quickOpen && searchText.trim().length === 0 ? ' has-recent-empty' : ''}` : 'shell-brand-search'}>
+        <span className={quickOpen ? 'shell-search-leading-slot is-searching' : 'shell-search-leading-slot'}>
+          <button type="button" className="app-brand" onClick={goHome} aria-label={t('home')} aria-hidden={quickOpen} tabIndex={quickOpen ? -1 : 0}><img src="/brand/fakebook-minimal-cropped.png" alt="Fakebook" /></button>
+          <button type="button" className="shell-search-back" onMouseDown={(event) => event.preventDefault()} onClick={closeQuickSearch} aria-label={t('back')} aria-hidden={!quickOpen} tabIndex={quickOpen ? 0 : -1}><svg className="shell-search-back-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 12H7M11.5 7.5 7 12l4.5 4.5" /></svg></button>
+        </span>
+        <form ref={searchRef} className={quickOpen ? 'shell-search-wrap is-active' : quickClosing ? 'shell-search-wrap is-closing' : 'shell-search-wrap'} onSubmit={submitSearch} onFocus={openQuickSearch} onKeyDown={(event) => { if (event.key === 'Escape') closeQuickSearch() }} onBlur={() => window.setTimeout(() => { if (!searchRef.current?.contains(document.activeElement)) beginQuickSearchClose() }, 0)}>
+          <label className="shell-search"><svg className={`shell-search-glyph${quickOpen ? ' is-hidden' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><input ref={searchInputRef} value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder={t('searchPlaceholder')} aria-label={t('searchPlaceholder')} /></label>
+          {quickOpen && <QuickSearchDropdown query={searchText.trim()} items={quickResults} loading={quickLoading} onOpen={openQuickResult} onSearchQuery={runSearch} />}
         </form>
+        </div>
       </div>
 
       <nav className="app-shell-nav" aria-label={t('appNavigation')}>
         <NavButton icon="home" label={t('home')} active={isHomeRoute} onClick={goHome} />
         <NavButton icon="friends" label={t('friends')} active={location.pathname.startsWith('/friends')} onClick={() => go('/friends')} />
-        <NavButton icon="video" label={t('reels')} active={location.pathname.startsWith('/reels')} onClick={() => go('/reels')} />
-        <NavButton icon="groups" label={t('groups')} active={location.pathname.startsWith('/groups')} onClick={() => go('/groups')} />
+        <NavButton icon="video" label={t('reels')} active={isReelsRoute} onClick={goReels} />
+        <NavButton icon="groups" label={t('groups')} active={isGroupsRoute} onClick={goGroups} />
       </nav>
 
       <div className="app-shell-actions">
@@ -320,11 +427,11 @@ export function AuthenticatedApp() {
 
     {notificationPanelOpen && <NotificationPopover items={notificationItems} unreadCount={unreadNotifications} loading={notificationsLoading} onOpen={(item) => void openNotification(item)} onMarkAll={() => void markAllNotificationsRead()} onClose={() => setNotificationPanelOpen(false)} />}
 
-    {isHomeRoute && <GatewayHomePage profile={currentProfile} refreshToken={homeRefreshToken} detailPostId={homeDetailPostId} onDetailClose={() => navigate('/home', { replace: true })} onNavigate={go} onMessage={openDirectMessage} onNewConversation={() => messengerDockRef.current?.openComposer()} onConversation={(conversation) => messengerDockRef.current?.openConversation(conversation)} />}
+    {(activePrimaryDestination === 'home' || mountedDestinations.has('home')) && <Activity name="home-destination" mode={activePrimaryDestination === 'home' ? 'visible' : 'hidden'}><GatewayHomePage profile={currentProfile} refreshToken={homeRefreshToken} detailPostId={lastHomeDetailPostIdRef.current} onDetailClose={() => navigate('/home', { replace: true })} onNavigate={go} onMessage={openDirectMessage} onNewConversation={() => messengerDockRef.current?.openComposer()} onConversation={(conversation) => messengerDockRef.current?.openConversation(conversation)} /></Activity>}
     {location.pathname === '/search' && <SearchPage query={location.params.get('q') ?? ''} tab={searchTab} userId={user.userId} onNavigate={go} />}
-    {location.pathname.startsWith('/friends') && <FriendsPage userId={user.userId} section={normalizeFriendSection(pathSegment(location.pathname, 1))} onNavigate={go} onMessage={openDirectMessage} />}
-    {location.pathname.startsWith('/reels') && <ReelsPage userId={user.userId} mode={normalizeReelMode(pathSegment(location.pathname, 1))} onNavigate={go} />}
-    {location.pathname === '/groups' && <GroupsPage userId={user.userId} onNavigate={go} />}
+    {(activePrimaryDestination === 'friends' || mountedDestinations.has('friends')) && <Activity name="friends-destination" mode={activePrimaryDestination === 'friends' ? 'visible' : 'hidden'}><FriendsPage userId={user.userId} section={lastFriendsSectionRef.current} onNavigate={go} onMessage={openDirectMessage} /></Activity>}
+    {(activePrimaryDestination === 'reels' || mountedDestinations.has('reels')) && <Activity name="reels-destination" mode={activePrimaryDestination === 'reels' ? 'visible' : 'hidden'}><ReelsPage key={`reels-${reelsRefreshToken}`} userId={user.userId} mode={lastReelModeRef.current} onNavigate={go} /></Activity>}
+    {(activePrimaryDestination === 'groups' || mountedDestinations.has('groups')) && <Activity name="groups-destination" mode={activePrimaryDestination === 'groups' ? 'visible' : 'hidden'}><GroupsPage key={`groups-${groupsRefreshToken}`} userId={user.userId} profile={currentProfile} onNavigate={go} /></Activity>}
     {groupId && <GroupProfilePage groupId={groupId} userId={user.userId} onBack={() => go('/groups')} onNavigate={go} />}
     {groupRouteId && groupMemberProfileId && <UserInGroupProfilePage groupId={groupRouteId} profileId={groupMemberProfileId} viewerId={user.userId} onBack={() => go(`/groups/${groupRouteId}`)} onNavigate={go} />}
     {profileId && <ProfilePage profile={viewedProfile} loading={profileLoading} error={profileError} canEdit={profileId === user.userId} viewerId={user.userId} onEdit={() => go('/settings/profile')} onNavigate={go} onMessage={openDirectMessage} />}
@@ -335,7 +442,7 @@ export function AuthenticatedApp() {
     {location.pathname === '/premium/payment' && <SettingsPage initialSection="premium" />}
     {location.pathname.startsWith('/content/') && <ContentPage contentId={pathSegment(location.pathname, 1)!} viewerId={user.userId} onNavigate={go} onBack={() => go('/home')} />}
     {!isKnownPath(location.pathname) && <main className="unknown-page"><div className="card state-card"><h1>{t('pageNotFound')}</h1><p>{t('pageNotFoundDesc')}</p><button className="btn-primary" onClick={() => go('/home')}>{t('backToHome')}</button></div></main>}
-    <MessengerDock ref={messengerDockRef} me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} panelOpen={messengerPanelOpen} hidden={location.pathname === '/messenger'} showComposeRail={isHomeRoute || Boolean(profileId)} onPanelClose={() => setMessengerPanelOpen(false)} onOpenAll={(conversationId) => go(conversationId ? `/messenger?conversation=${encodeURIComponent(conversationId)}` : '/messenger')} onOpenProfile={(id) => go(`/profile/${id}`)} />
+    <MessengerDock ref={messengerDockRef} me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} panelOpen={messengerPanelOpen} hidden={location.pathname === '/messenger'} showComposeRail={isHomeRoute || location.pathname.startsWith('/friends') || isGroupsRoute || Boolean(profileId)} onPanelClose={() => setMessengerPanelOpen(false)} onOpenAll={(conversationId) => go(conversationId ? `/messenger?conversation=${encodeURIComponent(conversationId)}` : '/messenger')} onOpenProfile={(id) => go(`/profile/${id}`)} />
   </div>
 }
 
@@ -450,9 +557,26 @@ function toSummary(profile: SocialProfile): UserSummary {
   return { id: profile.id, username: profile.username, displayName: profile.displayName, avatarUrl: profile.avatarUrl, isVerified: profile.isVerified }
 }
 
-function QuickSearchDropdown({ items, loading, onOpen, onSeeAll }: { items: QuickSearchItem[]; loading: boolean; onOpen: (item: QuickSearchItem) => void; onSeeAll: () => void }) {
+function QuickSearchDropdown({ query, items, loading, onOpen, onSearchQuery }: { query: string; items: QuickSearchItem[]; loading: boolean; onOpen: (item: QuickSearchItem) => void; onSearchQuery: () => void }) {
   const { t } = useI18n()
-  return <div className="quick-search-results">{loading ? <div className="quick-search-state"><span className="spinner" /></div> : items.length === 0 ? <p className="muted">{t('noSearchResults')}</p> : items.map((item) => <button type="button" key={`${item.kind}-${item.id}`} onMouseDown={(event) => event.preventDefault()} onClick={() => onOpen(item)}><Avatar name={item.kind === 'user' ? item.profile.displayName : item.group.name} src={item.kind === 'user' ? item.profile.avatarUrl : item.group.avatarUrl} size={44} /><span><strong>{item.kind === 'user' ? item.profile.displayName : item.group.name}{item.kind === 'user' && <VerifiedBadge verified={item.profile.isVerified} />}</strong><small>{item.kind === 'user' ? item.profile.followerCount > 0 ? t('followersCount', { count: item.profile.followerCount }) : t('personResult') : item.group.memberCount == null ? t('groupResult') : t('membersCount', { count: item.group.memberCount })}</small></span></button>)}<button type="button" className="quick-search-all" onMouseDown={(event) => event.preventDefault()} onClick={onSeeAll}><Icon name="search" size={18} />{t('seeAllResults')}</button></div>
+  return <div className={query.length === 0 ? 'quick-search-results is-recent-empty' : 'quick-search-results'}>{query.length === 0 ? <p className="quick-search-recent-empty">{t('noRecentSearches')}</p> : loading ? <div className="quick-search-state"><span className="spinner" /></div> : <>{items.map((item) => {
+    const isUser = item.kind === 'user'
+    const name = isUser ? item.profile.displayName : item.group.name
+    const avatar = isUser ? item.profile.avatarUrl : item.group.avatarUrl
+    const related = isUser ? item.viewerIsSelf || item.viewerIsFriend || item.viewerIsFollowing : item.viewerIsMember
+    const detailParts = isUser
+      ? [item.viewerIsSelf ? t('searchSelf') : item.viewerIsFriend ? t('friends') : item.viewerIsFollowing ? t('following') : t('searchPeople'), ...(!related && item.profile.followerCount > 0 ? [t('followersCount', { count: item.profile.followerCount })] : [])]
+      : [item.viewerIsMember ? t('searchYourGroup') : item.group.privacy === 0 ? t('publicGroup') : t('privateGroup'), ...(item.group.memberCount == null ? [] : [t('membersCount', { count: item.group.memberCount })])]
+    return <button type="button" className={related ? 'quick-search-result is-related' : 'quick-search-result is-discovery'} key={`${item.kind}-${item.id}`} onMouseDown={(event) => event.preventDefault()} onClick={() => onOpen(item)}>
+      {related ? <Avatar className={isUser ? undefined : 'quick-search-group-avatar'} name={name} src={avatar} size={36} /> : <QuickSearchMarker />}
+      <span className="quick-search-result-copy"><strong>{name}{isUser && <VerifiedBadge verified={item.profile.isVerified} />}</strong><small>{detailParts.join(' · ')}</small></span>
+      {!related && <Avatar className={isUser ? undefined : 'quick-search-group-avatar'} name={name} src={avatar} size={36} />}
+    </button>
+  })}{items.length < 8 && <button type="button" className="quick-search-query-result" onMouseDown={(event) => event.preventDefault()} onClick={onSearchQuery}><QuickSearchMarker /><strong>{query}</strong></button>}</>}</div>
+}
+
+function QuickSearchMarker() {
+  return <span className="quick-search-marker" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="10.5" cy="10.5" r="5.8" /><path d="m14.8 14.8 3.4 3.4" /></svg></span>
 }
 
 function ContentPage({ contentId, viewerId, onNavigate, onBack }: { contentId: string; viewerId: string; onNavigate: (path: string) => void; onBack: () => void }) {
@@ -473,12 +597,32 @@ function normalizeSearchTab(value: string | null): SearchTab {
   return value === 'people' || value === 'reels' || value === 'groups' ? value : 'posts'
 }
 
-function normalizeFriendSection(value: string | null): 'home' | 'friends' | 'incoming' | 'outgoing' | 'blocked' {
-  return value === 'friends' || value === 'incoming' || value === 'outgoing' || value === 'blocked' ? value : 'home'
+function normalizeFriendSection(value: string | null): 'home' | 'friends' | 'incoming' | 'outgoing' | 'suggestions' | 'blocked' {
+  return value === 'friends' || value === 'incoming' || value === 'outgoing' || value === 'suggestions' || value === 'blocked' ? value : 'home'
 }
 
 function normalizeReelMode(value: string | null): 'for-you' | 'following' | 'mine' | 'saved' | 'liked' | 'shared' | 'watched' {
   return value === 'following' || value === 'mine' || value === 'saved' || value === 'liked' || value === 'shared' || value === 'watched' ? value : 'for-you'
+}
+
+function primaryDestinationForPath(pathname: string): PrimaryDestination | null {
+  if (pathname === '/' || pathname === '/home') return 'home'
+  if (pathname.startsWith('/friends')) return 'friends'
+  if (pathname.startsWith('/reels')) return 'reels'
+  if (pathname === '/groups') return 'groups'
+  return null
+}
+
+function documentScrollTop() {
+  return document.scrollingElement?.scrollTop ?? document.documentElement.scrollTop ?? document.body.scrollTop ?? 0
+}
+
+function setDocumentScrollTop(value: number) {
+  const top = Math.max(0, Number.isFinite(value) ? value : 0)
+  const scrollingElement = document.scrollingElement ?? document.documentElement
+  scrollingElement.scrollTop = top
+  if (scrollingElement !== document.documentElement) document.documentElement.scrollTop = top
+  if (scrollingElement !== document.body) document.body.scrollTop = top
 }
 
 function isKnownPath(pathname: string) {
@@ -502,16 +646,32 @@ type ShellNavIcon = 'home' | 'friends' | 'video' | 'groups'
 
 function ShellNavGlyph({ icon, active }: { icon: ShellNavIcon; active: boolean }) {
   if (active) {
-    if (icon === 'home') return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M11.18 2.7a1.25 1.25 0 0 1 1.64 0l8.25 7.15c.28.24.43.59.43.95v9.45c0 .69-.56 1.25-1.25 1.25h-5.7v-6.45h-5.1v6.45h-5.7c-.69 0-1.25-.56-1.25-1.25V10.8c0-.36.16-.71.43-.95l8.25-7.15Z" /></svg>
-    if (icon === 'friends') return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="8.7" cy="7.7" r="4" /><circle cx="17.2" cy="7.4" r="3" /><path d="M1.8 20.7v-1.3c0-3.6 3.1-6 6.9-6s6.9 2.4 6.9 6v1.3H1.8Zm14.8 0v-1.3c0-2.1-.75-3.9-2.1-5.25.84-.42 1.8-.65 2.8-.65 3 0 5.2 1.9 5.2 4.8v2.4h-5.9Z" /></svg>
-    if (icon === 'video') return <ReelIcon className="shell-nav-glyph" size={24} filled />
-    return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="12" cy="7.6" r="3.3" /><circle cx="5.2" cy="9" r="2.45" /><circle cx="18.8" cy="9" r="2.45" /><path d="M5.3 20.8v-1.6c0-3.45 2.95-5.7 6.7-5.7s6.7 2.25 6.7 5.7v1.6H5.3ZM.7 19.2v-1c0-2.65 2.05-4.45 4.9-4.65a7.4 7.4 0 0 0-1.7 4.75v.9H.7Zm22.6 0h-3.2v-.9a7.4 7.4 0 0 0-1.7-4.75c2.85.2 4.9 2 4.9 4.65v1Z" /></svg>
+    if (icon === 'home') return <HomeShellNavGlyph active />
+    if (icon === 'friends') return <FriendPeopleGlyph className="shell-nav-glyph shell-nav-friend-glyph" filled />
+    if (icon === 'video') return <ReelIcon className="shell-nav-glyph" size={24} filled dividerColor="var(--card)" />
+    return <GroupShellNavGlyph active />
   }
 
-  if (icon === 'home') return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="m3.5 10.5 8.5-7.4 8.5 7.4v9.25c0 .7-.55 1.25-1.25 1.25h-4.9v-6.15h-4.7V21h-4.9c-.7 0-1.25-.55-1.25-1.25V10.5Z" /></svg>
-  if (icon === 'friends') return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="8.7" cy="7.7" r="3.7" /><circle cx="17.2" cy="7.4" r="2.7" /><path d="M2.2 20v-1.1c0-3.25 2.9-5.4 6.5-5.4s6.5 2.15 6.5 5.4V20h-13Zm14.65-6.4c2.75.35 4.65 2.05 4.65 4.55V20h-3.9" /></svg>
+  if (icon === 'home') return <HomeShellNavGlyph active={false} />
+  if (icon === 'friends') return <FriendPeopleGlyph className="shell-nav-glyph shell-nav-friend-glyph" filled={false} />
   if (icon === 'video') return <ReelIcon className="shell-nav-glyph" size={24} />
-  return <svg className="shell-nav-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="7.7" r="3.1" /><circle cx="5.4" cy="9.1" r="2.25" /><circle cx="18.6" cy="9.1" r="2.25" /><path d="M5.8 20v-1.35c0-3.1 2.7-5.15 6.2-5.15s6.2 2.05 6.2 5.15V20H5.8ZM1.2 18.8v-.7c0-2.35 1.75-3.95 4.25-4.2M22.8 18.8v-.7c0-2.35-1.75-3.95-4.25-4.2" /></svg>
+  return <GroupShellNavGlyph active={false} />
+}
+
+function HomeShellNavGlyph({ active }: { active: boolean }) {
+  return <svg className="shell-nav-glyph shell-nav-home-glyph" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke={active ? 'none' : 'currentColor'} strokeWidth={active ? undefined : 1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    <path d="M3.45 11.45q0-.9.7-1.5l6.8-5.9Q12 3.05 13.05 4.05l6.8 5.9q.7.6.7 1.5v8Q20.55 21.05 18.95 21.05H14.4V15.7q0-.75-.75-.75h-3.3q-.75 0-.75.75v5.35H5.05q-1.6 0-1.6-1.6v-8Z" />
+  </svg>
+}
+
+function GroupShellNavGlyph({ active }: { active: boolean }) {
+  return <svg className="shell-nav-glyph shell-nav-group-glyph" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    <defs><clipPath id="shell-group-nav-clip"><circle cx="12" cy="12" r="10" /></clipPath></defs>
+    {active
+      ? <g clipPath="url(#shell-group-nav-clip)"><circle cx="12" cy="8.2" r="2.35" /><circle cx="3.15" cy="10.3" r="2.75" /><circle cx="20.85" cy="10.3" r="2.75" /><path d="M5.6 20.25c.42-4.45 2.76-7.08 6.4-7.08s5.98 2.63 6.4 7.08V24H5.6Z" /></g>
+      : <g clipPath="url(#shell-group-nav-clip)"><circle cx="12" cy="8.2" r="2.35" /><circle cx="3.15" cy="10.3" r="2.75" /><circle cx="20.85" cy="10.3" r="2.75" /><path d="M5.6 20.25c.42-4.45 2.76-7.08 6.4-7.08s5.98 2.63 6.4 7.08" /></g>}
+    <circle cx="12" cy="12" r="10" fill="none" />
+  </svg>
 }
 
 function NavButton({ icon, label, active, onClick }: { icon: ShellNavIcon; label: string; active: boolean; onClick: () => void }) {

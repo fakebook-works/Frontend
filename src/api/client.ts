@@ -956,7 +956,7 @@ export const api = {
     const data = await graphQlRequest<{ visitedGroups: VisitedGroupPage }>(
       `query VisitedGroups($limit: Int!, $cursor: String) {
         visitedGroups(userId: ${id}, limit: $limit, cursor: $cursor) {
-          items { id name avatar }
+          items { id name avatar visitedAt }
           endCursor
           hasNextPage
         }
@@ -965,7 +965,11 @@ export const api = {
     )
     return {
       ...data.visitedGroups,
-      items: data.visitedGroups.items.map((group) => ({ ...group, id: String(group.id) })),
+      items: data.visitedGroups.items.map((group) => ({
+        ...group,
+        id: String(group.id),
+        visitedAt: String(group.visitedAt ?? ''),
+      })),
     }
   },
   recordGroupVisit: async (userIdValue: string, groupIdValue: string): Promise<boolean> => {

@@ -23,6 +23,7 @@ import { StoryImageMedia } from '../components/StoryImageMedia'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
+import { groupVisitRelativeTime } from '../lib/format'
 import {
   POST_BACKGROUND_PRESETS,
   decodePostContent,
@@ -108,6 +109,7 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
   const feedSentinelRef = useRef<HTMLDivElement>(null)
   const leftRailRef = useRef<HTMLElement>(null)
   const rightRailRef = useRef<HTMLElement>(null)
+  const initialLoadKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     const preloadInteractionChunks = () => {
@@ -257,6 +259,9 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
   }, [user])
 
   useEffect(() => {
+    const loadKey = user?.userId ? `${user.userId}:${refreshToken}` : null
+    if (!loadKey || initialLoadKeyRef.current === loadKey) return
+    initialLoadKeyRef.current = loadKey
     if (refreshToken > 0) {
       document.documentElement.scrollTop = 0
       document.body.scrollTop = 0
@@ -431,14 +436,12 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
             <button type="button" className="btn-soft sm" onClick={() => void loadGroups()} disabled={groupsLoading}>{t('refresh')}</button>
           </div>
           {groupsError && <p className="form-error">{groupsError}</p>}
-          {groupsLoading ? <span className="spinner" aria-label={t('loadingMore')} /> : groups.length === 0 ? (
-            <p className="muted">{t('noVisitedGroups')}</p>
-          ) : (
+          {groups.length === 0 ? (!groupsLoading && <p className="muted">{t('noVisitedGroups')}</p>) : (
             <div className="group-shortcuts">
               {groups.map((group) => (
                 <button type="button" key={group.id} onClick={() => void openGroup(group)}>
-                  <Avatar name={group.name} src={group.avatar || null} size={38} />
-                  <span>{group.name}</span>
+                  <Avatar name={group.name} src={group.avatar || null} size={36} />
+                  <span className="home-visited-group-copy"><strong>{group.name}</strong>{group.visitedAt && <small>{t('visitedTime', { time: groupVisitRelativeTime(group.visitedAt, locale) })}</small>}</span>
                 </button>
               ))}
             </div>
@@ -523,7 +526,7 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
         </section>
         <section className="right-rail-module group-conversations-module" aria-labelledby="group-conversations-title">
           <h2 id="group-conversations-title">{t('groupChats')}</h2>
-          {groupConversationsLoading ? <span className="spinner compact" aria-label={t('loadingMore')} /> : groupConversations.length === 0 ? <p>{t('noGroupChatsYet')}</p> : <div className="contact-list group-conversation-list">{groupConversations.map((conversation) => {
+          {groupConversations.length === 0 ? (!groupConversationsLoading && <p>{t('noGroupChatsYet')}</p>) : <div className="contact-list group-conversation-list">{groupConversations.map((conversation) => {
             const name = conversation.title?.trim() || t('groupConversation')
             const avatar = conversation.avatarUrl || conversation.participants.find((participant) => participant.id !== user.userId)?.avatarUrl || null
             const groupPresence = groupPresenceSummary(conversation, user.userId, presenceByUserId, t, presenceNow)
@@ -1258,7 +1261,9 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
   const canFollow = isFeedLike && !owned && (Boolean(current.author.canFollow) || followingFromCard)
   const canJoin = current.__typename === 'GroupPostDetail' && (Boolean(current.group.canJoin) || joinRequestedFromCard)
   const postPrivacy: PostPrivacy = current.privacy === 1 || current.privacy === 2 || current.privacy === 3 ? current.privacy : 0
-  const privacyLabel = postPrivacy === 0 ? t('privacyPublic') : postPrivacy === 1 ? t('privacyFriendsFollowers') : postPrivacy === 2 ? t('privacyFriends') : t('privacyOnlyMe')
+  const privacyLabel = current.__typename === 'GroupPostDetail'
+    ? current.privacy === 0 ? t('publicGroup') : t('privateGroup')
+    : postPrivacy === 0 ? t('privacyPublic') : postPrivacy === 1 ? t('privacyFriendsFollowers') : postPrivacy === 2 ? t('privacyFriends') : t('privacyOnlyMe')
   const privacyOptions: Array<{ value: PostPrivacy; label: string }> = [
     { value: 0, label: t('privacyPublic') },
     { value: 1, label: t('privacyFriendsFollowers') },
@@ -1338,8 +1343,8 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
           <div className="post-head-primary">
             {current.__typename === 'GroupPostDetail' ? <button type="button" className="post-group-link" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><strong>{current.group.name}</strong></button> : <button type="button" className="post-author-name" onClick={openAuthor}><strong>{current.author.name}<VerifiedBadge verified={current.author.isVerified} /></strong></button>}
             <TaggedUsersInline users={taggedUsers} onNavigate={onNavigate} />
-            {canFollow && <button type="button" className={followingFromCard ? 'post-inline-action is-settled' : 'post-inline-action'} disabled={relationshipBusy} onClick={() => void followAuthor()}>{t(followingFromCard ? 'following' : 'follow')}</button>}
-            {canJoin && <button type="button" className={joinRequestedFromCard ? 'post-inline-action is-settled' : 'post-inline-action'} disabled={relationshipBusy} onClick={() => void joinGroup()}>{t(joinRequestedFromCard ? 'joinRequested' : 'joinGroup')}</button>}
+            {canFollow && <button type="button" className={followingFromCard ? 'post-inline-action is-settled' : 'post-inline-action'} disabled={relationshipBusy} onClick={() => void followAuthor()}><span>{t(followingFromCard ? 'following' : 'follow')}</span></button>}
+            {canJoin && <button type="button" className={joinRequestedFromCard ? 'post-inline-action is-settled' : 'post-inline-action'} disabled={relationshipBusy} onClick={() => void joinGroup()}><span>{t(joinRequestedFromCard ? 'joinRequested' : 'joinGroup')}</span></button>}
           </div>
           <span className="post-head-meta">
             {current.__typename === 'GroupPostDetail' && <><button type="button" className="post-meta-author" onClick={openAuthor}>{current.author.name}<VerifiedBadge verified={current.author.isVerified} size={12} /></button><i>·</i></>}
@@ -1347,7 +1352,7 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
             <i>·</i>
             {owned && isFeedLike
               ? <PostPrivacyControl privacy={postPrivacy} label={privacyLabel} options={privacyOptions} busy={privacyBusy} onSelect={(value) => void changePostPrivacy(value)} />
-              : <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={postPrivacy} size={13} /></span></HoverTooltip>}
+              : <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={postPrivacy} size={13} group={current.__typename === 'GroupPostDetail'} /></span></HoverTooltip>}
           </span>
         </div>
         <div className="post-header-actions">

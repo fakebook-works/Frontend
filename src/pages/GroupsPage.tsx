@@ -1,64 +1,125 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { api } from '../api/client'
+import { api, visibleRecommendationPosts } from '../api/client'
 import type { GatewayPost } from '../api/gatewayTypes'
-import { socialApi, type GroupMembershipState, type SocialGroup, type SocialPhoto, type SocialProfile } from '../api/social'
+import { searchApi, type QuickGroupSearchItem } from '../api/search'
+import { socialApi, type GroupMembershipState, type GroupSuggestion, type SocialGroup, type SocialPhoto, type SocialProfile } from '../api/social'
 import type { MediaUpload, UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { ImageCropModal } from '../components/ImageCropModal'
 import { Icon } from '../components/Icon'
 import { MentionSuggestions } from '../components/MentionSuggestions'
 import { MentionDraftOverlay } from '../components/MentionDraftOverlay'
+import { PostPrivacyIcon } from '../components/PostPrivacyIcon'
+import { SidebarSettingsIcon } from '../components/SidebarSettingsIcon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
+import { groupVisitRelativeTime, relativeTime } from '../lib/format'
 import { applyMentionSelection, reconcileMentionEntities, serializeMentionContent, type MentionEntity } from '../lib/mentions'
 import { GatewayPostCard } from './GatewayHomePage'
 
-type GroupSection = 'joined' | 'managed' | 'pending' | 'recent'
+type GroupSection = 'feed' | 'discover' | 'your'
+type YourGroupsSection = 'managed' | 'joined'
 
-interface GroupCollections {
-  joined: SocialGroup[]
-  managed: SocialGroup[]
-  pending: SocialGroup[]
-  recent: SocialGroup[]
+interface GroupListItem extends SocialGroup {
+  lastVisitedAt?: string
 }
 
+interface GroupCollections {
+  joined: GroupListItem[]
+  managed: GroupListItem[]
+  pending: GroupListItem[]
+  recent: GroupListItem[]
+}
+
+const GROUP_FEED_BATCH = 60
+const GROUP_QUICK_SEARCH_LIMIT = 8
+const GROUP_SCOPE_SEARCH_LIMIT = 24
 const EMPTY_GROUPS: GroupCollections = { joined: [], managed: [], pending: [], recent: [] }
 
-export function GroupsPage({ userId, onNavigate }: { userId: string; onNavigate: (path: string) => void }) {
-  const { t } = useI18n()
+export function GroupsPage({ userId, profile, onNavigate }: { userId: string; profile?: SocialProfile | null; onNavigate: (path: string) => void }) {
+  const { t, locale } = useI18n()
   const [collections, setCollections] = useState<GroupCollections>(EMPTY_GROUPS)
-  const [section, setSection] = useState<GroupSection>('joined')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [section, setSection] = useState<GroupSection>('feed')
+  const [groupsLoading, setGroupsLoading] = useState(true)
+  const [groupsError, setGroupsError] = useState<string | null>(null)
   const [partialError, setPartialError] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [groupPosts, setGroupPosts] = useState<GatewayPost[]>([])
+  const [suggestedGroups, setSuggestedGroups] = useState<GroupSuggestion[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null)
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set())
+  const [yourGroupsTarget, setYourGroupsTarget] = useState<YourGroupsSection | null>(null)
+  const [feedOffset, setFeedOffset] = useState(0)
+  const [feedHasMore, setFeedHasMore] = useState(true)
+  const [feedLoading, setFeedLoading] = useState(true)
+  const [feedMoreLoading, setFeedMoreLoading] = useState(false)
+  const [feedError, setFeedError] = useState<string | null>(null)
+  const [joiningGroupId, setJoiningGroupId] = useState<string | null>(null)
+  const [searchText, setSearchText] = useState('')
+  const [submittedQuery, setSubmittedQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [quickGroups, setQuickGroups] = useState<QuickGroupSearchItem[]>([])
+  const [quickLoading, setQuickLoading] = useState(false)
+  const [quickError, setQuickError] = useState<string | null>(null)
+  const [searchGroups, setSearchGroups] = useState<SocialGroup[]>([])
+  const [searchPosts, setSearchPosts] = useState<GatewayPost[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const feedSentinelRef = useRef<HTMLDivElement>(null)
+  const searchShellRef = useRef<HTMLFormElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const initialLoadUserRef = useRef<string | null>(null)
+  const suggestionsRequestRef = useRef(0)
+  const managedGroupsSectionRef = useRef<HTMLElement>(null)
+  const joinedGroupsSectionRef = useRef<HTMLElement>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+  useEffect(() => {
+    document.documentElement.classList.add('groups-page-scroll')
+    document.body.classList.add('groups-page-scroll')
+    return () => {
+      document.documentElement.classList.remove('groups-page-scroll')
+      document.body.classList.remove('groups-page-scroll')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (section !== 'your' || !yourGroupsTarget) return
+    const timer = window.setTimeout(() => {
+      const target = yourGroupsTarget === 'managed' ? managedGroupsSectionRef.current : joinedGroupsSectionRef.current
+      target?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+      setYourGroupsTarget(null)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [section, yourGroupsTarget])
+
+  const loadCollections = useCallback(async () => {
+    setGroupsLoading(true)
+    setGroupsError(null)
     setPartialError(false)
     const [joinedResult, managedResult, pendingResult, recentResult] = await Promise.allSettled([
       socialApi.getMemberGroups(userId, 50),
       socialApi.getAdminGroups(userId, 50),
       socialApi.getPendingGroupJoins(userId, 50),
-      api.visitedGroups(userId, 30),
+      api.visitedGroups(userId, 50),
     ])
     try {
-      if ([joinedResult, managedResult, pendingResult, recentResult].every((result) => result.status === 'rejected')) {
+      const results = [joinedResult, managedResult, pendingResult, recentResult]
+      if (results.every((result) => result.status === 'rejected')) {
         setCollections(EMPTY_GROUPS)
-        setError(t('groupsLoadError'))
+        setGroupsError(t('groupsLoadError'))
         return
       }
 
-      const joined = joinedResult.status === 'fulfilled' ? joinedResult.value.items : []
-      const managed = managedResult.status === 'fulfilled' ? managedResult.value.items : []
-      const pending = pendingResult.status === 'fulfilled' ? pendingResult.value.items : []
-      let recent: SocialGroup[] = []
-      if (recentResult.status === 'fulfilled') {
-        const details = await socialApi.getGroups(recentResult.value.items.map((group) => group.id)).catch(() => [])
-        const byId = new Map(details.map((group) => [group.id, group]))
-        recent = recentResult.value.items.map((group) => byId.get(group.id) ?? {
+      const recentVisits = recentResult.status === 'fulfilled' ? recentResult.value.items : []
+      const details = recentVisits.length > 0
+        ? await socialApi.getGroups(recentVisits.map((group) => group.id)).catch(() => [])
+        : []
+      const detailsById = new Map(details.map((group) => [group.id, group]))
+      const visitById = new Map(recentVisits.map((group) => [group.id, group.visitedAt]))
+      const recent: GroupListItem[] = recentVisits.map((group) => ({
+        ...(detailsById.get(group.id) ?? {
           id: group.id,
           avatarUrl: group.avatar || null,
           backgroundUrl: null,
@@ -68,69 +129,490 @@ export function GroupsPage({ userId, onNavigate }: { userId: string; onNavigate:
           createdAt: '',
           memberCount: null,
           adminCount: 0,
-        })
-      }
-      setCollections({ joined, managed, pending, recent })
-      setPartialError([joinedResult, managedResult, pendingResult, recentResult].some((result) => result.status === 'rejected'))
+        }),
+        lastVisitedAt: group.visitedAt,
+      }))
+      const withVisit = (group: SocialGroup): GroupListItem => ({ ...group, lastVisitedAt: visitById.get(group.id) })
+      setCollections({
+        joined: joinedResult.status === 'fulfilled' ? joinedResult.value.items.map(withVisit) : [],
+        managed: managedResult.status === 'fulfilled' ? managedResult.value.items.map(withVisit) : [],
+        pending: pendingResult.status === 'fulfilled' ? pendingResult.value.items.map(withVisit) : [],
+        recent,
+      })
+      setPartialError(results.some((result) => result.status === 'rejected'))
     } finally {
-      setLoading(false)
+      setGroupsLoading(false)
     }
   }, [t, userId])
 
-  useEffect(() => { void load() }, [load])
+  const requestRecommendations = useCallback(async (offset: number, append: boolean) => {
+    if (append) setFeedMoreLoading(true)
+    else setFeedLoading(true)
+    setFeedError(null)
+    try {
+      const items = await api.recommendedFeed(userId, offset, GROUP_FEED_BATCH)
+      const nextPosts = visibleRecommendationPosts(items).filter((post) => post.__typename === 'GroupPostDetail')
+      setGroupPosts((current) => {
+        const combined = append ? [...current, ...nextPosts] : nextPosts
+        return [...new Map(combined.map((post) => [post.id, post])).values()]
+      })
+      setFeedOffset(offset + items.length)
+      setFeedHasMore(items.length === GROUP_FEED_BATCH)
+    } catch {
+      setFeedError(t('groupFeedRecommendationError'))
+    } finally {
+      setFeedLoading(false)
+      setFeedMoreLoading(false)
+    }
+  }, [t, userId])
 
-  const sections: Array<{ id: GroupSection; label: string; detail: string; icon: 'groups' | 'settings' | 'clock' }> = [
-    { id: 'joined', label: t('joinedGroups'), detail: t('joinedGroupsDesc'), icon: 'groups' },
-    { id: 'managed', label: t('managedGroups'), detail: t('managedGroupsDesc'), icon: 'settings' },
-    { id: 'pending', label: t('pendingGroups'), detail: t('pendingGroupsDesc'), icon: 'clock' },
-    { id: 'recent', label: t('recentGroups'), detail: t('recentGroupsDesc'), icon: 'clock' },
-  ]
-  const selected = sections.find((item) => item.id === section) ?? sections[0]
-  const groups = collections[section]
-  const emptyDescription = section === 'recent'
-    ? t('groupsEmptyDesc')
-    : section === 'managed'
-      ? t('managedGroupsEmpty')
-      : section === 'pending'
-        ? t('pendingGroupsEmpty')
-        : t('joinedGroupsEmpty')
+  const loadGroupSuggestions = useCallback(async () => {
+    const requestId = ++suggestionsRequestRef.current
+    const requestUserId = userId
+    setSuggestionsLoading(true)
+    setSuggestionsError(null)
+    try {
+      const groups = await socialApi.getGroupSuggestions(24)
+      if (suggestionsRequestRef.current !== requestId || initialLoadUserRef.current !== requestUserId) return
+      setSuggestedGroups(groups)
+    } catch {
+      if (suggestionsRequestRef.current !== requestId || initialLoadUserRef.current !== requestUserId) return
+      setSuggestedGroups([])
+      setSuggestionsError(t('groupsLoadError'))
+    } finally {
+      if (suggestionsRequestRef.current === requestId && initialLoadUserRef.current === requestUserId) setSuggestionsLoading(false)
+    }
+  }, [t, userId])
 
-  return <main className="discovery-layout">
-    <aside className="discovery-sidebar">
-      <h1>{t('groups')}</h1><p>{t('groupsSubtitle')}</p>
-      <nav>
-        {sections.map((item) => <button type="button" className={section === item.id ? 'active' : ''} key={item.id} onClick={() => setSection(item.id)}><span><Icon name={item.icon} size={20} /></span>{item.label}<small>{collections[item.id].length}</small></button>)}
-        <button type="button" onClick={() => setCreating(true)}><span><Icon name="plus" size={20} /></span>{t('createGroup')}</button>
+  useEffect(() => {
+    if (initialLoadUserRef.current === userId) return
+    initialLoadUserRef.current = userId
+    void loadCollections()
+    void requestRecommendations(0, false)
+    void loadGroupSuggestions()
+  }, [loadCollections, loadGroupSuggestions, requestRecommendations, userId])
+
+  const loadMoreRecommendations = useCallback(() => {
+    if (!feedHasMore || feedLoading || feedMoreLoading) return
+    void requestRecommendations(feedOffset, true)
+  }, [feedHasMore, feedLoading, feedMoreLoading, feedOffset, requestRecommendations])
+
+  useEffect(() => {
+    if (section !== 'feed' || !feedHasMore || feedLoading || feedMoreLoading) return
+    const target = feedSentinelRef.current
+    if (!target || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMoreRecommendations()
+    }, { rootMargin: '320px 0px' })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [feedHasMore, feedLoading, feedMoreLoading, loadMoreRecommendations, section])
+
+  useEffect(() => {
+    const normalized = searchText.trim()
+    if (!searchOpen || normalized.length < 1) {
+      setQuickGroups([])
+      setQuickLoading(false)
+      setQuickError(null)
+      return
+    }
+    let active = true
+    setQuickLoading(true)
+    setQuickError(null)
+    const timer = window.setTimeout(() => {
+      searchApi.fastSearchGroups(normalized, GROUP_QUICK_SEARCH_LIMIT).then((items) => {
+        if (active) setQuickGroups(items)
+      }).catch(() => {
+        if (active) {
+          setQuickGroups([])
+          setQuickError(t('searchLoadError'))
+        }
+      }).finally(() => {
+        if (active) setQuickLoading(false)
+      })
+    }, 220)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [searchOpen, searchText, t])
+
+  useEffect(() => {
+    const normalized = submittedQuery.trim()
+    if (normalized.length < 1) {
+      setSearchGroups([])
+      setSearchPosts([])
+      setSearchLoading(false)
+      setSearchError(null)
+      return
+    }
+    let active = true
+    setSearchLoading(true)
+    setSearchError(null)
+    searchApi.searchGroupScope(normalized, 1, GROUP_SCOPE_SEARCH_LIMIT).then((result) => {
+      if (!active) return
+      setSearchGroups(result.groups)
+      setSearchPosts(result.posts)
+    }).catch(() => {
+      if (!active) return
+      setSearchGroups([])
+      setSearchPosts([])
+      setSearchError(t('searchLoadError'))
+    }).finally(() => {
+      if (active) setSearchLoading(false)
+    })
+    return () => { active = false }
+  }, [submittedQuery, t])
+
+  const allJoinedGroups = useMemo(() => [...new Map(
+    [...collections.managed, ...collections.joined].map((group) => [group.id, group]),
+  ).values()], [collections.joined, collections.managed])
+  const managedIds = useMemo(() => new Set(collections.managed.map((group) => group.id)), [collections.managed])
+  const sidebarJoined = useMemo(() => collections.joined.filter((group) => !managedIds.has(group.id)), [collections.joined, managedIds])
+  const membershipIds = useMemo(() => new Set([...allJoinedGroups, ...collections.pending].map((group) => group.id)), [allJoinedGroups, collections.pending])
+  const visibleSuggestions = suggestedGroups.filter((suggestion) => !dismissedSuggestions.has(suggestion.group.id) && !membershipIds.has(suggestion.group.id))
+  const searching = submittedQuery.length > 0
+
+  const runGroupSearch = useCallback(() => {
+    const normalized = searchText.trim()
+    if (normalized.length < 1) return
+    setSubmittedQuery(normalized)
+    setSearchOpen(false)
+    searchInputRef.current?.blur()
+  }, [searchText])
+
+  const openQuickGroup = useCallback((item: QuickGroupSearchItem) => {
+    void searchApi.recordSearchResultView(item.referenceId).catch(() => undefined)
+    setSearchOpen(false)
+    onNavigate(`/groups/${item.id}`)
+  }, [onNavigate])
+
+  const selectSection = useCallback((nextSection: GroupSection) => {
+    setSearchText('')
+    setSubmittedQuery('')
+    setSearchOpen(false)
+    setSection(nextSection)
+  }, [])
+
+  const openYourGroupsSection = useCallback((target: YourGroupsSection) => {
+    setYourGroupsTarget(target)
+    setSearchText('')
+    setSubmittedQuery('')
+    setSearchOpen(false)
+    setSection('your')
+  }, [])
+
+  async function joinSuggestedGroup(group: SocialGroup) {
+    setJoiningGroupId(group.id)
+    setGroupsError(null)
+    try {
+      if (!await socialApi.requestJoinGroup(userId, group.id)) throw new Error('Join rejected')
+      if (group.privacy === 0) {
+        setCollections((current) => ({
+          ...current,
+          joined: [group, ...current.joined.filter((item) => item.id !== group.id)],
+        }))
+        setSuggestedGroups((current) => current.filter((item) => item.group.id !== group.id))
+      } else {
+        setCollections((current) => ({
+          ...current,
+          pending: [group, ...current.pending.filter((item) => item.id !== group.id)],
+        }))
+      }
+    } catch {
+      setGroupsError(t('joinGroupError'))
+    } finally {
+      setJoiningGroupId(null)
+    }
+  }
+
+  if (creating) {
+    return <CreateGroupExperience userId={userId} profile={profile} onClose={() => setCreating(false)} onCreated={(group) => {
+      setCreating(false)
+      setCollections((current) => ({
+        ...current,
+        managed: [group, ...current.managed.filter((item) => item.id !== group.id)],
+        joined: [group, ...current.joined.filter((item) => item.id !== group.id)],
+      }))
+      onNavigate(`/groups/${group.id}`)
+    }} />
+  }
+
+  return <main className="groups-page">
+    <aside className="groups-sidebar">
+      <header><h1 className="groups-hub-heading-text">{t('groups')}</h1><button type="button" className="groups-settings-button" aria-label={t('settingsPrivacy')}><SidebarSettingsIcon /></button></header>
+      <div className="groups-search-row">
+        <form ref={searchShellRef} className={searchOpen ? 'groups-search-shell is-open' : 'groups-search-shell'} onSubmit={(event) => { event.preventDefault(); runGroupSearch() }} onFocus={() => setSearchOpen(true)} onBlur={() => window.setTimeout(() => { if (!searchShellRef.current?.contains(document.activeElement)) setSearchOpen(false) }, 0)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearchOpen(false); searchInputRef.current?.blur() } }}>
+          <label className="groups-search"><svg className="groups-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><input ref={searchInputRef} value={searchText} onChange={(event) => { const value = event.target.value; setSearchText(value); if (value.trim().length === 0) setSubmittedQuery('') }} placeholder={t('groupSearchPlaceholder')} aria-label={t('groupSearchPlaceholder')} aria-expanded={searchOpen} aria-controls="groups-sidebar-search-results" autoComplete="off" /></label>
+          {searchOpen && <GroupQuickSearchDropdown query={searchText.trim()} items={quickGroups} loading={quickLoading} error={quickError} onOpen={openQuickGroup} onSearchQuery={runGroupSearch} />}
+        </form>
+      </div>
+      <nav className="groups-primary-nav" aria-label={t('groups')}>
+        <button type="button" className={section === 'feed' && !searching ? 'active' : ''} onClick={() => selectSection('feed')}><span><GroupSidebarNavIcon kind="feed" /></span><strong>{t('groupFeedNav')}</strong></button>
+        <button type="button" className={section === 'discover' && !searching ? 'active' : ''} onClick={() => selectSection('discover')}><span><GroupSidebarNavIcon kind="discover" /></span><strong>{t('groupDiscover')}</strong></button>
+        <button type="button" className={section === 'your' && !searching ? 'active' : ''} onClick={() => selectSection('your')}><span><GroupSidebarNavIcon kind="your" /></span><strong>{t('yourGroups')}</strong></button>
       </nav>
+      <div className="groups-create-row"><button type="button" className="groups-create-button" onClick={() => setCreating(true)}>{t('createNewGroup')}</button></div>
+
+      <div className="groups-sidebar-divider" />
+      {groupsLoading ? <GroupsSidebarCollectionsSkeleton /> : <>
+        <GroupSidebarCollection title={t('managedGroups')} groups={collections.managed.slice(0, 3)} locale={locale} onOpen={(group) => onNavigate(`/groups/${group.id}`)} action={collections.managed.length > 0 ? t('seeAll') : undefined} onAction={() => openYourGroupsSection('managed')} />
+        <GroupSidebarCollection title={t('joinedGroups')} groups={sidebarJoined.slice(0, 6)} locale={locale} onOpen={(group) => onNavigate(`/groups/${group.id}`)} action={sidebarJoined.length > 0 ? t('seeAll') : undefined} onAction={() => openYourGroupsSection('joined')} />
+      </>}
     </aside>
-    <section className="discovery-content">
-      <header className="page-content-head"><div><h2>{selected.label}</h2><p>{selected.detail}</p></div><button type="button" className="btn-soft" onClick={() => void load()}>{t('refresh')}</button></header>
-      {partialError && !loading && <p className="inline-alert">{t('groupsPartialError')}</p>}
-      {loading ? <div className="card state-card"><span className="spinner" /></div> : error ? <div className="card state-card"><h2>{t('unableToLoad')}</h2><p>{error}</p><button type="button" className="btn-primary" onClick={() => void load()}>{t('tryAgain')}</button></div> : groups.length === 0 ? <div className="card state-card"><h2>{t('groupListEmpty')}</h2><p>{emptyDescription}</p>{section !== 'pending' && <button type="button" className="btn-primary" onClick={() => setCreating(true)}>{t('createGroup')}</button>}</div> : <GroupGrid groups={groups} onNavigate={onNavigate} />}
+
+    <section className={`groups-main groups-main-${searching ? 'search' : section}`}>
+      {(partialError || groupsError) && !groupsLoading && <p className="inline-alert groups-inline-alert">{groupsError || t('groupsPartialError')}</p>}
+      {searching ? <>
+        <header className="groups-section-heading"><h2>{t('groupSearchResults', { query: submittedQuery })}</h2></header>
+        {searchLoading ? <GroupsContentSkeleton cards /> : searchError ? <GroupEmptyState title={t('unableToLoad')} detail={searchError} /> : searchGroups.length === 0 && searchPosts.length === 0 ? <GroupEmptyState title={t('noSearchResults')} detail={t('noSearchResultsDesc')} /> : <div className="groups-scope-search-results">
+          {searchGroups.length > 0 && <section><h3>{t('groups')}</h3><GroupMembershipGrid groups={searchGroups} locale={locale} onNavigate={onNavigate} /></section>}
+          {searchPosts.length > 0 && <section><h3>{t('searchPosts')}</h3><div className="groups-feed-column">{searchPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} />)}</div></section>}
+        </div>}
+      </> : section === 'feed' ? <>
+        <div className="groups-feed-column">
+          <header className="groups-feed-heading"><h2>{t('recentActivity')}</h2></header>
+          {feedLoading && groupPosts.length === 0 ? <GroupsContentSkeleton /> : feedError && groupPosts.length === 0 ? <GroupEmptyState title={t('unableToLoad')} detail={feedError} action={t('tryAgain')} onAction={() => void requestRecommendations(0, false)} /> : groupPosts.length === 0 ? <GroupEmptyState title={t('groupFeedEmpty')} detail={t('groupFeedRecommendationEmpty')} /> : groupPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} />)}
+          <div ref={feedSentinelRef} className="groups-feed-sentinel" aria-live="polite">{feedMoreLoading && <span className="spinner" aria-label={t('loadingMore')} />}{!feedHasMore && groupPosts.length > 0 && <span className="muted">{t('endOfFeed')}</span>}</div>
+        </div>
+      </> : section === 'discover' ? <>
+        <header className="groups-section-heading groups-hub-title-row"><h1 className="groups-hub-heading-text">{t('moreGroupSuggestions')}</h1></header>
+        {suggestionsLoading && visibleSuggestions.length === 0 ? <GroupsContentSkeleton cards /> : suggestionsError && visibleSuggestions.length === 0 ? <GroupEmptyState title={t('unableToLoad')} detail={suggestionsError} action={t('tryAgain')} onAction={() => void loadGroupSuggestions()} /> : visibleSuggestions.length === 0 ? <GroupEmptyState title={t('noGroupSuggestions')} detail={t('noGroupSuggestionsDesc')} /> : <GroupSuggestionGrid groups={visibleSuggestions} busyId={joiningGroupId} onNavigate={onNavigate} onJoin={(group) => void joinSuggestedGroup(group)} onDismiss={(groupId) => setDismissedSuggestions((current) => new Set(current).add(groupId))} />}
+      </> : <div className="groups-your-directory">
+        {(groupsLoading || collections.managed.length > 0) && <section ref={managedGroupsSectionRef} className="groups-directory-section" data-section="managed">
+          <header className="groups-section-heading groups-directory-heading groups-hub-title-row"><h1 className="groups-hub-heading-text">{t('managedGroupsCount', { count: collections.managed.length })}</h1></header>
+          {groupsLoading ? <GroupsContentSkeleton cards /> : <GroupMembershipGrid groups={collections.managed} locale={locale} onNavigate={onNavigate} directory />}
+        </section>}
+        <section ref={joinedGroupsSectionRef} className="groups-directory-section" data-section="joined">
+          <header className="groups-section-heading groups-directory-heading groups-hub-title-row"><h1 className="groups-hub-heading-text">{t('joinedGroupsCount', { count: sidebarJoined.length })}</h1></header>
+          {groupsLoading ? <GroupsContentSkeleton cards /> : sidebarJoined.length > 0
+            ? <GroupMembershipGrid groups={sidebarJoined} locale={locale} onNavigate={onNavigate} directory />
+            : null}
+        </section>
+      </div>}
     </section>
-    {creating && <CreateGroupModal userId={userId} onClose={() => setCreating(false)} onCreated={(group) => { setCreating(false); setCollections((current) => ({ ...current, managed: [group, ...current.managed.filter((item) => item.id !== group.id)] })); onNavigate(`/groups/${group.id}`) }} />}
   </main>
 }
 
-function GroupGrid({ groups, onNavigate }: { groups: SocialGroup[]; onNavigate: (path: string) => void }) {
+function GroupSidebarCollection({ title, groups, locale, onOpen, action, onAction }: { title: string; groups: GroupListItem[]; locale: string; onOpen: (group: GroupListItem) => void; action?: string; onAction?: () => void }) {
   const { t } = useI18n()
-  return <div className="group-grid">{groups.map((group) => <button type="button" className="card group-card" key={group.id} onClick={() => onNavigate(`/groups/${group.id}`)}><div className="group-card-cover" style={group.backgroundUrl ? { backgroundImage: `url(${group.backgroundUrl})` } : undefined} /><Avatar name={group.name} src={group.avatarUrl} size={64} /><strong>{group.name}</strong><small>{group.memberCount == null ? t('groupResult') : t('membersCount', { count: group.memberCount })}</small></button>)}</div>
+  if (groups.length === 0) return null
+  return <section className="groups-sidebar-collection"><header><h2>{title}</h2>{action && <button type="button" onClick={onAction}>{action}</button>}</header><div>{groups.map((group) => {
+    const activity = relativeTime(group.lastVisitedAt || '', locale)
+    return <button type="button" key={group.id} onClick={() => onOpen(group)}><Avatar name={group.name} src={group.avatarUrl} size={40} className="group-square-avatar" /><span><strong>{group.name}</strong><small>{activity ? t('groupLastVisited', { time: activity }) : t('groupActivityUnavailable')}</small></span></button>
+  })}</div></section>
 }
 
-function CreateGroupModal({ userId, onClose, onCreated }: { userId: string; onClose: () => void; onCreated: (group: SocialGroup) => void }) {
+function GroupQuickSearchDropdown({ query, items, loading, error, onOpen, onSearchQuery }: { query: string; items: QuickGroupSearchItem[]; loading: boolean; error: string | null; onOpen: (item: QuickGroupSearchItem) => void; onSearchQuery: () => void }) {
+  const { t } = useI18n()
+  return <div id="groups-sidebar-search-results" className={query.length === 0 ? 'groups-quick-search-results is-recent-empty' : 'groups-quick-search-results'} aria-live="polite">
+    {query.length === 0 ? <p className="groups-quick-search-empty">{t('noRecentSearches')}</p> : loading ? <div className="groups-quick-search-state"><span className="spinner" /></div> : error ? <p className="groups-quick-search-error">{error}</p> : <>
+      {items.map((item) => <button type="button" className="groups-quick-search-result" key={item.id} onMouseDown={(event) => event.preventDefault()} onClick={() => onOpen(item)}>
+        <Avatar className="groups-quick-search-avatar" name={item.group.name} src={item.group.avatarUrl} size={36} />
+        <span><strong>{item.group.name}</strong><small>{[item.viewerIsMember ? t('searchYourGroup') : item.group.privacy === 0 ? t('publicGroup') : t('privateGroup'), ...(item.group.memberCount == null ? [] : [t('membersCount', { count: item.group.memberCount })])].join(' · ')}</small></span>
+      </button>)}
+      {items.length < GROUP_QUICK_SEARCH_LIMIT && <button type="button" className="groups-quick-search-query" onMouseDown={(event) => event.preventDefault()} onClick={onSearchQuery}><GroupQuickSearchMarker /><strong>{query}</strong></button>}
+    </>}
+  </div>
+}
+
+function GroupQuickSearchMarker() {
+  return <span className="groups-quick-search-marker" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg></span>
+}
+
+function GroupSidebarNavIcon({ kind }: { kind: 'feed' | 'discover' | 'your' }) {
+  if (kind === 'feed') return <svg className="group-sidebar-nav-glyph group-sidebar-feed-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <rect x="1.5" y="2.25" width="21" height="19.5" rx="1.9" fill="currentColor" />
+    <path d="M3.4 4.25c0-.38.3-.68.68-.68h15.84c.38 0 .68.3.68.68v7.55H3.4V4.25Z" fill="var(--group-nav-icon-bg)" />
+    <rect x="4.8" y="5.45" width="3.4" height="3.15" rx=".48" fill="currentColor" />
+    <path d="M10.2 5.75h7.4M10.2 8.2h5.75" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+  </svg>
+  if (kind === 'discover') return <svg className="group-sidebar-nav-glyph group-sidebar-discover-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <circle cx="12" cy="12" r="9.35" fill="none" stroke="currentColor" strokeWidth="1.1" />
+    <g transform="translate(12 12) scale(1.06) translate(-12 -12)">
+      <g fill="currentColor" stroke="var(--group-nav-icon-bg)" strokeWidth="1.7" strokeLinejoin="round" paintOrder="stroke fill">
+        <path d="M9.55 9.75 12-.35l2.45 10.1Z" />
+        <path d="m14.25 9.55 10.1 2.45-10.1 2.45Z" />
+        <path d="M14.45 14.25 12 24.35l-2.45-10.1Z" />
+        <path d="M9.75 14.45-.35 12l10.1-2.45Z" />
+      </g>
+      <g fill="currentColor">
+        <path d="m13.1 9.35 4.7-3.15-3.15 4.7Z" />
+        <path d="m14.65 13.1 3.15 4.7-4.7-3.15Z" />
+        <path d="m10.9 14.65-4.7 3.15 3.15-4.7Z" />
+        <path d="M9.35 10.9 6.2 6.2l4.7 3.15Z" />
+      </g>
+    </g>
+    <circle cx="12" cy="12" r="2.05" fill="var(--group-nav-icon-bg)" />
+  </svg>
+  return <svg className="group-sidebar-nav-glyph group-sidebar-people-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <g transform="translate(0 -1.05)" fill="currentColor" stroke="var(--group-nav-icon-bg)" strokeWidth="1.15" strokeLinejoin="round">
+      <path d="M0-1.8c-4.2 0-7 2.5-7 6.2 0 1.2 1.25 2.17 2.8 2.17h8.4C5.75 6.57 7 5.6 7 4.4 7 .7 4.2-1.8 0-1.8Z" transform="translate(6.15 13.85) scale(.78)" vectorEffect="non-scaling-stroke" />
+      <path d="M0-1.8c-4.2 0-7 2.5-7 6.2 0 1.2 1.25 2.17 2.8 2.17h8.4C5.75 6.57 7 5.6 7 4.4 7 .7 4.2-1.8 0-1.8Z" transform="translate(17.85 13.85) scale(.78)" vectorEffect="non-scaling-stroke" />
+      <path d="M0-1.8c-4.2 0-7 2.5-7 6.2 0 1.2 1.25 2.17 2.8 2.17h8.4C5.75 6.57 7 5.6 7 4.4 7 .7 4.2-1.8 0-1.8Z" transform="translate(12 14.9) scale(.97)" vectorEffect="non-scaling-stroke" />
+      <circle cx="6.15" cy="8.7" r="3" />
+      <circle cx="17.85" cy="8.7" r="3" />
+      <circle cx="12" cy="8.75" r="3.4" strokeWidth="1.2" />
+    </g>
+  </svg>
+}
+
+function GroupMembershipGrid({ groups, locale, onNavigate, directory = false }: { groups: SocialGroup[]; locale: string; onNavigate: (path: string) => void; directory?: boolean }) {
+  const { t } = useI18n()
+  return <div className={directory ? 'groups-membership-grid groups-membership-grid-directory' : 'groups-membership-grid'}>{groups.map((group) => {
+    const visitedAt = 'lastVisitedAt' in group ? String(group.lastVisitedAt ?? '') : ''
+    const time = directory ? groupVisitRelativeTime(visitedAt, locale) : relativeTime(visitedAt, locale)
+    if (directory) {
+      return <article className="groups-membership-card groups-membership-card-directory" key={group.id}>
+        <button type="button" className="groups-membership-summary groups-directory-group-summary" onClick={() => onNavigate(`/groups/${group.id}`)}>
+          <Avatar name={group.name} src={group.avatarUrl} size={72} className="group-square-avatar" />
+          <span className="groups-directory-group-copy">
+            <strong>{group.name}</strong>
+            <span className="groups-directory-group-meta groups-directory-muted-copy">
+              <span>{t('membersCount', { count: group.memberCount ?? 0 })}</span>
+              <b aria-hidden="true">·</b>
+              <span><PostPrivacyIcon privacy={group.privacy === 0 ? 0 : 1} group={group.privacy !== 0} size={15} />{group.privacy === 0 ? t('groupPublicVisibility') : t('groupPrivateVisibility')}</span>
+            </span>
+            <small className="groups-directory-muted-copy">{t('groupLastVisitedLabel')}</small>
+            <small className="groups-directory-muted-copy">{time || t('groupActivityUnavailable')}</small>
+          </span>
+        </button>
+        <div className="groups-directory-group-actions"><button type="button" className="groups-view-button" onClick={() => onNavigate(`/groups/${group.id}`)}>{t('viewGroup')}</button><button type="button" className="groups-more-button" aria-label={t('more')}><Icon name="more" size={18} /></button></div>
+      </article>
+    }
+    return <article className="groups-membership-card" key={group.id}>
+      <button type="button" className="groups-membership-summary" onClick={() => onNavigate(`/groups/${group.id}`)}><Avatar name={group.name} src={group.avatarUrl} size={88} className="group-square-avatar" /><span><strong>{group.name}</strong><small>{time ? t('groupLastVisited', { time }) : group.memberCount == null ? t('groupResult') : t('membersCount', { count: group.memberCount })}</small></span></button>
+      <div><button type="button" className="groups-view-button" onClick={() => onNavigate(`/groups/${group.id}`)}>{t('viewGroup')}</button><button type="button" className="groups-more-button" aria-label={t('more')}><Icon name="more" size={18} /></button></div>
+    </article>
+  })}</div>
+}
+
+function GroupSuggestionGrid({ groups, busyId, onNavigate, onJoin, onDismiss }: { groups: GroupSuggestion[]; busyId: string | null; onNavigate: (path: string) => void; onJoin: (group: SocialGroup) => void; onDismiss: (groupId: string) => void }) {
+  const { t } = useI18n()
+  return <div className="groups-suggestion-grid">{groups.map((suggestion) => {
+    const group = suggestion.group
+    const firstFriend = suggestion.friendMembers[0]
+    const remainingFriends = Math.max(0, suggestion.friendMemberCount - 1)
+    return <article className="groups-suggestion-card" key={group.id}>
+      <button type="button" className="groups-suggestion-cover" aria-label={group.name} onClick={() => onNavigate(`/groups/${group.id}`)} style={group.backgroundUrl || group.avatarUrl ? { backgroundImage: `url(${group.backgroundUrl || group.avatarUrl})` } : undefined} />
+      <button type="button" className="groups-suggestion-dismiss" aria-label={t('dismiss')} onClick={() => onDismiss(group.id)}><Icon name="close" size={17} /></button>
+      <div className="groups-suggestion-copy">
+        <button type="button" className="groups-suggestion-name" onClick={() => onNavigate(`/groups/${group.id}`)}><strong>{group.name}</strong></button>
+        <div className="groups-suggestion-meta">
+          <span>{group.memberCount == null ? t('groupResult') : t('membersCount', { count: group.memberCount })}</span>
+          <b aria-hidden="true">·</b>
+          <span>{t('groupPostsPerDay', { count: suggestion.yesterdayPostCount })}</span>
+          <b aria-hidden="true">·</b>
+          <span className="groups-suggestion-privacy"><PostPrivacyIcon privacy={group.privacy === 0 ? 0 : 1} group={group.privacy !== 0} size={15} />{group.privacy === 0 ? t('groupPublicVisibility') : t('groupPrivateVisibility')}</span>
+        </div>
+        {firstFriend && <div className="groups-suggestion-friends">
+          <span className="groups-suggestion-friend-avatars" aria-hidden="true">{suggestion.friendMembers.slice(0, 3).map((friend) => <Avatar key={friend.id} name={friend.displayName} src={friend.avatarUrl} size={24} />)}</span>
+          <span>{remainingFriends > 0
+            ? t('groupFriendMembers', { name: firstFriend.displayName, count: remainingFriends })
+            : t('groupFriendMemberSingle', { name: firstFriend.displayName })}</span>
+        </div>}
+        <button type="button" className="groups-join-button" disabled={busyId === group.id} onClick={() => onJoin(group)}>{busyId === group.id ? t('working') : t('joinGroupLong')}</button>
+      </div>
+    </article>
+  })}</div>
+}
+
+function GroupEmptyState({ title, detail, action, onAction }: { title: string; detail: string; action?: string; onAction?: () => void }) {
+  return <div className="groups-empty-state"><span><Icon name="groups" size={34} /></span><h2>{title}</h2><p>{detail}</p>{action && <button type="button" className="btn-primary" onClick={onAction}>{action}</button>}</div>
+}
+
+function GroupsContentSkeleton({ cards = false }: { cards?: boolean }) {
+  const { t } = useI18n()
+  if (cards) return <div className="groups-card-skeleton-grid" role="status" aria-label={t('loadingMore')}>{Array.from({ length: 6 }, (_, index) => <article className="groups-card-skeleton" aria-hidden="true" key={index}><span className="cover" /><div><span className="title" /><span className="meta" /><span className="action" /></div></article>)}</div>
+  return <div className="groups-feed-skeleton" role="status" aria-label={t('loadingMore')}>{Array.from({ length: 2 }, (_, index) => <article className="card gateway-post home-feed-skeleton" aria-hidden="true" key={index}>
+    <header className="feed-post-head"><span className="home-feed-skeleton-avatar" /><div className="home-feed-skeleton-heading"><span /><span /></div></header>
+    <div className="home-feed-skeleton-copy"><span /><span /><span /></div>
+    <div className="home-feed-skeleton-media" />
+    <div className="home-feed-skeleton-actions"><span /><span /><span /></div>
+  </article>)}</div>
+}
+
+function GroupsSidebarCollectionsSkeleton() {
+  return <div className="groups-sidebar-collections-skeleton" aria-hidden="true">{[2, 3].map((rows, collectionIndex) => <section className="groups-sidebar-collection groups-sidebar-collection-skeleton" key={collectionIndex}>
+    <header><span className="groups-sidebar-skeleton-title" /><span className="groups-sidebar-skeleton-action" /></header>
+    <div>{Array.from({ length: rows }, (_, rowIndex) => <div className="groups-sidebar-skeleton-row" key={rowIndex}><span className="groups-sidebar-skeleton-avatar" /><span className="groups-sidebar-skeleton-copy"><i /><i /></span></div>)}</div>
+  </section>)}</div>
+}
+
+function CreateGroupExperience({ userId, profile, onClose, onCreated }: { userId: string; profile?: SocialProfile | null; onClose: () => void; onCreated: (group: SocialGroup) => void }) {
   const { t } = useI18n()
   const [name, setName] = useState('')
-  const [bio, setBio] = useState('')
-  const [privacy, setPrivacy] = useState(0)
+  const [privacy, setPrivacy] = useState<number | ''>('')
+  const [friends, setFriends] = useState<SocialProfile[]>([])
+  const [inviteQuery, setInviteQuery] = useState('')
+  const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    socialApi.getRelationProfiles(userId, 0, 100).then((items) => {
+      if (active) setFriends(items.filter((person) => person.id !== userId))
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [userId])
+
+  const normalizedInviteQuery = inviteQuery.trim().toLocaleLowerCase()
+  const visibleFriends = friends.filter((friend) => !normalizedInviteQuery || friend.displayName.toLocaleLowerCase().includes(normalizedInviteQuery)).slice(0, 6)
+  const selectedFriends = friends.filter((friend) => selectedFriendIds.has(friend.id))
+
+  function toggleFriend(friendId: string) {
+    setSelectedFriendIds((current) => {
+      const next = new Set(current)
+      if (next.has(friendId)) next.delete(friendId)
+      else next.add(friendId)
+      return next
+    })
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!name.trim()) return
-    setBusy(true); setError(null)
-    try { onCreated(await socialApi.createGroup(userId, { name: name.trim(), bio: bio.trim(), privacy })) } catch { setError(t('createGroupError')) } finally { setBusy(false) }
+    if (!name.trim() || privacy === '') return
+    setBusy(true)
+    setError(null)
+    try {
+      const group = await socialApi.createGroup(userId, { name: name.trim(), bio: '', privacy })
+      await Promise.allSettled([...selectedFriendIds].map((friendId) => socialApi.inviteGroupUser(group.id, friendId)))
+      onCreated(group)
+    } catch {
+      setError(t('createGroupError'))
+    } finally {
+      setBusy(false)
+    }
   }
-  return <div className="modal-backdrop" role="presentation" onClick={() => !busy && onClose()}><form className="modal compact-form-modal" onSubmit={submit} onClick={(event) => event.stopPropagation()}><header className="modal-head"><h2>{t('createGroup')}</h2><button type="button" className="icon-circle subtle" onClick={onClose}><Icon name="close" /></button></header><div className="modal-body settings-form-grid"><label className="wide"><span>{t('groupName')}</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} /></label><label className="wide"><span>{t('groupDescription')}</span><textarea rows={4} value={bio} onChange={(event) => setBio(event.target.value)} /></label><label className="wide"><span>{t('privacy')}</span><select value={privacy} onChange={(event) => setPrivacy(Number(event.target.value))}><option value={0}>{t('publicGroup')}</option><option value={1}>{t('privateGroup')}</option></select></label>{error && <p className="form-error wide">{error}</p>}</div><footer className="modal-foot"><button className="btn-primary block" disabled={busy || !name.trim()}>{busy ? t('creating') : t('createGroup')}</button></footer></form></div>
+
+  return <main className="group-create-page">
+    <form className="group-create-panel" onSubmit={submit}>
+      <header className="group-create-panel-head"><button type="button" className="group-create-close" onClick={onClose} aria-label={t('close')}><Icon name="close" size={24} /></button><img src="/brand/fakebook-minimal-cropped.png" alt="Fakebook" /></header>
+      <p className="group-create-breadcrumb">{t('groups')} › {t('createGroup')}</p>
+      <h1>{t('createGroup')}</h1>
+      <div className="group-create-owner"><Avatar name={profile?.displayName || t('fakebookUser')} src={profile?.avatarUrl} size={42} /><span><strong>{profile?.displayName || t('fakebookUser')}</strong><small>{t('groupAdmin')}</small></span></div>
+      <label className="group-create-field"><span>{t('groupName')}</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={100} /></label>
+      <label className="group-create-field"><span>{t('groupPrivacyPlaceholder')}</span><select value={privacy} onChange={(event) => setPrivacy(event.target.value === '' ? '' : Number(event.target.value))}><option value="">{t('groupPrivacyPlaceholder')}</option><option value={0}>{t('publicGroup')}</option><option value={1}>{t('privateGroup')}</option></select></label>
+      <div className="group-create-invites">
+        <label className="group-create-field"><span>{t('inviteFriendsOptional')}</span><input value={inviteQuery} onChange={(event) => setInviteQuery(event.target.value)} placeholder={t('searchFriends')} /></label>
+        {selectedFriends.length > 0 && <div className="group-create-selected-friends">{selectedFriends.map((friend) => <button type="button" key={friend.id} onClick={() => toggleFriend(friend.id)}><Avatar name={friend.displayName} src={friend.avatarUrl} size={24} /><span>{friend.displayName}</span><Icon name="close" size={13} /></button>)}</div>}
+        {inviteQuery.trim() && visibleFriends.length > 0 && <div className="group-create-friend-results">{visibleFriends.map((friend) => <button type="button" className={selectedFriendIds.has(friend.id) ? 'selected' : ''} key={friend.id} onClick={() => toggleFriend(friend.id)}><Avatar name={friend.displayName} src={friend.avatarUrl} size={34} /><span>{friend.displayName}</span>{selectedFriendIds.has(friend.id) && <Icon name="check" size={17} />}</button>)}</div>}
+        {!inviteQuery.trim() && friends.length > 0 && <small>{t('inviteSuggestions', { names: friends.slice(0, 3).map((friend) => friend.displayName).join(', ') })}</small>}
+      </div>
+      {error && <p className="form-error">{error}</p>}
+      <button type="submit" className="group-create-submit" disabled={busy || !name.trim() || privacy === ''}>{busy ? t('creating') : t('createGroup')}</button>
+    </form>
+
+    <section className="group-create-preview-stage">
+      <article className="group-create-preview-card">
+        <header><strong>{t('desktopPreview')}</strong><span><Icon name="watch" size={21} /><Icon name="phone" size={18} /></span></header>
+        <div className="group-create-preview-cover"><Icon name="groups" size={86} /></div>
+        <div className="group-create-preview-copy"><h2>{name.trim() || t('groupName')}</h2><p>{privacy === '' ? t('groupPrivacyPlaceholder') : privacy === 0 ? t('publicGroup') : t('privateGroup')} · {t('singleMember')}</p><nav><span>{t('about')}</span><span>{t('postsLabel')}</span><span>{t('members')}</span><span>{t('events')}</span></nav></div>
+        <div className="group-create-preview-body"><div className="group-create-preview-composer"><div><Avatar name={profile?.displayName || t('fakebookUser')} src={profile?.avatarUrl} size={36} /><span>{t('groupPostPrompt')}</span></div><footer><span><Icon name="photo" size={19} />{t('photoVideo')}</span><span><Icon name="tag" size={19} />{t('tagPeople')}</span><span><Icon name="feeling" size={19} />{t('feelingActivity')}</span></footer></div><aside><strong>{t('about')}</strong></aside></div>
+      </article>
+    </section>
+  </main>
 }
 
 type GroupTab = 'posts' | 'photos' | 'about' | 'members' | 'requests'

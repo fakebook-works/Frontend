@@ -14,15 +14,19 @@ describe('Search Gateway adapter', () => {
 
   it('hydrates composed fast-search entities and preserves ranking order', async () => {
     gatewayGraphQl.mockResolvedValue({ fastSearch: [
-      { __typename: 'GroupSearchResult', group: { id: '20', avatar: '', background: '', name: 'Group', bio: '', privacy: 0, create: '', memberCount: 2, adminCount: 1 } },
-      { __typename: 'UserSearchResult', user: { id: '10', name: 'User', avatar: '', bio: '', isVerified: false, friendCount: 4, followerCount: 7, followingCount: 3, privacy: 1 } },
+      { __typename: 'GroupSearchResult', viewerIsMember: true, group: { id: '20', avatar: '', background: '', name: 'Group', bio: '', privacy: 0, create: '', memberCount: 2, adminCount: 1 } },
+      { __typename: 'UserSearchResult', viewerIsSelf: false, viewerIsFriend: true, viewerIsFollowing: false, user: { id: '10', name: 'User', avatar: '', bio: '', isVerified: false, friendCount: 4, followerCount: 7, followingCount: 3, privacy: 1 } },
     ] })
 
     const results = await searchApi.fastSearch('fakebook')
 
     expect(results.map((item) => `${item.kind}:${item.id}`)).toEqual(['group:20', 'user:10'])
     expect(results.map((item) => item.referenceId)).toEqual(['20', '10'])
+    expect(results[0].kind === 'group' && results[0].viewerIsMember).toBe(true)
+    expect(results[1].kind === 'user' && results[1].viewerIsFriend).toBe(true)
     expect(gatewayGraphQl.mock.calls[0][0]).toContain('user { id name avatar bio isVerified friendCount followerCount followingCount privacy }')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('viewerIsSelf viewerIsFriend viewerIsFollowing')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('viewerIsMember')
     expect(results[1].kind === 'user' && results[1].profile.followerCount).toBe(7)
     expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('referenceId')
     expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
@@ -34,6 +38,60 @@ describe('Search Gateway adapter', () => {
     expect(await searchApi.fastSearch('a')).toEqual([])
     expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
     expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 'a' })
+  })
+
+  it('runs the Groups sidebar quick search against group references only', async () => {
+    gatewayGraphQl.mockResolvedValue({ searchGroups: { items: [{
+      viewerIsMember: true,
+      group: { id: '20', avatar: '', background: '', name: 'Group', bio: '', privacy: 0, create: '', memberCount: 2, adminCount: 1 },
+    }] } })
+
+    const results = await searchApi.fastSearchGroups(' group ')
+
+    expect(results).toHaveLength(1)
+    expect(results[0]).toMatchObject({ kind: 'group', id: '20', referenceId: '20', viewerIsMember: true })
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('searchGroups')
+    expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('fastSearch(')
+    expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('searchUsers')
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 'group', size: 8 })
+  })
+
+  it('searches groups and visible group posts through one parameterized Gateway document', async () => {
+    const keyword = 'x") { __typename }'
+    gatewayGraphQl.mockResolvedValue({
+      searchGroups: {
+        items: [{ group: { id: '20', avatar: '', background: '', name: 'Group', bio: '', privacy: 0, create: '', memberCount: 2, adminCount: 1 } }],
+        pageInfo: { hasNextPage: false },
+      },
+      searchGroupPosts: {
+        items: [{ post: {
+          __typename: 'GroupPostDetail', id: '30', type: 3, content: 'Group post', privacy: 0, create: '',
+          author: { id: '10', name: 'User', avatar: '', isVerified: false, canFollow: false },
+          group: { id: '20', name: 'Group', avatar: '', canJoin: false }, media: [],
+        } }],
+        pageInfo: { hasNextPage: false },
+      },
+    })
+
+    const result = await searchApi.searchGroupScope(keyword, 1, 20)
+    const [document, variables] = gatewayGraphQl.mock.calls[0]
+
+    expect(result.groups.map((group) => group.id)).toEqual(['20'])
+    expect(result.posts.map((post) => post.id)).toEqual(['30'])
+    expect(document).toContain('searchGroups')
+    expect(document).toContain('searchGroupPosts')
+    expect(document).not.toContain('searchFeedPosts')
+    expect(document).not.toContain(keyword)
+    expect(variables).toEqual({ keyword, page: 1, size: 20 })
+  })
+
+  it('ignores denied or stale nullable post lookups instead of throwing', async () => {
+    gatewayGraphQl.mockResolvedValue({
+      searchFeedPosts: { items: [null, { post: null }], pageInfo: { hasNextPage: false } },
+      searchGroupPosts: { items: [null], pageInfo: { hasNextPage: false } },
+    })
+
+    await expect(searchApi.search('hidden', 'posts')).resolves.toMatchObject({ posts: [], hasNextPage: false })
   })
 
   it('runs full search from a one-character keyword', async () => {

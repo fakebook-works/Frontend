@@ -611,7 +611,9 @@ function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, on
   const timestamp = formatPostTimestamp(post.create, locale)
   const isGroup = post.__typename === 'GroupPostDetail'
   const privacy: PostPrivacy = post.privacy === 1 || post.privacy === 2 || post.privacy === 3 ? post.privacy : 0
-  const privacyLabel = privacy === 0 ? t('privacyPublic') : privacy === 1 ? t('privacyFriendsFollowers') : privacy === 2 ? t('privacyFriends') : t('privacyOnlyMe')
+  const privacyLabel = isGroup
+    ? post.privacy === 0 ? t('publicGroup') : t('privateGroup')
+    : privacy === 0 ? t('privacyPublic') : privacy === 1 ? t('privacyFriendsFollowers') : privacy === 2 ? t('privacyFriends') : t('privacyOnlyMe')
   const taggedUsers = post.__typename === 'FeedPostDetail' ? (post.taggedUsers ?? []).filter((person) => person.id !== post.author.id) : []
   const decodedContent = decodePostContent(post.content)
   const postBackground = post.media.length === 0 ? getPostBackgroundPreset(decodedContent.backgroundId) : null
@@ -629,7 +631,7 @@ function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, on
           {isGroup && <><button type="button" className="post-meta-author" onClick={() => onNavigate?.(`/profile/${post.author.id}`)}>{post.author.name}<VerifiedBadge verified={post.author.isVerified} size={12} /></button><i>·</i></>}
           <HoverTooltip label={timestamp.detail} className="post-meta-hover post-time-hover"><time dateTime={post.create}>{timestamp.display}</time></HoverTooltip>
           <i>·</i>
-          <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={privacy} size={13} /></span></HoverTooltip>
+          <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={privacy} size={13} group={isGroup} /></span></HoverTooltip>
         </span>
       </div>
       <PostOptionsMenu post={post} viewerId={viewerId} owned={viewerId === post.author.id} onPostHidden={onHidden} />

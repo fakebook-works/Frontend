@@ -2083,6 +2083,7 @@
   width: 60px;
   flex-basis: 60px;
 }
+.mini-chat-region.home-compose-rail .mini-chat-bubble-item,
 .mini-chat-region.home-compose-rail .mini-chat-overflow-avatar,
 .mini-chat-region.home-compose-rail .mini-chat-new-button {
   width: 36px;
@@ -2591,6 +2592,12 @@
   scrollbar-width: none;
 }
 .mini-chat-overflow-list::-webkit-scrollbar { display: none; }
+.mini-chat-bubble-item {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+}
 .mini-chat-overflow-avatar,
 .mini-chat-new-button {
   position: relative;
@@ -2613,6 +2620,8 @@
   filter: brightness(1.08);
 }
 .mini-chat-overflow-avatar {
+  width: 100%;
+  height: 100%;
   background: transparent;
   box-shadow: none;
 }
@@ -2624,39 +2633,144 @@
   color: color-mix(in srgb, var(--secondary) 84%, white 16%);
   background: color-mix(in srgb, var(--hover) 91%, white 9%);
 }
+.mini-chat-bubble-item:hover .mini-chat-overflow-avatar,
+.mini-chat-bubble-item:focus-within .mini-chat-overflow-avatar {
+  transform: scale(1.06);
+  filter: brightness(1.08);
+}
+.mini-chat-bubble-dismiss {
+  position: absolute;
+  z-index: 4;
+  top: -2px;
+  right: -2px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+.mini-chat-bubble-item.has-unread .mini-chat-bubble-dismiss,
+.mini-chat-bubble-item:hover .mini-chat-bubble-dismiss,
+.mini-chat-bubble-item:focus-within .mini-chat-bubble-dismiss {
+  opacity: 1;
+  pointer-events: auto;
+}
+.mini-chat-bubble-unread-count {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #e43845;
+  font-size: 8px;
+  font-weight: 650;
+  line-height: 1;
+  box-shadow: 0 0 0 1.5px var(--card);
+}
+.mini-chat-bubble-close-circle {
+  width: 12px;
+  height: 12px;
+  display: none;
+  place-items: center;
+  border-radius: 50%;
+  color: color-mix(in srgb, var(--text) 88%, white 12%);
+  background: color-mix(in srgb, var(--circle) 88%, white 12%);
+  box-shadow: 0 0 0 1px var(--card);
+}
+.mini-chat-bubble-item:hover .mini-chat-bubble-unread-count,
+.mini-chat-bubble-item:focus-within .mini-chat-bubble-unread-count { display: none; }
+.mini-chat-bubble-item:hover .mini-chat-bubble-close-circle,
+.mini-chat-bubble-item:focus-within .mini-chat-bubble-close-circle { display: grid; }
+.mini-chat-bubble-close-circle svg { width: 7px; height: 7px; }
+.mini-chat-bubble-preview {
+  position: fixed;
+  z-index: 2600;
+  width: min(200px, calc(100vw - 84px));
+  box-sizing: border-box;
+  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--card) 82%, black 18%);
+  box-shadow: 0 5px 18px rgb(0 0 0 / 34%);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.mini-chat-bubble-preview strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .9rem;
+  font-weight: 600;
+}
+.mini-chat-bubble-preview small {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--secondary);
+  font-size: .76rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.mini-chat-bubble-preview-own { flex: 0 0 auto; }
+.mini-chat-bubble-preview-message { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mini-chat-bubble-preview-unread {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--blue) 78%, white 22%);
+}
 
-body.post-photo-viewer-open .mini-chat-region.has-bubble-rail {
+body.post-photo-viewer-open .mini-chat-region.has-bubble-rail,
+.mini-chat-region.media-viewer-compose-rail.has-bubble-rail {
   right: 0;
   bottom: 0;
 }
-body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-dock-layout { gap: 0; }
-body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-bubble-rail {
+body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-dock-layout,
+.mini-chat-region.media-viewer-compose-rail.has-bubble-rail .mini-chat-dock-layout { gap: 0; }
+body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-bubble-rail,
+.mini-chat-region.media-viewer-compose-rail.has-bubble-rail .mini-chat-bubble-rail {
   width: 60px;
   height: calc(100vh - var(--topbar-h));
   height: calc(100dvh - var(--topbar-h));
   flex-basis: 60px;
-  padding: 14px 12px 16px;
-  border-top: 1px solid color-mix(in srgb, var(--divider) 84%, white 16%);
-  border-left: 1px solid color-mix(in srgb, var(--divider) 84%, white 16%);
+  padding: 14px 12px 14px;
+  border: 0;
   background: var(--card);
-  box-shadow: none;
+  box-shadow: inset 1px 0 color-mix(in srgb, var(--divider) 84%, white 16%), inset 0 1px color-mix(in srgb, var(--divider) 84%, white 16%);
 }
 body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-overflow-avatar,
-body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-overflow-avatar > .avatar,
-body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-new-button { box-shadow: none; }
-body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-overflow-avatar,
-body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-new-button {
+body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-new-button,
+.mini-chat-region.media-viewer-compose-rail.has-bubble-rail .mini-chat-bubble-item,
+.mini-chat-region.media-viewer-compose-rail.has-bubble-rail .mini-chat-overflow-avatar,
+.mini-chat-region.media-viewer-compose-rail.has-bubble-rail .mini-chat-new-button {
   width: 36px;
   height: 36px;
   flex-basis: 36px;
 }
-body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-overflow-avatar > .avatar {
+body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-overflow-avatar > .avatar,
+.mini-chat-region.media-viewer-compose-rail.has-bubble-rail .mini-chat-overflow-avatar > .avatar {
   width: 36px !important;
   height: 36px !important;
 }
-body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-new-button svg {
-  width: 20px;
-  height: 20px;
+body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-new-button svg,
+.mini-chat-region.media-viewer-compose-rail.has-bubble-rail .mini-chat-new-button svg {
+  width: 23px;
+  height: 23px;
 }
 
 .new-conversation-window { min-height: 0; }

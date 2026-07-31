@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../../api/client'
 import { messengerApi } from '../../api/messenger'
 import type { MessengerPresenceDto, MessengerRealtimeEvent } from '../../api/messenger'
@@ -40,6 +41,7 @@ interface MessengerDockProps {
   panelOpen: boolean
   hidden?: boolean
   showComposeRail?: boolean
+  layout?: 'default' | 'media-viewer'
   onPanelClose: () => void
   onOpenAll: (conversationId?: string) => void
   onOpenProfile: (profileId: string) => void
@@ -58,6 +60,29 @@ interface ActiveVoiceRecording {
   tickerId: number
   startedAt: number
   discard: boolean
+}
+
+interface BubblePreviewAnchor {
+  conversationId: string
+  top: number
+  right: number
+}
+
+function bubbleConversationActivity(conversation: MessengerConversationDto, viewerId: string, t: (key: string, values?: Record<string, string | number>) => string) {
+  const message = conversation.lastMessage
+  if (!message) return { text: t('startConversation'), senderId: null as string | null }
+
+  const latestReaction = [...(message.reactions ?? [])].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0]
+  const messageActivityAt = Math.max(Date.parse(message.createdAt) || 0, Date.parse(message.editedAt ?? '') || 0)
+  const reactionActivityAt = latestReaction ? Date.parse(latestReaction.updatedAt) || 0 : 0
+  if (latestReaction && reactionActivityAt >= messageActivityAt) {
+    return { text: t('reactedToMessagePreview', { emoji: latestReaction.emoji }), senderId: latestReaction.userId }
+  }
+
+  return {
+    text: messengerConversationPreview(message, t) || t('startConversation'),
+    senderId: message.kind === 'SYSTEM' ? null : message.sender.id === viewerId ? viewerId : message.sender.id,
+  }
 }
 
 function visibleChatLimit(viewportWidth: number) {
@@ -119,6 +144,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   panelOpen,
   hidden = false,
   showComposeRail = false,
+  layout = 'default',
   onPanelClose,
   onOpenAll,
   onOpenProfile,
@@ -141,7 +167,8 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const [panelFilter, setPanelFilter] = useState<PanelFilter>('all')
   const [panelMenuOpen, setPanelMenuOpen] = useState(false)
   const [fullChatLimit, setFullChatLimit] = useState(() => visibleChatLimit(window.innerWidth))
-  const [photoViewerOpen, setPhotoViewerOpen] = useState(() => document.body.classList.contains('post-photo-viewer-open'))
+  const [mediaOverlayOpen, setMediaOverlayOpen] = useState(() => document.body.classList.contains('post-photo-viewer-open') || document.body.classList.contains('reels-comments-open'))
+  const mediaViewerLayout = layout === 'media-viewer' || mediaOverlayOpen
   const [friendshipByUserId, setFriendshipByUserId] = useState<Record<string, boolean>>({})
   const [presenceByUserId, setPresenceByUserId] = useState<Record<string, MessengerPresenceDto>>({})
   const [presenceNow, setPresenceNow] = useState(() => Date.now())
@@ -154,6 +181,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const [editDraft, setEditDraft] = useState('')
   const [editBusy, setEditBusy] = useState(false)
   const [expandedEditHistoryIds, setExpandedEditHistoryIds] = useState<Set<string>>(() => new Set())
+  const [bubblePreviewAnchor, setBubblePreviewAnchor] = useState<BubblePreviewAnchor | null>(null)
   const seenEventIds = useRef(new Set<string>())
   const conversationsRef = useRef<MessengerConversationDto[]>([])
   // Read through a ref so the inbox stream does not tear down and reconnect every time a
@@ -175,8 +203,8 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     [minimizedIds, openIds],
   )
   const visibleConversationLimit = showNewModal
-    ? Math.max(0, (photoViewerOpen ? 1 : fullChatLimit) - 1)
-    : photoViewerOpen ? 1 : fullChatLimit
+    ? Math.max(0, (mediaViewerLayout ? 1 : fullChatLimit) - 1)
+    : mediaViewerLayout ? 1 : fullChatLimit
   const fullOpenIds = useMemo(
     () => visibleConversationLimit > 0 ? expandedOpenIds.slice(-visibleConversationLimit) : [],
     [expandedOpenIds, visibleConversationLimit],
@@ -321,9 +349,9 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   }, [])
 
   useEffect(() => {
-    const syncPhotoViewerState = () => setPhotoViewerOpen(document.body.classList.contains('post-photo-viewer-open'))
-    syncPhotoViewerState()
-    const observer = new MutationObserver(syncPhotoViewerState)
+    const syncMediaOverlayState = () => setMediaOverlayOpen(document.body.classList.contains('post-photo-viewer-open') || document.body.classList.contains('reels-comments-open'))
+    syncMediaOverlayState()
+    const observer = new MutationObserver(syncMediaOverlayState)
     observer.observe(document.body, { attributes: true, attributeFilter: ['class'] })
     return () => observer.disconnect()
   }, [])
@@ -1007,6 +1035,16 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       next.delete(conversationId)
       return next
     })
+    setBubblePreviewAnchor((current) => current?.conversationId === conversationId ? null : current)
+  }
+
+  function showBubblePreview(conversationId: string, element: HTMLElement) {
+    const rect = element.getBoundingClientRect()
+    setBubblePreviewAnchor({
+      conversationId,
+      top: Math.max(30, Math.min(window.innerHeight - 30, rect.top + rect.height / 2)),
+      right: Math.max(8, window.innerWidth - rect.left + 13),
+    })
   }
 
   function updateManagedConversation(updated: MessengerConversationDto) {
@@ -1089,8 +1127,17 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const managedGroup = managedGroupId
     ? conversations.find((conversation) => conversation.id === managedGroupId && conversation.type === 'GROUP') ?? null
     : null
-  const showPinnedComposeRail = showComposeRail && !photoViewerOpen
-  const hasCollapsedRail = !hidden && (showNewModal || showPinnedComposeRail || collapsedConversations.length > 0 || (photoViewerOpen && openConversations.length > 0))
+  const showPinnedComposeRail = showComposeRail && !mediaViewerLayout
+  const hasCollapsedRail = !hidden && (showNewModal || showPinnedComposeRail || collapsedConversations.length > 0 || (mediaViewerLayout && openConversations.length > 0))
+  const bubblePreviewConversation = bubblePreviewAnchor
+    ? collapsedConversations.find((conversation) => conversation.id === bubblePreviewAnchor.conversationId) ?? null
+    : null
+  const bubblePreviewName = bubblePreviewConversation ? conversationName(bubblePreviewConversation, me) : ''
+  const bubblePreviewActivity = bubblePreviewConversation ? bubbleConversationActivity(bubblePreviewConversation, me.id, t) : null
+
+  useEffect(() => {
+    if (bubblePreviewAnchor && !collapsedOpenIds.includes(bubblePreviewAnchor.conversationId)) setBubblePreviewAnchor(null)
+  }, [bubblePreviewAnchor, collapsedOpenIds])
 
   useEffect(() => {
     document.body.classList.toggle('mini-chat-bubble-rail-open', hasCollapsedRail)
@@ -1127,7 +1174,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       })}</div>
     </aside>}
 
-    <div className={`mini-chat-region${hasCollapsedRail ? ' has-bubble-rail' : ''}${showPinnedComposeRail ? ' home-compose-rail' : ''}`}><div className="mini-chat-dock-layout">{(openConversations.length > 0 || showNewModal) && <div className="mini-chat-windows" aria-label={t('messages')}>{openConversations.map((conversation) => {
+    <div className={`mini-chat-region${hasCollapsedRail ? ' has-bubble-rail' : ''}${showPinnedComposeRail ? ' home-compose-rail' : ''}${mediaViewerLayout ? ' media-viewer-compose-rail' : ''}`} data-layout={mediaViewerLayout ? 'media-viewer' : 'default'}><div className="mini-chat-dock-layout">{(openConversations.length > 0 || showNewModal) && <div className="mini-chat-windows" aria-label={t('messages')}>{openConversations.map((conversation) => {
       const name = conversationName(conversation, me)
       const other = conversation.participants.find((person) => person.id !== me.id)
       const isFriend = other
@@ -1279,7 +1326,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       </section>
     })}{showNewModal && <NewConversationPanel creatorName={me.displayName} friends={friends} onStart={startConversation} onCreateGroup={startGroupConversation} onClose={() => setShowNewModal(false)} />}</div>}
       {hasCollapsedRail && <aside className="mini-chat-bubble-rail" aria-label={t('messages')}>
-        <div className="mini-chat-overflow-list">{collapsedConversations.map((conversation) => {
+        <div className="mini-chat-overflow-list" onScroll={() => setBubblePreviewAnchor(null)}>{collapsedConversations.map((conversation) => {
           const name = conversationName(conversation, me)
           const other = conversation.type === 'DIRECT'
             ? conversation.participants.find((person) => person.id !== me.id)
@@ -1287,20 +1334,39 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
           const groupPresence = conversation.type === 'GROUP'
             ? groupPresenceSummary(conversation, me.id, presenceByUserId, t, presenceNow)
             : null
-          return <button
-            type="button"
-            className="mini-chat-overflow-avatar"
+          const unreadCount = Math.max(0, conversation.unreadCount)
+          return <div
+            className={`mini-chat-bubble-item${unreadCount > 0 ? ' has-unread' : ''}`}
             key={conversation.id}
-            title={name}
-            aria-label={`${t('messages')}: ${name}`}
-            onClick={() => openConversation(conversation)}
+            onMouseEnter={(event) => showBubblePreview(conversation.id, event.currentTarget)}
+            onMouseLeave={() => setBubblePreviewAnchor((current) => current?.conversationId === conversation.id ? null : current)}
+            onFocus={(event) => showBubblePreview(conversation.id, event.currentTarget)}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBubblePreviewAnchor((current) => current?.conversationId === conversation.id ? null : current)
+            }}
           >
-            <Avatar name={name} src={conversationAvatar(conversation, me)} size={40} online={conversation.type === 'GROUP' ? Boolean(groupPresence?.onlineCount) : Boolean(other && presenceByUserId[other.id]?.isOnline)} />
-          </button>
+            <button
+              type="button"
+              className="mini-chat-overflow-avatar"
+              aria-label={`${t('messages')}: ${name}`}
+              onClick={() => { setBubblePreviewAnchor(null); openConversation(conversation) }}
+            >
+              <Avatar name={name} src={conversationAvatar(conversation, me)} size={40} title={false} online={conversation.type === 'GROUP' ? Boolean(groupPresence?.onlineCount) : Boolean(other && presenceByUserId[other.id]?.isOnline)} />
+            </button>
+            <button type="button" className="mini-chat-bubble-dismiss" aria-label={`${t('close')}: ${name}`} onClick={(event) => { event.stopPropagation(); closeChat(conversation.id) }}>
+              {unreadCount > 0 && <span className="mini-chat-bubble-unread-count">{unreadCount > 9 ? '9+' : unreadCount}</span>}
+              <span className="mini-chat-bubble-close-circle"><Icon name="close" size={7} /></span>
+            </button>
+          </div>
         })}</div>
         <button type="button" className="mini-chat-new-button" aria-label={t('newMessage')} title={t('newMessage')} aria-expanded={showNewModal} onClick={() => setShowNewModal(true)}><Icon name="compose" size={23} className="mini-chat-compose-icon" /></button>
       </aside>}
     </div></div>
+
+    {bubblePreviewAnchor && bubblePreviewConversation && bubblePreviewActivity && createPortal(<div className="mini-chat-bubble-preview" style={{ top: bubblePreviewAnchor.top, right: bubblePreviewAnchor.right }} aria-hidden="true">
+      <strong>{bubblePreviewName}</strong>
+      <small>{bubblePreviewActivity.senderId !== me.id && bubblePreviewConversation.unreadCount > 0 && <i className="mini-chat-bubble-preview-unread" />}{bubblePreviewActivity.senderId === me.id && <span className="mini-chat-bubble-preview-own">{t('you')}:</span>}<span className="mini-chat-bubble-preview-message">{bubblePreviewActivity.text}</span></small>
+    </div>, document.body)}
 
     {forwardingMessage && <ForwardMessageDialog message={forwardingMessage} conversations={conversations} me={me} onForward={forwardDockMessage} onClose={() => setForwardingMessage(null)} />}
     {managedGroup && <GroupConversationManager me={me} friends={friends} conversation={managedGroup} onClose={() => setManagedGroupId(null)} onUpdated={updateManagedConversation} onRemoved={removeConversationLocally} onOpenProfile={onOpenProfile} />}

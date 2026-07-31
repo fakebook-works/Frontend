@@ -24,14 +24,35 @@ const EMPTY_ENGAGEMENT: ContentEngagement = {
   viewerHasWatched: false,
 }
 
-export function ContentActions({ viewerId, contentId, post, variant = 'post', canShare = true, canReshare = canShare, onNavigate, onMessage, onStoryCreated, onOpenImage }: { viewerId: string; contentId: string; post?: GatewayPost; variant?: 'post' | 'reel'; canShare?: boolean; canReshare?: boolean; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void }) {
+interface ContentActionsProps {
+  viewerId: string
+  contentId: string
+  post?: GatewayPost
+  variant?: 'post' | 'reel'
+  canShare?: boolean
+  canReshare?: boolean
+  commentsPresentation?: 'modal' | 'sidebar'
+  commentsOpen?: boolean
+  onCommentsOpenChange?: (open: boolean) => void
+  onNavigate?: (path: string) => void
+  onMessage?: (profileId: string) => Promise<void>
+  onStoryCreated?: (story: SharedStory) => void
+  onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void
+}
+
+export function ContentActions({ viewerId, contentId, post, variant = 'post', canShare = true, canReshare = canShare, commentsPresentation = 'modal', commentsOpen: controlledCommentsOpen, onCommentsOpenChange, onNavigate, onMessage, onStoryCreated, onOpenImage }: ContentActionsProps) {
   const { t } = useI18n()
   const [engagement, setEngagement] = useState<ContentEngagement>({ ...EMPTY_ENGAGEMENT, targetId: contentId })
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [commentsOpen, setCommentsOpen] = useState(false)
+  const [localCommentsOpen, setLocalCommentsOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const commentsOpen = controlledCommentsOpen ?? localCommentsOpen
+  const setCommentsOpen = (open: boolean) => {
+    if (onCommentsOpenChange) onCommentsOpenChange(open)
+    else setLocalCommentsOpen(open)
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -116,11 +137,11 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
       {error && <p className="content-action-error">{error}</p>}
     </div> : <aside className="reel-actions">
       <button type="button" className={engagement.viewerHasLiked ? 'active' : ''} disabled={loading || busy != null} onClick={() => void toggleLike()}><Icon name={engagement.viewerHasLiked ? 'like' : 'likeOutline'} />{showLikeCount && <span>{counts.likes}</span>}</button>
-      <button type="button" onClick={() => setCommentsOpen(true)}><Icon name="commentOutline" />{showCommentCount && <span>{counts.comments}</span>}</button>
+      <button type="button" className={commentsOpen ? 'active' : ''} aria-label={t('commentAction')} aria-expanded={commentsOpen} onClick={() => setCommentsOpen(commentsPresentation === 'sidebar' ? !commentsOpen : true)}><Icon name="commentOutline" />{showCommentCount && <span>{counts.comments}</span>}</button>
       {canShare && <button type="button" onClick={() => setShareOpen(true)}><Icon name="shareOutline" />{showShareCount && <span>{counts.shares}</span>}</button>}
       <button type="button" className={engagement.viewerHasSaved ? 'active' : ''} disabled={loading || busy != null} onClick={() => void toggleSave()}><Icon name="bookmark" /><span>{engagement.viewerHasSaved ? t('saved') : t('save')}</span></button>
     </aside>}
-    {commentsOpen && <PostDetailCommentsModal viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} />}
+    {commentsOpen && (commentsPresentation === 'sidebar' ? <aside className="reels-comments-sidebar" aria-label={t('comments')}><PostDetailCommentsModal variant="photo-sidebar" viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} /></aside> : <PostDetailCommentsModal viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} />)}
     {canShare && shareOpen && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare={canReshare} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
   </>
 }

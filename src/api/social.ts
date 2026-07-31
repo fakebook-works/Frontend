@@ -57,6 +57,13 @@ export interface SocialGroup {
   adminCount: number
 }
 
+export interface GroupSuggestion {
+  group: SocialGroup
+  friendMemberCount: number
+  friendMembers: UserSummary[]
+  yesterdayPostCount: number
+}
+
 export interface SocialContent {
   id: string
   type: number
@@ -368,6 +375,32 @@ export async function getGroups(groupIds: string[]): Promise<SocialGroup[]> {
   const literals = ids.map(graphQlLongLiteral).join(', ')
   const data = await gatewayGraphQl<{ groups: Array<Record<string, unknown>> }>(`query Groups { groups(groupIds: [${literals}]) { ${GROUP_FIELDS} } }`)
   return data.groups.map(groupFromGraphQl)
+}
+
+export async function getGroupSuggestions(limit = 24): Promise<GroupSuggestion[]> {
+  const size = Math.max(1, Math.min(50, Math.trunc(limit)))
+  const data = await gatewayGraphQl<{ groupSuggestions: Array<{
+    group: Record<string, unknown>
+    friendMemberCount: number
+    friendMembers: Array<Record<string, unknown>>
+    yesterdayPostCount: number
+  }> }>(
+    `query GroupSuggestions($limit: Int!) {
+      groupSuggestions(limit: $limit) {
+        group { ${GROUP_FIELDS} }
+        friendMemberCount
+        friendMembers { id name avatar }
+        yesterdayPostCount
+      }
+    }`,
+    { limit: size },
+  )
+  return data.groupSuggestions.map((suggestion) => ({
+    group: groupFromGraphQl(suggestion.group),
+    friendMemberCount: Number(suggestion.friendMemberCount ?? 0),
+    friendMembers: (suggestion.friendMembers ?? []).slice(0, 3).map(summaryFromGraphQl),
+    yesterdayPostCount: Number(suggestion.yesterdayPostCount ?? 0),
+  }))
 }
 
 export async function getProfilePosts(userId: string, limit = 12, cursor: string | null = null): Promise<{ items: GatewayPost[]; endCursor: string | null; hasNextPage: boolean }> {
@@ -1302,6 +1335,7 @@ export const socialApi = {
   getProfiles,
   getGroup,
   getGroups,
+  getGroupSuggestions,
   getProfilePosts,
   getProfileReels,
   getUserPhotos,
