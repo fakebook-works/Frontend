@@ -24,7 +24,7 @@ function normalizePostPrivacy(value: number): PostPrivacy {
 
 function profileGridMediaSource(post: GatewayPost): ProfileGridMediaSource {
   if (post.media.length > 0) return { contentId: post.id, media: post.media }
-  if (post.__typename === 'FeedPostDetail' && post.sharedSource?.isAvailable && post.sharedSource.media.length > 0) {
+  if (post.sharedSource?.isAvailable && post.sharedSource.media.length > 0) {
     return { contentId: post.sharedSource.id, media: post.sharedSource.media }
   }
   return { contentId: post.id, media: [] }

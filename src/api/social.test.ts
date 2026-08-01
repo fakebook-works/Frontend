@@ -276,6 +276,42 @@ describe('SocialGraph Gateway adapter', () => {
     expect(suggestions[0].friendMembers[0]).toMatchObject({ id: '2', displayName: 'First friend' })
   })
 
+  it('loads only the trusted viewer friend-member preview for one group', async () => {
+    gatewayGraphQl.mockResolvedValue({ groupFriendMembers: [
+      { id: '2', name: 'First friend', avatar: '/friend-1.png' },
+      { id: '3', name: 'Second friend', avatar: '/friend-2.png' },
+    ] })
+
+    const friends = await socialApi.getGroupFriendMembers('41', 99)
+
+    const [query, variables] = gatewayGraphQl.mock.calls[0]
+    expect(query).toContain('groupFriendMembers(groupId: 41, limit: $limit)')
+    expect(query).not.toContain('userId')
+    expect(variables).toEqual({ limit: 12 })
+    expect(friends).toEqual([
+      expect.objectContaining({ id: '2', displayName: 'First friend', avatarUrl: '/friend-1.png' }),
+      expect.objectContaining({ id: '3', displayName: 'Second friend', avatarUrl: '/friend-2.png' }),
+    ])
+  })
+
+  it('hydrates group join requests directly from the administrator-scoped page', async () => {
+    gatewayGraphQl.mockResolvedValue({ groupJoinRequests: {
+      items: [{ id: '7', name: 'Pending member', avatar: '/pending.png', isVerified: true }],
+      endCursor: null,
+      hasNextPage: false,
+    } })
+
+    const requests = await socialApi.getGroupJoinRequests('41', 100)
+
+    const [query, variables] = gatewayGraphQl.mock.calls[0]
+    expect(query).toContain('groupJoinRequests(groupId: 41, limit: $limit)')
+    expect(query).toContain('items { id name avatar isVerified }')
+    expect(query).not.toContain('id2')
+    expect(variables).toEqual({ limit: 50 })
+    expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
+    expect(requests).toEqual([expect.objectContaining({ id: '7', displayName: 'Pending member', avatarUrl: '/pending.png', isVerified: true })])
+  })
+
   it('hydrates Recommendation reel IDs through the composed reel field', async () => {
     gatewayGraphQl.mockResolvedValueOnce({ recommendReels: [{ reelId: '8', reel: {
       id: '8', type: 4, content: 'Reel', privacy: 0, create: '2026-01-01', authorId: '1', media: [],

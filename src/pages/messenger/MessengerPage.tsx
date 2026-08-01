@@ -22,6 +22,7 @@ interface MessengerPageProps {
   me: UserSummary
   friends: UserSummary[]
   onOpenProfile: (id: string) => void
+  onNavigate?: (path: string) => void
   initialConversationId?: string | null
 }
 
@@ -42,7 +43,7 @@ function isNewerSequence(next: string, previous?: string): boolean {
   }
 }
 
-export function MessengerPage({ me, friends, onOpenProfile, initialConversationId = null }: MessengerPageProps) {
+export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialConversationId = null }: MessengerPageProps) {
   const { t } = useI18n()
   const [conversations, setConversations] = useState<MessengerConversationDto[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -578,7 +579,7 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
     setApiState('gateway')
   }
 
-  async function attachFiles(conversationId: string, files: FileList | null) {
+  async function attachFiles(conversationId: string, files: FileList | File[] | null) {
     if (!files?.length) return
     const current = pendingAttachmentsByConversation[conversationId] ?? []
     const remaining = Math.max(0, 10 - current.length)
@@ -621,7 +622,7 @@ export function MessengerPage({ me, friends, onOpenProfile, initialConversationI
   return <>
     <main className={`messenger-shell${mobileShowThread ? ' thread-open' : ''}${showDetail ? ' detail-open' : ''}`} aria-label="Messenger">
       <ConversationList me={me} conversations={conversations} presenceByUserId={presenceByUserId} selectedId={selectedId} query={query} loading={loading} activeTab={activeTab} totalUnread={totalUnread} onSelect={selectConversation} onQueryChange={setQuery} onTabChange={setActiveTab} onNewMessage={() => setShowNewModal(true)} />
-      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={drafts[selected.id] ?? ''} pendingAttachments={pendingAttachmentsByConversation[selected.id] ?? []} uploading={uploadingConversationId === selected.id} apiState={apiState} showDetail={showDetail} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} groupPresenceLabel={selectedGroupPresence?.label} groupOnlineCount={selectedGroupPresence?.onlineCount} typingUserId={typingByConversationId[selected.id] ?? null} replyTarget={replyTarget} onInteract={() => markConversationRead(selected.id)} onDraftChange={(value) => updateDraft(selected.id, value)} onAttachFiles={(files) => void attachFiles(selected.id, files)} onRemoveAttachment={removePendingAttachment} onSubmit={handleSubmit} onSendLike={(level) => void sendLike(level)} onReplyMessage={(message) => setReplyToByConversationId((current) => ({ ...current, [selected.id]: message.id }))} onCancelReply={() => setReplyToByConversationId((current) => ({ ...current, [selected.id]: null }))} onReactMessage={reactToMessage} onRecallMessage={recallMessage} onEditMessage={editChatMessage} onForwardMessage={setForwardingMessage} onOpenProfile={onOpenProfile} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
+      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={drafts[selected.id] ?? ''} pendingAttachments={pendingAttachmentsByConversation[selected.id] ?? []} uploading={uploadingConversationId === selected.id} apiState={apiState} showDetail={showDetail} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} groupPresenceLabel={selectedGroupPresence?.label} groupOnlineCount={selectedGroupPresence?.onlineCount} typingUserId={typingByConversationId[selected.id] ?? null} replyTarget={replyTarget} onInteract={() => markConversationRead(selected.id)} onDraftChange={(value) => updateDraft(selected.id, value)} onAttachFiles={(files) => void attachFiles(selected.id, files)} onRemoveAttachment={removePendingAttachment} onSubmit={handleSubmit} onSendLike={(level) => void sendLike(level)} onReplyMessage={(message) => setReplyToByConversationId((current) => ({ ...current, [selected.id]: message.id }))} onCancelReply={() => setReplyToByConversationId((current) => ({ ...current, [selected.id]: null }))} onReactMessage={reactToMessage} onRecallMessage={recallMessage} onEditMessage={editChatMessage} onForwardMessage={setForwardingMessage} onOpenProfile={onOpenProfile} onNavigate={onNavigate} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
       {showDetail && selected && <ConversationDetail me={me} conversation={selected} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} onOpenProfile={onOpenProfile} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onLeave={() => void leaveSelectedConversation()} />}
     </main>
     {showNewModal && <NewConversationModal friends={friends} onStart={startConversation} onCreateGroup={startGroupConversation} onClose={() => setShowNewModal(false)} />}

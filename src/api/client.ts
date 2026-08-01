@@ -254,6 +254,7 @@ function normalizeGatewayPost(post: GatewayPost): GatewayPost {
       author: post.sharedSource.author ? { ...post.sharedSource.author, id: String(post.sharedSource.author.id) } : null,
       media: post.sharedSource.media.map(normalizeMedia),
       mentions: normalizeMentions(post.sharedSource.mentions),
+      group: post.sharedSource.group ? { ...post.sharedSource.group, id: String(post.sharedSource.group.id) } : null,
     } : null,
   }
   if (post.__typename === 'GroupPostDetail') {
@@ -574,9 +575,11 @@ const HOME_POST_FIELDS = `
     media { id type url }
     sharedSource {
       id isAvailable type content privacy create
+      requiresGroupMembership
       mentions { userId name available }
       author { id name avatar isVerified }
       media { id type url }
+      group { id name avatar background privacy memberCount viewerIsMember joinRequestPending }
     }
   }
   ... on ReelDetail {
@@ -592,6 +595,13 @@ const HOME_POST_FIELDS = `
     author { id name avatar isVerified canFollow }
     group { id name avatar canJoin }
     media { id type url }
+    sharedSource {
+      id isAvailable type content privacy create requiresGroupMembership
+      mentions { userId name available }
+      author { id name avatar isVerified }
+      media { id type url }
+      group { id name avatar background privacy memberCount viewerIsMember joinRequestPending }
+    }
   }
 `
 

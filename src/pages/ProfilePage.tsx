@@ -65,6 +65,23 @@ interface ProfileMediaViewerState {
   mediaUrl: string
   initialPost?: GatewayPost
   entries: PostPhotoViewerMediaEntry[]
+  unavailableAuthor?: GatewayPost['author']
+}
+
+const UNAVAILABLE_POST_DETAIL_CODES = new Set([
+  'FORBIDDEN',
+  'NOT_FOUND',
+  'CONTENT_NOT_FOUND',
+  'POST_NOT_FOUND',
+  'CONTENT_UNAVAILABLE',
+  'PRIVACY_DENIED',
+])
+
+function isUnavailablePostDetailError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { status?: unknown; code?: unknown }
+  if (candidate.status === 403 || candidate.status === 404) return true
+  return typeof candidate.code === 'string' && UNAVAILABLE_POST_DETAIL_CODES.has(candidate.code.toUpperCase())
 }
 
 async function loadAllProfileFeedPosts(userId: string): Promise<GatewayPost[]> {
@@ -452,7 +469,7 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
     <header className="self-profile-section-head"><h2>{t('profileTabAbout')}</h2>{canEdit && editTarget === null && <button type="button" className="self-profile-section-action" onClick={() => beginEdit('all')}>{t('edit')}</button>}{canEdit && editingAll && editorActions('all', 'header')}</header>
     <div className="profile-about-details">
       <div className="profile-about-column">
-        <article><h3>{t('bio')}</h3>{editTarget === 'bio' || editingAll ? fieldEditor('bio') : <div className="profile-about-detail-value"><span><ProfileBioIcon /></span><p>{current.bio || t('notAvailable')}</p>{canEdit && editTarget === null && <button type="button" className="profile-about-detail-edit" aria-label={`${t('edit')} ${t('bio')}`} onClick={() => beginEdit('bio')}><ProfileInfoEditIcon /></button>}</div>}</article>
+        <article><h3>{t('bio')}</h3>{editTarget === 'bio' || editingAll ? fieldEditor('bio') : <div className="profile-about-detail-value"><span><ProfileBioIcon /></span><p className="profile-preserve-newlines">{current.bio || t('notAvailable')}</p>{canEdit && editTarget === null && <button type="button" className="profile-about-detail-edit" aria-label={`${t('edit')} ${t('bio')}`} onClick={() => beginEdit('bio')}><ProfileInfoEditIcon /></button>}</div>}</article>
         <article><h3>{t('profileJoinDate')}</h3><div className="profile-about-detail-value"><span><Icon name="clock" size={25} /></span><p>{created}</p></div></article>
         <article><h3>{t('profileContact')}</h3><div className="profile-about-detail-value"><span><ProfileEmailIcon /></span><p>{current.email ? <a className="profile-about-email" href={`mailto:${current.email}`}>{current.email}</a> : t('notAvailable')}</p></div></article>
       </div>
@@ -1165,16 +1182,37 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
     setAvatarViewMenuOpen(false)
     setAvatarViewBusy(true)
     const standaloneMedia = { id: `profile-avatar-${profile.id}`, type: 0, url: profile.avatarUrl }
-    const openStandalone = () => setProfileMediaViewer({
-      contentId: `profile-avatar-${profile.id}`,
+    const unavailableAuthor: GatewayPost['author'] = {
+      id: profile.id,
+      name: profile.displayName,
+      avatar: profile.avatarUrl,
+      isVerified: Boolean(profile.isVerified),
+    }
+    const openStandalone = (unavailableContentId?: string) => setProfileMediaViewer({
+      contentId: unavailableContentId ?? `profile-avatar-${profile.id}`,
       mediaId: standaloneMedia.id,
       mediaUrl: standaloneMedia.url,
       entries: [{ post: null, media: standaloneMedia }],
+      unavailableAuthor,
     })
     try {
       const source = await socialApi.getProfileAvatarSource(profile.id)
       if (source) {
-        const detail = await api.postDetail(source.contentId)
+        let detail: GatewayPost | null
+        try {
+          detail = await api.postDetail(source.contentId)
+        } catch (error) {
+          if (isUnavailablePostDetailError(error)) {
+            openStandalone(source.contentId)
+            return
+          }
+          openStandalone()
+          return
+        }
+        if (!detail) {
+          openStandalone(source.contentId)
+          return
+        }
         const sourceMedia = detail?.__typename !== 'ReelDetail'
           ? detail?.media.find((media) => media.id === source.mediaId && media.type === 0)
           : null
@@ -1203,7 +1241,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
           return
         }
       }
-      openStandalone()
+      openStandalone(source?.contentId ?? `profile-avatar-${profile.id}`)
     } catch {
       openStandalone()
     } finally {
@@ -1492,7 +1530,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
               <div className="self-profile-summary-copy">
                 {profileStats.length > 0 && <div className="self-profile-summary-line self-profile-stats">{profileStats.map((item) => <span key={item.id}>{item.label}</span>)}</div>}
                 {!canEdit && relationship.followsViewer && <p className="self-profile-summary-line visitor-profile-follows-you">{t('followsYou')}</p>}
-                {profile.bio && <p className="self-profile-summary-line self-profile-detail-line"><ProfileBioIcon /><span>{profile.bio}</span></p>}
+                {profile.bio && <p className="self-profile-summary-line self-profile-detail-line"><ProfileBioIcon /><span className="profile-preserve-newlines">{profile.bio}</span></p>}
                 {profile.location && <p className="self-profile-summary-line self-profile-detail-line"><Icon className="self-profile-summary-icon" name="location" size={15} /><span>{profile.location}</span></p>}
               </div>
               {canEdit && avatarEditor.target && <div className="self-profile-cover-edit-controls self-profile-avatar-edit-controls">
@@ -1605,7 +1643,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
         entries: buildProfileMediaEntries([detailPost]),
       })
     }} /></Suspense>}
-    {profileMediaViewer && <Suspense fallback={<div className="post-photo-viewer"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={profileMediaViewer.contentId} initialMediaId={profileMediaViewer.mediaId} initialMediaUrl={profileMediaViewer.mediaUrl} initialPost={profileMediaViewer.initialPost} mediaEntries={profileMediaViewer.entries} onClose={() => setProfileMediaViewer(null)} onNavigate={onNavigate} onMessage={onMessage} /></Suspense>}
+    {profileMediaViewer && <Suspense fallback={<div className="post-photo-viewer"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={profileMediaViewer.contentId} initialMediaId={profileMediaViewer.mediaId} initialMediaUrl={profileMediaViewer.mediaUrl} initialPost={profileMediaViewer.initialPost} mediaEntries={profileMediaViewer.entries} unavailableAuthor={profileMediaViewer.unavailableAuthor} onClose={() => setProfileMediaViewer(null)} onNavigate={onNavigate} onMessage={onMessage} /></Suspense>}
     {canEdit && coverPickerOpen && <ProfileImagePhotoPicker kind="cover" images={coverCandidates} loading={coverCandidatesLoading} error={coverPickerError} onClose={() => { coverPickerRequestRef.current += 1; setCoverCandidatesLoading(false); setCoverPickerOpen(false) }} onSelect={(photo) => void chooseExistingCover(photo)} />}
     {canEdit && avatarPickerOpen && <ProfileImagePhotoPicker kind="avatar" images={avatarCandidates} loading={avatarCandidatesLoading} error={avatarPickerError} onClose={() => { avatarPickerRequestRef.current += 1; setAvatarCandidatesLoading(false); setAvatarPickerOpen(false) }} onSelect={(photo) => void chooseExistingAvatar(photo)} />}
   </>

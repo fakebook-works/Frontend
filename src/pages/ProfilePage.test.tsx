@@ -76,8 +76,8 @@ vi.mock('../components/StoryViewerPage', () => ({
   StoryViewerPage: ({ buckets, initialBucketId, onViewed }: { buckets: Array<{ author: { id: string }; stories: Array<{ id: string }> }>; initialBucketId: string; onViewed?: (storyId: string) => void }) => <div data-testid="profile-story-viewer" data-initial-bucket={initialBucketId} data-bucket-order={buckets.map((bucket) => bucket.author.id).join(',')}><button type="button" onClick={() => onViewed?.(buckets[0]?.stories[0]?.id ?? '')}>mark-first-story-viewed</button>{buckets[0]?.stories[1] && <button type="button" onClick={() => onViewed?.(buckets[0].stories[1].id)}>mark-second-story-viewed</button>}</div>,
 }))
 vi.mock('../components/PostPhotoViewer', () => ({
-  PostPhotoViewer: ({ contentId, initialMediaId }: { contentId: string; initialMediaId: string }) => (
-    <div data-testid="profile-photo-viewer" data-content-id={contentId} data-media-id={initialMediaId} />
+  PostPhotoViewer: ({ contentId, initialMediaId, initialMediaUrl, mediaEntries }: { contentId: string; initialMediaId: string; initialMediaUrl?: string; mediaEntries?: Array<{ post: unknown }> }) => (
+    <div data-testid="profile-photo-viewer" data-content-id={contentId} data-media-id={initialMediaId} data-media-url={initialMediaUrl} data-has-source-post={mediaEntries?.some((entry) => Boolean(entry.post)) ? 'true' : 'false'} />
   ),
 }))
 vi.mock('../components/ContentActions', () => ({
@@ -376,6 +376,67 @@ describe('ProfilePage messaging', () => {
     expect(apiMocks.postDetail).toHaveBeenCalledWith(contentId)
   })
 
+  it.each([
+    ['a deleted source', null],
+    ['a privacy-hidden source', Object.assign(new Error('Forbidden'), { status: 403, code: 'FORBIDDEN' })],
+  ])('keeps the avatar viewer open with a protected unavailable state for %s', async (_label, detailResult) => {
+    const contentId = '9007199254740993991'
+    socialMocks.getProfileAvatarSource.mockResolvedValue({ contentId, mediaId: '9007199254740993992' })
+    if (detailResult instanceof Error) apiMocks.postDetail.mockRejectedValue(detailResult)
+    else apiMocks.postDetail.mockResolvedValue(detailResult)
+
+    render(<ProfilePage
+      profile={{
+        id: 'friend-1', username: 'friend', email: '', displayName: 'Friend', avatarUrl: '/media/cropped-avatar.jpg',
+        backgroundUrl: null, bio: null, location: null, birthDate: null, gender: null, createdAt: '', privacy: 0,
+        isVerified: false, friendCount: 0, postCount: 1, followerCount: 0, followingCount: 0,
+      }}
+      loading={false}
+      error={null}
+      canEdit={false}
+      viewerId="me"
+      onEdit={vi.fn()}
+      onNavigate={vi.fn()}
+      onMessage={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'profileAvatarOptions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'profileViewAvatar' }))
+
+    const viewer = await screen.findByTestId('profile-photo-viewer')
+    expect(viewer).toHaveAttribute('data-content-id', contentId)
+    expect(viewer).toHaveAttribute('data-media-url', '/media/cropped-avatar.jpg')
+    expect(viewer).toHaveAttribute('data-has-source-post', 'false')
+  })
+
+  it('uses the same unavailable discussion when the avatar has no source record', async () => {
+    socialMocks.getProfileAvatarSource.mockResolvedValue(null)
+
+    render(<ProfilePage
+      profile={{
+        id: 'legacy-avatar-user', username: 'legacy', email: '', displayName: 'Legacy Avatar', avatarUrl: '/media/legacy-avatar.jpg',
+        backgroundUrl: null, bio: null, location: null, birthDate: null, gender: null, createdAt: '', privacy: 0,
+        isVerified: false, friendCount: 0, postCount: 0, followerCount: 0, followingCount: 0,
+      }}
+      loading={false}
+      error={null}
+      canEdit={false}
+      viewerId="me"
+      onEdit={vi.fn()}
+      onNavigate={vi.fn()}
+      onMessage={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'profileAvatarOptions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'profileViewAvatar' }))
+
+    const viewer = await screen.findByTestId('profile-photo-viewer')
+    expect(viewer).toHaveAttribute('data-content-id', 'profile-avatar-legacy-avatar-user')
+    expect(viewer).toHaveAttribute('data-media-url', '/media/legacy-avatar.jpg')
+    expect(viewer).toHaveAttribute('data-has-source-post', 'false')
+    expect(apiMocks.postDetail).not.toHaveBeenCalled()
+  })
+
   it('renders advanced-account follow, friend request and message states from the relationship contract', async () => {
     socialMocks.getProfileRelationshipState.mockResolvedValue({
       friendship: 'none', isFollowing: false, followsViewer: false, isBlocked: false, isBlockedBy: false,
@@ -506,7 +567,7 @@ describe('ProfilePage messaging', () => {
     const { container, unmount } = render(<ProfilePage
       profile={{
         id: 'me', username: 'owner', email: 'owner@example.com', displayName: 'Owner Name', avatarUrl: null,
-        backgroundUrl: null, bio: 'Owner bio', location: 'Ha Noi', birthDate: '2000-01-01', gender: 'male',
+        backgroundUrl: null, bio: 'Owner bio\nSecond line', location: 'Ha Noi', birthDate: '2000-01-01', gender: 'male',
         createdAt: '2026-01-01T00:00:00Z', privacy: 0, isVerified: true, friendCount: 1, postCount: 0,
         followerCount: 2, followingCount: 3,
       }}
@@ -559,6 +620,7 @@ describe('ProfilePage messaging', () => {
     expect(profileTitle).toHaveTextContent('profileFollowerStat')
     expect(profileTitle).toHaveTextContent('profileFollowingStat')
     expect(profileTitle).toHaveTextContent('Owner bio')
+    expect(profileTitle.querySelector('.self-profile-detail-line .profile-preserve-newlines')?.textContent).toBe('Owner bio\nSecond line')
     expect(profileTitle).toHaveTextContent('Ha Noi')
     expect(profileTitle).not.toHaveTextContent('@owner')
     expect(profileTitle.querySelectorAll('.self-profile-detail-line > svg')).toHaveLength(2)

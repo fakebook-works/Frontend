@@ -40,9 +40,11 @@ function makeMessage(id: string, sender: UserSummary, body: string, replyToMessa
 function Harness({
   messages,
   onEditMessage = () => undefined,
+  onAttachFiles = () => undefined,
 }: {
   messages: MessengerMessageDto[]
   onEditMessage?: (message: MessengerMessageDto, text: string) => void | Promise<void>
+  onAttachFiles?: (files: FileList | File[] | null) => void
 }) {
   const [replyTarget, setReplyTarget] = useState<MessengerMessageDto | null>(null)
   return <MessageThread
@@ -58,7 +60,7 @@ function Harness({
     replyTarget={replyTarget}
     onInteract={() => undefined}
     onDraftChange={() => undefined}
-    onAttachFiles={() => undefined}
+    onAttachFiles={onAttachFiles}
     onRemoveAttachment={() => undefined}
     onSubmit={(event) => event.preventDefault()}
     onSendLike={() => undefined}
@@ -86,6 +88,20 @@ describe('MessageThread reply navigation', () => {
   })
 
   afterEach(cleanup)
+
+  it('routes a copied binary image through the normal attachment callback', () => {
+    const onAttachFiles = vi.fn()
+    render(<Harness messages={[]} onAttachFiles={onAttachFiles} />)
+    const image = new File(['clipboard'], 'messenger-clipboard.png', { type: 'image/png' })
+
+    fireEvent.paste(screen.getByPlaceholderText('Aa'), { clipboardData: {
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => image }],
+      files: [image],
+      getData: () => 'https://example.com/messenger-clipboard.png',
+    } })
+
+    expect(onAttachFiles).toHaveBeenCalledWith([image])
+  })
 
   it('renders structured group activity as a centered non-actionable system line', () => {
     const systemMessage: MessengerMessageDto = {

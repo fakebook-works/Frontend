@@ -1,5 +1,5 @@
 import { gatewayGraphQl } from './client'
-import type { GatewayPost } from './gatewayTypes'
+import type { GatewayPost, SharedPostSource } from './gatewayTypes'
 import type { SocialContent, SocialGroup, SocialProfile } from './social'
 
 export type SearchTab = 'posts' | 'people' | 'reels' | 'groups'
@@ -119,16 +119,47 @@ function groupFromSearch(value: SearchGroupGraphQl): SocialGroup {
 const FEED_POST_FIELDS = `
   __typename
   id type content privacy create
+  mentions { userId name available }
+  taggedUsers { id name avatar isVerified }
   author { id name avatar isVerified canFollow }
   media { id type url }
+  sharedSource {
+    id isAvailable type content privacy create requiresGroupMembership
+    mentions { userId name available }
+    author { id name avatar isVerified }
+    media { id type url }
+    group { id name avatar background privacy memberCount viewerIsMember joinRequestPending }
+  }
 `
 const GROUP_POST_FIELDS = `
   __typename
   id type content privacy create
+  mentions { userId name available }
+  taggedUsers { id name avatar isVerified }
   author { id name avatar isVerified canFollow }
   group { id name avatar canJoin }
   media { id type url }
+  sharedSource {
+    id isAvailable type content privacy create requiresGroupMembership
+    mentions { userId name available }
+    author { id name avatar isVerified }
+    media { id type url }
+    group { id name avatar background privacy memberCount viewerIsMember joinRequestPending }
+  }
 `
+
+function normalizeSharedSource(source: SharedPostSource | null | undefined): SharedPostSource | null {
+  if (!source) return null
+  return {
+    ...source,
+    id: String(source.id),
+    type: source.type == null ? null : Number(source.type),
+    author: source.author ? { ...source.author, id: String(source.author.id) } : null,
+    media: (source.media ?? []).map((media) => ({ ...media, id: String(media.id), type: Number(media.type) })),
+    mentions: source.mentions?.map((mention) => ({ ...mention, userId: String(mention.userId) })) ?? [],
+    group: source.group ? { ...source.group, id: String(source.group.id) } : null,
+  }
+}
 
 function normalizePost(post: GatewayPost): GatewayPost {
   const common = {
@@ -136,6 +167,9 @@ function normalizePost(post: GatewayPost): GatewayPost {
     id: String(post.id),
     author: { ...post.author, id: String(post.author.id) },
     media: post.media.map((media) => ({ ...media, id: String(media.id), type: Number(media.type) })),
+    mentions: post.mentions?.map((mention) => ({ ...mention, userId: String(mention.userId) })) ?? [],
+    taggedUsers: post.taggedUsers?.map((user) => ({ ...user, id: String(user.id) })) ?? [],
+    sharedSource: normalizeSharedSource(post.sharedSource),
   }
   return post.__typename === 'GroupPostDetail'
     ? { ...common, __typename: 'GroupPostDetail', group: { ...post.group, id: String(post.group.id) } }

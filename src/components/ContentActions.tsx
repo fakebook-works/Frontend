@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { messengerApi } from '../api/messenger'
-import { socialApi, type ContentEngagement } from '../api/social'
+import { socialApi, type ContentEngagement, type SocialGroup } from '../api/social'
 import type { GatewayMedia, GatewayPost, SharedPostSource, SharedStory } from '../api/gatewayTypes'
-import type { UserSummary } from '../api/types'
+import type { MessengerConversationDto, UserSummary } from '../api/types'
 import { Avatar } from './Avatar'
 import { Icon } from './Icon'
+import { GroupMembersIcon } from './GroupMembersIcon'
+import { HoverTooltip } from './HoverTooltip'
 import { PostDetailCommentsModal } from './PostDetailCommentsModal'
 import { PostPrivacyIcon, type PostPrivacy } from './PostPrivacyIcon'
 import { SharedPostSourceCard } from './SharedPostSourceCard'
@@ -23,6 +25,8 @@ const EMPTY_ENGAGEMENT: ContentEngagement = {
   viewerHasSaved: false,
   viewerHasWatched: false,
 }
+
+const SHARE_EMOJIS = ['😀', '😍', '😂', '🥰', '😎', '🤔', '😢', '😡', '👍', '🎉', '❤️', '🔥']
 
 interface ContentActionsProps {
   viewerId: string
@@ -117,7 +121,8 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
   const showShareCount = loading || engagement.shareCount > 0
   const showViewCount = post?.__typename === 'ReelDetail' && !loading && engagement.viewCount > 0
   const showEngagementSummary = showLikeCount || showCommentCount || showShareCount || showViewCount
-  const shareSourceId = post?.__typename === 'FeedPostDetail' && post.sharedSource?.isAvailable
+  const sharingAllowed = canShare && canReshare && (!post?.sharedSource || post.sharedSource.isAvailable)
+  const shareSourceId = post?.sharedSource?.isAvailable
     ? post.sharedSource.id
     : contentId
 
@@ -132,17 +137,17 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
       <footer className={`gateway-post-actions${canShare ? '' : ' no-share'}`}>
         <button type="button" className={engagement.viewerHasLiked ? 'active' : ''} disabled={loading || busy != null} onClick={() => void toggleLike()}><Icon name={engagement.viewerHasLiked ? 'like' : 'likeOutline'} size={21} />{t('like')}</button>
         <button type="button" onClick={() => setCommentsOpen(true)}><Icon name="commentOutline" size={21} />{t('commentAction')}</button>
-        {canShare && <button type="button" onClick={() => setShareOpen(true)}><Icon name="shareOutline" size={22} />{t('shareAction')}</button>}
+        {canShare && <button type="button" disabled={!sharingAllowed} aria-disabled={!sharingAllowed} onClick={() => setShareOpen(true)}><Icon name="shareOutline" size={22} />{t('shareAction')}</button>}
       </footer>
       {error && <p className="content-action-error">{error}</p>}
     </div> : <aside className="reel-actions">
       <button type="button" className={engagement.viewerHasLiked ? 'active' : ''} disabled={loading || busy != null} onClick={() => void toggleLike()}><Icon name={engagement.viewerHasLiked ? 'like' : 'likeOutline'} />{showLikeCount && <span>{counts.likes}</span>}</button>
       <button type="button" className={commentsOpen ? 'active' : ''} aria-label={t('commentAction')} aria-expanded={commentsOpen} onClick={() => setCommentsOpen(commentsPresentation === 'sidebar' ? !commentsOpen : true)}><Icon name="commentOutline" />{showCommentCount && <span>{counts.comments}</span>}</button>
-      {canShare && <button type="button" onClick={() => setShareOpen(true)}><Icon name="shareOutline" />{showShareCount && <span>{counts.shares}</span>}</button>}
+      {canShare && <button type="button" disabled={!sharingAllowed} aria-disabled={!sharingAllowed} onClick={() => setShareOpen(true)}><Icon name="shareOutline" />{showShareCount && <span>{counts.shares}</span>}</button>}
       <button type="button" className={engagement.viewerHasSaved ? 'active' : ''} disabled={loading || busy != null} onClick={() => void toggleSave()}><Icon name="bookmark" /><span>{engagement.viewerHasSaved ? t('saved') : t('save')}</span></button>
     </aside>}
-    {commentsOpen && (commentsPresentation === 'sidebar' ? <aside className="reels-comments-sidebar" aria-label={t('comments')}><PostDetailCommentsModal variant="photo-sidebar" viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} /></aside> : <PostDetailCommentsModal viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} />)}
-    {canShare && shareOpen && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare={canReshare} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
+    {commentsOpen && (commentsPresentation === 'sidebar' ? <aside className="reels-comments-sidebar" aria-label={t('comments')}><PostDetailCommentsModal variant="photo-sidebar" viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} shareDisabled={!sharingAllowed} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} /></aside> : <PostDetailCommentsModal viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} shareDisabled={!sharingAllowed} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} />)}
+    {sharingAllowed && shareOpen && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare initialPreview={post?.sharedSource?.isAvailable ? post.sharedSource : null} allowStory={post?.__typename !== 'GroupPostDetail' && post?.sharedSource?.type !== 1 && post?.sharedSource?.type !== 3} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
   </>
 }
 
@@ -155,7 +160,6 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
   onStoryCreated?: (story: SharedStory) => void
   onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void
 }) {
-  const { t } = useI18n()
   const [post, setPost] = useState<GatewayPost | null>(null)
   const [engagement, setEngagement] = useState<ContentEngagement>({ ...EMPTY_ENGAGEMENT, targetId: contentId })
   const [loading, setLoading] = useState(true)
@@ -203,19 +207,17 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
     return <div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation" onClick={onClose}><span className="spinner" /></div>
   }
   if (loadError || !post) {
-    return <div className="modal-backdrop content-modal-backdrop" role="presentation" onClick={onClose}><section className="modal shared-detail-error" role="dialog" aria-modal="true" aria-label={t('contentUnavailable')} onClick={(event) => event.stopPropagation()}><button type="button" className="icon-circle subtle" aria-label={t('close')} onClick={onClose}><Icon name="close" /></button><Icon name="lock" size={28} /><strong>{t('contentUnavailable')}</strong></section></div>
+    return <UnavailableContentDetail viewerId={viewerId} onClose={onClose} />
   }
 
-  const canShare = post.__typename === 'GroupPostDetail' || post.privacy === 0
-  const canReshare = post.__typename !== 'GroupPostDetail' && post.privacy === 0 && (
-    post.__typename !== 'FeedPostDetail' || !post.sharedSource || post.sharedSource.isAvailable
-  )
-  const shareSourceId = post.__typename === 'FeedPostDetail' && post.sharedSource?.isAvailable
+  const canShare = true
+  const canReshare = !post.sharedSource || post.sharedSource.isAvailable
+  const shareSourceId = post.sharedSource?.isAvailable
     ? post.sharedSource.id
     : post.id
 
-  if (shareOpen) {
-    return <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare={canReshare} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />
+  if (shareOpen && canReshare) {
+    return <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare initialPreview={post.sharedSource?.isAvailable ? post.sharedSource : null} allowStory={post.__typename !== 'GroupPostDetail' && post.sharedSource?.type !== 1 && post.sharedSource?.type !== 3} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />
   }
 
   return <PostDetailCommentsModal
@@ -225,13 +227,48 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
     engagement={engagement}
     likeBusy={likeBusy}
     canShare={canShare}
+    shareDisabled={!canReshare}
     onToggleLike={toggleLike}
     onShare={() => setShareOpen(true)}
     onClose={onClose}
     onNavigate={onNavigate}
+    onPostChanged={setPost}
     onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { onClose(); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined}
     onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))}
   />
+}
+
+function UnavailableContentDetail({ viewerId, onClose }: { viewerId: string; onClose: () => void }) {
+  const { t } = useI18n()
+  const [viewer, setViewer] = useState<UserSummary | null>(null)
+
+  useEffect(() => {
+    let active = true
+    socialApi.getProfile(viewerId).then((profile) => {
+      if (active && profile) setViewer(profile)
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [viewerId])
+
+  return <>
+    <button type="button" className="content-detail-shell-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>
+    <div className="modal-backdrop content-modal-backdrop" role="presentation" onClick={onClose}>
+      <section className="modal content-thread-modal unavailable-photo-discussion unavailable-detail-discussion" role="dialog" aria-modal="true" aria-label={t('contentUnavailable')} data-post-unavailable="true" onClick={(event) => event.stopPropagation()}>
+        <header className="modal-head content-thread-head"><h2>{t('unavailablePostPlaceholder')}</h2><button type="button" className="icon-circle subtle" aria-label={t('close')} onClick={onClose}><Icon name="close" /></button></header>
+        <div className="content-thread-scroll unavailable-photo-thread">
+          <article className="gateway-post thread-post-preview unavailable-post-preview">
+            <header className="feed-post-head">
+              <span className="post-author-avatar"><Avatar name={t('fakebookUser')} src={null} size={40} /></span>
+              <div className="post-head-copy thread-post-head-copy"><div className="post-head-primary"><span className="post-author-name"><strong><span className="thread-post-primary-name">{t('fakebookUser')}</span></strong></span></div><span className="post-head-meta unavailable-post-meta"><span>{t('unknown')}</span><i>·</i><HoverTooltip label={t('unknown')} className="post-meta-hover post-privacy-hover"><span className="unavailable-post-privacy" aria-label={t('unknown')}><Icon name="info" size={13} /></span></HoverTooltip></span></div>
+            </header>
+            <p className="gateway-post-content unavailable-post-content">{t('unavailablePostPlaceholder')}</p>
+          </article>
+          <div className="content-thread-comments empty unavailable-photo-comments"><div className="content-thread-list"><div className="no-comments-state"><span className="no-comments-document" aria-hidden="true"><i /></span><h3>{t('cannotComment')}</h3><p>{t('postCannotBeCommented')}</p></div></div></div>
+        </div>
+        <form className="comment-compose unavailable-comment-compose" aria-disabled="true" onSubmit={(event) => event.preventDefault()}><div className="comment-compose-row"><div className="comment-compose-avatar-stack"><Avatar name={viewer?.displayName || t('fakebookUser')} src={viewer?.avatarUrl || null} size={32} /></div><div className="comment-compose-box unavailable-comment-compose-box"><div className="mention-compose-field"><textarea rows={1} value="" readOnly disabled aria-label={t('commentFeatureUnavailable')} placeholder={t('commentFeatureUnavailable')} /></div><div className="comment-compose-tools"><div className="comment-compose-tool-list"><button type="button" disabled aria-label={t('feeling')}><Icon name="feeling" size={18} /></button><button type="button" disabled aria-label={t('attachPhoto')}><Icon name="photo" size={18} /></button><button type="button" disabled aria-label={t('stickers')}><Icon name="sticker" size={18} /></button></div><button type="button" disabled aria-label={t('commentFeatureUnavailable')}><span className="unavailable-comment-block-icon"><Icon name="block" size={18} /></span></button></div></div></div></form>
+      </section>
+    </div>
+  </>
 }
 
 function SharePrivacyCaret() {
@@ -240,7 +277,7 @@ function SharePrivacyCaret() {
 
 function sharePreviewFromPost(post: GatewayPost | null): SharedPostSource | null {
   if (!post) return null
-  if (post.__typename === 'FeedPostDetail' && post.sharedSource?.isAvailable) return post.sharedSource
+  if (post.sharedSource?.isAvailable) return post.sharedSource
   return {
     id: post.id,
     isAvailable: true,
@@ -256,25 +293,37 @@ function sharePreviewFromPost(post: GatewayPost | null): SharedPostSource | null
     },
     media: post.media,
     mentions: post.mentions,
+    group: post.__typename === 'GroupPostDetail' ? {
+      id: post.group.id,
+      name: post.group.name,
+      avatar: post.group.avatar,
+      background: '',
+      privacy: post.privacy,
+      memberCount: 0,
+      viewerIsMember: !post.group.canJoin,
+      joinRequestPending: false,
+    } : null,
   }
 }
 
-export function ShareModal({ viewerId, sourceId, canReshare, onClose, onShared, onNavigate, onMessage, onStoryCreated }: { viewerId: string; sourceId: string; canReshare: boolean; onClose: () => void; onShared: () => void; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void }) {
+export function ShareModal({ viewerId, sourceId, canReshare, allowStory = true, initialPreview = null, onClose, onShared, onNavigate, onMessage, onStoryCreated }: { viewerId: string; sourceId: string; canReshare: boolean; allowStory?: boolean; initialPreview?: SharedPostSource | null; onClose: () => void; onShared: () => void; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void }) {
   const { t, locale } = useI18n()
   const [content, setContent] = useState('')
   const [privacy, setPrivacy] = useState<PostPrivacy>(0)
-  const [busy, setBusy] = useState<'feed' | 'story' | 'copy' | null>(null)
-  const [messengerBusyId, setMessengerBusyId] = useState<string | null>(null)
+  const [busy, setBusy] = useState<'feed' | 'story' | 'copy' | 'messenger' | 'group' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
   const [viewer, setViewer] = useState<UserSummary | null>(null)
-  const [friends, setFriends] = useState<UserSummary[]>([])
-  const [sourcePreview, setSourcePreview] = useState<SharedPostSource | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(true)
+  const [sourcePreview, setSourcePreview] = useState<SharedPostSource | null>(initialPreview)
+  const [previewLoading, setPreviewLoading] = useState(!initialPreview)
   const [privacyOpen, setPrivacyOpen] = useState(false)
   const [messengerOpen, setMessengerOpen] = useState(false)
+  const [groupOpen, setGroupOpen] = useState(false)
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  const [conversations, setConversations] = useState<MessengerConversationDto[]>([])
+  const [selectedConversationIds, setSelectedConversationIds] = useState<Set<string>>(new Set())
+  const [groups, setGroups] = useState<SocialGroup[]>([])
+  const [destinationGroup, setDestinationGroup] = useState<SocialGroup | null>(null)
   const privacyPickerRef = useRef<HTMLDivElement>(null)
-  const contentUrl = `${window.location.origin}/content/${encodeURIComponent(sourceId)}`
   const privacyOptions: Array<{ value: PostPrivacy; label: string }> = [
     { value: 0, label: t('privacyPublic') },
     { value: 1, label: t('privacyFriendsFollowers') },
@@ -285,20 +334,23 @@ export function ShareModal({ viewerId, sourceId, canReshare, onClose, onShared, 
 
   useEffect(() => {
     let active = true
-    setPreviewLoading(true)
+    setPreviewLoading(!initialPreview)
     Promise.all([
       socialApi.getProfile(viewerId).catch(() => null),
-      socialApi.getRelationProfiles(viewerId, 0, 8).catch(() => []),
-      Promise.resolve().then(() => api.postDetail(sourceId)).catch(() => null),
-    ]).then(([profile, people, detail]) => {
+      initialPreview ? Promise.resolve(null) : Promise.resolve().then(() => api.postDetail(sourceId)).catch(() => null),
+      messengerApi.conversations(viewerId, 50).catch(() => []),
+      Promise.all([socialApi.getMemberGroups(viewerId, 50), socialApi.getAdminGroups(viewerId, 50)]).catch(() => []),
+    ]).then(([profile, detail, nextConversations, groupPages]) => {
       if (!active) return
       setViewer(profile)
-      setFriends(people)
-      setSourcePreview(sharePreviewFromPost(detail))
+      if (!initialPreview) setSourcePreview(sharePreviewFromPost(detail))
+      setConversations(nextConversations)
+      const allGroups = Array.isArray(groupPages) ? groupPages.flatMap((page) => page.items) : []
+      setGroups([...new Map(allGroups.map((group) => [group.id, group])).values()])
       setPreviewLoading(false)
     })
     return () => { active = false }
-  }, [sourceId, viewerId])
+  }, [initialPreview, sourceId, viewerId])
 
   useEffect(() => {
     if (!privacyOpen) return
@@ -312,16 +364,15 @@ export function ShareModal({ viewerId, sourceId, canReshare, onClose, onShared, 
   async function share(destination: 'feed' | 'story') {
     setBusy(destination)
     setError(null)
-    setSuccess(null)
     try {
-      if (destination === 'feed') await socialApi.sharePost(viewerId, sourceId, content.trim(), privacy)
+      if (destination === 'feed') await socialApi.sharePost(viewerId, sourceId, content.trim(), privacy, destinationGroup?.id ?? null)
       else {
         const story = await api.createShareStory(viewerId, sourceId, content.trim())
         rememberOwnUnseenStory(viewerId, story.id)
         onStoryCreated?.(story)
       }
       onShared()
-      setSuccess(destination === 'feed' ? t('sharedToFeed') : t('sharedToStory'))
+      onClose()
     } catch {
       setError(t('shareActionError'))
     } finally {
@@ -335,7 +386,7 @@ export function ShareModal({ viewerId, sourceId, canReshare, onClose, onShared, 
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
       await navigator.clipboard.writeText(contentUrl)
-      setSuccess(t('linkCopied'))
+      onClose()
     } catch {
       setError(t('copyLinkError'))
     } finally {
@@ -343,52 +394,73 @@ export function ShareModal({ viewerId, sourceId, canReshare, onClose, onShared, 
     }
   }
 
-  async function sendInMessenger(person: UserSummary) {
-    setMessengerBusyId(person.id)
+  async function sendInMessenger() {
+    if (selectedConversationIds.size === 0) return
+    setBusy('messenger')
     setError(null)
-    setSuccess(null)
     try {
-      const conversation = await messengerApi.createDirectConversation(person.id, viewerId)
-      await messengerApi.sendMessage(conversation.id, viewer ?? {
-        id: viewerId,
-        username: viewerId,
-        displayName: t('you'),
-        avatarUrl: null,
-      }, { body: contentUrl })
-      setSuccess(t('sentInMessenger', { name: person.displayName }))
-      if (onMessage) await onMessage(person.id)
+      const sender = viewer ?? { id: viewerId, username: viewerId, displayName: t('you'), avatarUrl: null }
+      const requestedIds = [...selectedConversationIds]
+      const settled = await Promise.allSettled(requestedIds.map((conversationId) => messengerApi.sendMessage(conversationId, sender, { body: contentUrl })))
+      const failedIds = requestedIds.filter((_, index) => settled[index].status === 'rejected')
+      if (failedIds.length > 0) {
+        // Keep only failed targets selected. Retrying cannot duplicate links that were
+        // already accepted by the other conversations.
+        setSelectedConversationIds(new Set(failedIds))
+        setError(t('sendInMessengerError'))
+        return
+      }
+      if (requestedIds.length === 1 && onMessage) {
+        const selected = conversations.find((conversation) => conversation.id === requestedIds[0])
+        const directPerson = selected?.type !== 'GROUP' ? selected?.participants.find((person) => person.id !== viewerId) : null
+        if (directPerson) await onMessage(directPerson.id)
+      }
+      onClose()
     } catch {
       setError(t('sendInMessengerError'))
     } finally {
-      setMessengerBusyId(null)
+      setBusy(null)
     }
   }
 
-  return <div className="modal-backdrop content-modal-backdrop" role="presentation" onClick={() => !busy && !messengerBusyId && onClose()}>
+  const canShareToStory = canReshare && allowStory
+  const contentUrl = sourcePreview?.type === 1
+    ? `${window.location.origin}/groups/${encodeURIComponent(sourcePreview.group?.id ?? sourceId)}`
+    : `${window.location.origin}/content/${encodeURIComponent(sourceId)}`
+
+  function conversationPresentation(conversation: MessengerConversationDto) {
+    const other = conversation.participants.find((person) => person.id !== viewerId)
+    return conversation.type === 'GROUP'
+      ? { name: conversation.title || t('groupConversation'), avatar: conversation.avatarUrl }
+      : { name: other?.displayName || t('fakebookUser'), avatar: other?.avatarUrl || null }
+  }
+
+  function toggleConversation(conversationId: string) {
+    setSelectedConversationIds((current) => {
+      const next = new Set(current)
+      if (next.has(conversationId)) next.delete(conversationId)
+      else next.add(conversationId)
+      return next
+    })
+  }
+
+  return <div className="modal-backdrop content-modal-backdrop" role="presentation" onClick={() => !busy && onClose()}>
     <section className="modal share-post-modal" role="dialog" aria-modal="true" aria-label={t('sharePost')} onClick={(event) => event.stopPropagation()}>
-      <header className="modal-head home-post-modal-head share-post-head"><h2>{t('sharePost')}</h2><button type="button" className="icon-circle" aria-label={t('close')} onClick={onClose}><Icon name="close" /></button></header>
+      <header className="modal-head home-post-modal-head share-post-head"><h2>{destinationGroup ? t('shareToGroup') : t('sharePost')}</h2><button type="button" className="icon-circle" aria-label={t('close')} onClick={onClose}><Icon name="close" /></button></header>
       <div className="share-post-body">
         <div className="share-post-composer">
           <div className="home-post-author share-post-author">
             <Avatar name={viewer?.displayName || t('fakebookUser')} src={viewer?.avatarUrl || null} size={36} />
-            <div><div className="home-post-author-name"><strong>{viewer?.displayName || t('fakebookUser')}<VerifiedBadge verified={viewer?.isVerified} size={13} /></strong></div>{canReshare && <div className="home-post-privacy-picker" ref={privacyPickerRef}><button type="button" className="home-post-privacy-control" aria-label={t('privacy')} aria-haspopup="listbox" aria-expanded={privacyOpen} onClick={() => setPrivacyOpen((open) => !open)}><PostPrivacyIcon privacy={privacy} size={14} /><span>{privacyLabel}</span><SharePrivacyCaret /></button>{privacyOpen && <div className="home-post-privacy-menu share-post-privacy-menu" role="listbox" aria-label={t('privacy')}>{privacyOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => { setPrivacy(option.value); setPrivacyOpen(false) }}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span>{privacy === option.value && <b aria-hidden="true">✓</b>}</button>)}</div>}</div>}</div>
+            <div><div className="home-post-author-name"><strong>{viewer?.displayName || t('fakebookUser')}<VerifiedBadge verified={viewer?.isVerified} size={13} /></strong>{destinationGroup && <span className="share-destination-name"> → {destinationGroup.name}</span>}</div>{canReshare && !destinationGroup && <div className="home-post-privacy-picker" ref={privacyPickerRef}><button type="button" className="home-post-privacy-control" aria-label={t('privacy')} aria-haspopup="listbox" aria-expanded={privacyOpen} onClick={() => setPrivacyOpen((open) => !open)}><PostPrivacyIcon privacy={privacy} size={14} /><span>{privacyLabel}</span><SharePrivacyCaret /></button>{privacyOpen && <div className="home-post-privacy-menu share-post-privacy-menu" role="listbox" aria-label={t('privacy')}>{privacyOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => { setPrivacy(option.value); setPrivacyOpen(false) }}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span></button>)}</div>}</div>}{destinationGroup && <span className="share-group-privacy"><PostPrivacyIcon privacy={destinationGroup.privacy === 0 ? 0 : 1} size={14} group />{destinationGroup.privacy === 0 ? t('publicGroup') : t('privateGroup')}</span>}</div>
           </div>
-          {canReshare && <textarea className="share-post-textarea" aria-label={t('saySomething')} rows={3} value={content} onChange={(event) => setContent(event.target.value)} placeholder={t('saySomething')} />}
+          {canReshare && <div className="share-post-text-field"><textarea className="share-post-textarea" aria-label={t('saySomething')} rows={2} value={content} onChange={(event) => setContent(event.target.value)} placeholder={t('saySomething')} /><button type="button" className="share-post-emoji-button" aria-label={t('insertEmoji')} aria-expanded={emojiOpen} onClick={() => setEmojiOpen((open) => !open)}><Icon name="feeling" size={19} /></button>{emojiOpen && <div className="share-post-emoji-menu" role="menu">{SHARE_EMOJIS.map((emoji) => <button type="button" role="menuitem" key={emoji} onClick={() => { setContent((current) => current + emoji); setEmojiOpen(false) }}>{emoji}</button>)}</div>}</div>}
         </div>
         <div className="share-post-preview" aria-busy={previewLoading}>{previewLoading ? <span className="spinner" /> : sourcePreview ? <SharedPostSourceCard source={sourcePreview} locale={locale} onNavigate={onNavigate} /> : <div className="share-post-preview-unavailable"><Icon name="lock" size={22} /><span>{t('contentUnavailable')}</span></div>}</div>
-        {messengerOpen && <section className="share-messenger-picker" aria-label={t('sendInMessenger')}>{friends.length > 0 ? friends.map((person) => <button type="button" key={person.id} aria-label={person.displayName} disabled={messengerBusyId != null || busy != null} onClick={() => void sendInMessenger(person)}><span><Avatar name={person.displayName} src={person.avatarUrl} size={38} />{messengerBusyId === person.id && <i className="spinner" />}</span><small>{person.displayName}</small></button>) : <p className="muted">{t('noFriendsFound')}</p>}</section>}
+        {messengerOpen && <section className="share-target-picker share-messenger-picker" aria-label={t('sendInMessenger')}><header><strong>{t('sendInMessenger')}</strong><span>{selectedConversationIds.size || ''}</span></header><div className="share-target-list">{conversations.length > 0 ? conversations.map((conversation) => { const presentation = conversationPresentation(conversation); const selected = selectedConversationIds.has(conversation.id); return <button type="button" className={selected ? 'selected' : ''} key={conversation.id} aria-pressed={selected} onClick={() => toggleConversation(conversation.id)}><span className="share-target-avatar"><Avatar name={presentation.name} src={presentation.avatar} size={38} /><i><Icon name={selected ? 'check' : 'plus'} size={11} /></i></span><span><strong>{presentation.name}</strong><small>{conversation.type === 'GROUP' ? t('groupConversation') : t('messages')}</small></span></button> }) : <p className="muted">{t('noConversations')}</p>}</div><button type="button" className="btn-primary share-target-send" disabled={busy != null || selectedConversationIds.size === 0} onClick={() => void sendInMessenger()}>{busy === 'messenger' ? t('sending') : t('send')}</button></section>}
+        {groupOpen && <section className="share-target-picker share-group-picker" aria-label={t('shareToGroup')}><header><strong>{t('shareToGroup')}</strong></header><div className="share-target-list">{groups.length > 0 ? groups.map((group) => <button type="button" key={group.id} onClick={() => { setDestinationGroup(group); setGroupOpen(false) }}><Avatar name={group.name} src={group.avatarUrl} size={40} /><span><strong>{group.name}</strong><small>{group.privacy === 0 ? t('publicGroup') : t('privateGroup')} · {t('membersCount', { count: group.memberCount ?? 0 })}</small></span></button>) : <p className="muted">{t('noGroupsYet')}</p>}</div></section>}
         {error && <p className="form-error" role="alert">{error}</p>}
-        {success && <p className="form-success">{success}</p>}
       </div>
-      <footer className="share-post-footer">
-        <div className="share-post-quick-actions">
-          <button type="button" className={messengerOpen ? 'messenger active' : 'messenger'} aria-label={t('sendInMessenger')} title={t('sendInMessenger')} aria-expanded={messengerOpen} disabled={busy != null || messengerBusyId != null} onClick={() => setMessengerOpen((open) => !open)}><Icon name="messenger" size={20} /></button>
-          {canReshare && <button type="button" className="story" aria-label={t('shareToStory')} title={t('shareToStory')} disabled={busy != null || messengerBusyId != null} onClick={() => void share('story')}><Icon name="plus" size={22} /></button>}
-          <button type="button" className="copy" aria-label={t('copyLink')} title={t('copyLink')} disabled={busy != null || messengerBusyId != null} onClick={() => void copyLink()}><Icon name="link" size={20} /></button>
-          <button type="button" className="group" aria-label={t('shareToGroup')} title={t('shareToGroup')} disabled={busy != null || messengerBusyId != null} onClick={() => { onClose(); onNavigate?.('/groups') }}><Icon name="groups" size={20} /></button>
-        </div>
-        {canReshare && <button type="button" className="btn-primary share-now-button" disabled={busy != null || messengerBusyId != null} onClick={() => void share('feed')}>{busy === 'feed' ? t('sharing') : t('shareNow')}</button>}
-      </footer>
+      <footer className="share-post-footer"><div className="share-post-quick-actions"><button type="button" className={messengerOpen ? 'messenger active' : 'messenger'} aria-label={t('sendInMessenger')} title={t('sendInMessenger')} aria-expanded={messengerOpen} disabled={busy != null} onClick={() => { setMessengerOpen((open) => !open); setGroupOpen(false) }}><Icon name="messenger" size={20} /></button>{canShareToStory && <button type="button" className="story" aria-label={t('shareToStory')} title={t('shareToStory')} disabled={busy != null} onClick={() => void share('story')}><Icon name="bookOpen" size={21} /></button>}<button type="button" className="copy" aria-label={t('copyLink')} title={t('copyLink')} disabled={busy != null} onClick={() => void copyLink()}><Icon name="link" size={20} /></button>{canReshare && <button type="button" className={groupOpen || destinationGroup ? 'group active' : 'group'} aria-label={t('shareToGroup')} title={t('shareToGroup')} disabled={busy != null} onClick={() => { setDestinationGroup(null); setGroupOpen((open) => !open); setMessengerOpen(false) }}><GroupMembersIcon size={21} /></button>}</div>{canReshare && <button type="button" className="btn-primary share-now-button" disabled={busy != null} onClick={() => void share('feed')}>{busy === 'feed' ? t('sharing') : destinationGroup ? t('shareToGroup') : t('shareNow')}</button>}</footer>
     </section>
   </div>
 }

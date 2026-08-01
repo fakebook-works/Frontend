@@ -56,6 +56,7 @@ export type IconName =
   | 'eye'
   | 'expand'
   | 'link'
+  | 'bookOpen'
 
 const PATHS: Record<IconName, string> = {
   home: 'M11.3 3.3 3 10.5c-.3.3-.5.7-.5 1.1V20a1 1 0 0 0 1 1h5v-6h7v6h5a1 1 0 0 0 1-1v-8.4c0-.4-.2-.8-.5-1.1L12.7 3.3a1 1 0 0 0-1.4 0z',
@@ -80,6 +81,7 @@ const PATHS: Record<IconName, string> = {
   commentOutline: 'M21 11.5c0 4.7-4.1 8.5-9.2 8.5-1.1 0-2.2-.2-3.2-.5L4 21l1.4-4C3.9 15.5 3 13.6 3 11.5 3 6.8 7.1 3 12 3s9 3.8 9 8.5z',
   share: 'M14 9V4.5L22 12l-8 7.5V15c-5 0-8.5 1.6-11 5 1-5 4-10 11-11z',
   shareOutline: 'M14 9V4.5L22 12l-8 7.5V15c-4.7 0-8.3 1.5-11 5 .8-5.4 4.3-10.5 11-11z',
+  bookOpen: 'M3.5 5.25c3.25-.7 6.15.05 8.5 2.1v11.4c-2.35-2.05-5.25-2.8-8.5-2.1V5.25Zm17 0c-3.25-.7-6.15.05-8.5 2.1v11.4c2.35-2.05 5.25-2.8 8.5-2.1V5.25Z',
   more: 'M6 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm8 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm8 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0z',
   photo:
     'M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 8a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM5 19l4-5 2.5 3 3.5-4.5L19 19H5z',
@@ -285,7 +287,7 @@ export function Icon({
   if (name === 'userPlus') return <FriendPersonActionGlyph action="add" className={className} size={size} />
   if (name === 'userMinus') return <FriendPersonActionGlyph action="remove" className={className} size={size} />
   if (name === 'block') return <FriendPersonActionGlyph action="block" className={className} size={size} />
-  const outline = name === 'likeOutline' || name === 'commentOutline' || name === 'shareOutline' || name === 'sticker' || name === 'link' || name === 'compose'
+  const outline = name === 'likeOutline' || name === 'commentOutline' || name === 'shareOutline' || name === 'sticker' || name === 'link' || name === 'compose' || name === 'bookOpen'
   return (
     <svg
       className={className}

@@ -8,6 +8,7 @@ import type { GatewayMedia, GatewayPost, GatewayTaggedUser, SharedPostSource } f
 import type { MediaUpload, UserSummary } from '../api/types'
 import { useI18n } from '../i18n'
 import { relativeTime } from '../lib/format'
+import { clipboardImageFiles } from '../lib/clipboardMedia'
 import { applyMentionSelection, deleteMentionAtSelection, reconcileMentionEntities, serializeMentionContent, type MentionEntity } from '../lib/mentions'
 import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
 import { formatPostTimestamp } from '../lib/postTime'
@@ -16,11 +17,14 @@ import { GroupPostAvatar } from './GroupPostAvatar'
 import { HoverTooltip } from './HoverTooltip'
 import { Icon } from './Icon'
 import { MentionContent } from './MentionContent'
+import { LinkPreview } from './LinkPreview'
+import { isDirectImageUrl, remoteImageFileFromUrl } from '../lib/urlMedia'
 import { MentionDraftOverlay } from './MentionDraftOverlay'
 import { MentionSuggestions } from './MentionSuggestions'
 import { PostMediaGallery } from './PostMediaGallery'
 import { PostOptionsMenu } from './PostOptionsMenu'
 import { PostPrivacyIcon, type PostPrivacy } from './PostPrivacyIcon'
+import { PostPrivacyControl } from './PostPrivacyControl'
 import { SharedPostSourceCard } from './SharedPostSourceCard'
 import { VerifiedBadge } from './VerifiedBadge'
 
@@ -96,16 +100,18 @@ export interface PostDetailCommentsModalProps {
   engagement: ContentEngagement
   likeBusy: boolean
   canShare: boolean
+  shareDisabled?: boolean
   onToggleLike: () => Promise<void>
   onShare: () => void
   onClose: () => void
   onNavigate?: (path: string) => void
   onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void
   onCommentCreated: () => void
+  onPostChanged?: (post: GatewayPost) => void
   variant?: 'modal' | 'photo-sidebar'
 }
 
-export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, likeBusy, canShare, onToggleLike, onShare, onClose, onNavigate, onOpenImage, onCommentCreated, variant = 'modal' }: PostDetailCommentsModalProps) {
+export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, likeBusy, canShare, shareDisabled = false, onToggleLike, onShare, onClose, onNavigate, onOpenImage, onCommentCreated, onPostChanged, variant = 'modal' }: PostDetailCommentsModalProps) {
   const { t, locale } = useI18n()
   const [comments, setComments] = useState<SocialComment[]>([])
   const [replyPages, setReplyPages] = useState<Record<string, ReplyPageState>>({})
@@ -242,7 +248,12 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
     setError(null)
     try {
       const page = await socialApi.getComments(targetId, 30, nextCursor)
-      setComments((current) => append ? [...current, ...page.items] : page.items)
+      setComments((current) => {
+        if (!append) return page.items
+        const itemById = new Map(current.map((item) => [item.id, item]))
+        page.items.forEach((item) => itemById.set(item.id, item))
+        return [...itemById.values()]
+      })
       setCursor(page.endCursor)
       setHasMore(page.hasNextPage)
     } catch {
@@ -462,7 +473,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
     const showReplyLoader = comment.replyCount > 0 && !replies?.loaded
     const hasLoadedReplies = Boolean(replies?.loaded && loadedReplies.length > 0)
     const isReplyTarget = replyTarget?.id === comment.id
-    const hasVisibleChildren = hasLoadedReplies || isReplyTarget
+    const hasVisibleChildren = hasLoadedReplies || isReplyTarget || Boolean(replies?.hasMore)
     const likerState = commentLikers[comment.id]
     const remainingLikerCount = Math.max(0, comment.likeCount - (likerState?.items.length ?? 0))
     const likerTooltipId = `comment-likers-${comment.id}`
@@ -478,7 +489,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
               {comment.canFollowAuthor && comment.author.id !== viewerId && <button type="button" className="comment-follow-action" disabled={busyFollowAuthorId === comment.author.id} onClick={() => void followCommentAuthor(comment)}>{t('follow')}</button>}
               <HoverTooltip label={commentTimestamp.detail} className="comment-time-hover"><time dateTime={comment.createdAt}>{relativeTime(comment.createdAt, locale)}</time></HoverTooltip>
             </div>
-            {comment.content && <ExpandableCommentContent content={comment.content} mentions={comment.mentions} onNavigate={onNavigate} />}
+            {comment.content && <><ExpandableCommentContent content={comment.content} mentions={comment.mentions} onNavigate={onNavigate} /><LinkPreview content={comment.content} onNavigate={onNavigate} /></>}
           </div>
           {comment.media && <div className={`comment-media media-type-${comment.media.type}`}>{comment.media.type === 1
             ? <video src={comment.media.url} controls preload="metadata" />
@@ -538,8 +549,8 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   const showEmptyComments = !loading && comments.length === 0
 
   const discussionScroll = <div className="content-thread-scroll">
-    {post && <ThreadPostPreview post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenImage={onOpenImage} onHidden={onClose} hideMedia={variant === 'photo-sidebar'} />}
-    {post && <div className={`content-actions-wrap thread-post-engagement${showEngagementSummary ? '' : ' no-summary'}${post.__typename === 'FeedPostDetail' && post.sharedSource ? ' has-shared-source' : ''}`}>
+    {post && <ThreadPostPreview post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenImage={onOpenImage} onHidden={onClose} onPostChanged={onPostChanged} hideMedia={variant === 'photo-sidebar'} />}
+    {post && <div className={`content-actions-wrap thread-post-engagement${showEngagementSummary ? '' : ' no-summary'}${post.sharedSource ? ' has-shared-source' : ''}`}>
       {showEngagementSummary && <div className="content-engagement-summary">
         {showLikeCount && <span className="content-like-summary"><Icon name="like" size={15} />{engagement.likeCount}</span>}
         {showCommentCount && <span className="content-comment-summary">{engagement.commentCount} {t('comments')}</span>}
@@ -549,7 +560,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
       <nav className={`gateway-post-actions${canShare ? '' : ' no-share'}`}>
         <button type="button" className={engagement.viewerHasLiked ? 'active' : ''} disabled={likeBusy} onClick={() => void onToggleLike()}><Icon name={engagement.viewerHasLiked ? 'like' : 'likeOutline'} size={21} />{t('like')}</button>
         <button type="button" onClick={() => textareaRef.current?.focus()}><Icon name="commentOutline" size={21} />{t('commentAction')}</button>
-        {canShare && <button type="button" onClick={onShare}><Icon name="shareOutline" size={22} />{t('shareAction')}</button>}
+        {canShare && <button type="button" disabled={shareDisabled} aria-disabled={shareDisabled} onClick={onShare}><Icon name="shareOutline" size={22} />{t('shareAction')}</button>}
       </nav>
     </div>}
     <div className={`content-thread-comments${showEmptyComments ? ' empty' : ''}`}>
@@ -568,7 +579,18 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
         {replyTarget && <button type="button" className="comment-compose-reply-cancel-zone" aria-label={t('cancel')} title={t('cancel')} onClick={cancelReply} />}
       </div>
       <div className="comment-compose-box">
-        <div className="mention-compose-field"><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} rows={1} value={content} spellCheck={false} onChange={(event) => changeContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onKeyDown={deleteMentionWithKey} onSelect={(event) => setMentionCaret(event.currentTarget.selectionStart ?? content.length)} placeholder={replyTarget ? t('writeReply') : t('commentAs', { name: viewer?.displayName || t('fakebookUser') })} /><MentionSuggestions text={content} people={friends} textareaRef={textareaRef} caretIndex={mentionCaret} onSelected={selectMention} placement="above" limit={5} className="comment-mention-suggestions" fitToNames /></div>
+        <div className="mention-compose-field"><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} rows={1} value={content} spellCheck={false} onChange={(event) => changeContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onPaste={(event) => {
+          const [pastedImage] = clipboardImageFiles(event.clipboardData)
+          if (pastedImage) {
+            event.preventDefault()
+            selectCommentImage(pastedImage)
+            return
+          }
+          const pasted = event.clipboardData.getData('text').trim()
+          if (!isDirectImageUrl(pasted) || commentImage) return
+          event.preventDefault()
+          void remoteImageFileFromUrl(pasted).then((file) => selectCommentImage(file)).catch(() => changeContent(`${content}${content ? ' ' : ''}${pasted}`, content.length + pasted.length + (content ? 1 : 0)))
+        }} onKeyDown={deleteMentionWithKey} onSelect={(event) => setMentionCaret(event.currentTarget.selectionStart ?? content.length)} placeholder={replyTarget ? t('writeReply') : t('commentAs', { name: viewer?.displayName || t('fakebookUser') })} /><MentionSuggestions text={content} people={friends} textareaRef={textareaRef} caretIndex={mentionCaret} onSelected={selectMention} placement="above" limit={5} className="comment-mention-suggestions" fitToNames /></div>
         {commentImage && <div className="comment-image-preview"><img src={commentImage.previewUrl} alt="" /><button type="button" aria-label={t('removeMedia')} onClick={() => setCommentImage(null)}><Icon name="close" size={14} /></button></div>}
         <div className="comment-compose-tools">
           <div className="comment-compose-tool-list">
@@ -606,8 +628,10 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   </>
 }
 
-function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, onHidden, hideMedia = false }: { post: GatewayPost; locale: string; viewerId: string; onNavigate?: (path: string) => void; onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void; onHidden: () => void; hideMedia?: boolean }) {
+function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, onHidden, onPostChanged, hideMedia = false }: { post: GatewayPost; locale: string; viewerId: string; onNavigate?: (path: string) => void; onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void; onHidden: () => void; onPostChanged?: (post: GatewayPost) => void; hideMedia?: boolean }) {
   const { t } = useI18n()
+  const [privacyBusy, setPrivacyBusy] = useState(false)
+  const [privacyError, setPrivacyError] = useState<string | null>(null)
   const timestamp = formatPostTimestamp(post.create, locale)
   const isGroup = post.__typename === 'GroupPostDetail'
   const privacy: PostPrivacy = post.privacy === 1 || post.privacy === 2 || post.privacy === 3 ? post.privacy : 0
@@ -617,8 +641,31 @@ function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, on
   const taggedUsers = post.__typename === 'FeedPostDetail' ? (post.taggedUsers ?? []).filter((person) => person.id !== post.author.id) : []
   const decodedContent = decodePostContent(post.content)
   const postBackground = post.media.length === 0 ? getPostBackgroundPreset(decodedContent.backgroundId) : null
-  const hasSharedSource = post.__typename === 'FeedPostDetail' && Boolean(post.sharedSource)
+  const hasSharedSource = Boolean(post.sharedSource)
   const openPrimary = () => onNavigate?.(isGroup ? `/groups/${post.group.id}` : `/profile/${post.author.id}`)
+  const owned = viewerId === post.author.id
+  const privacyOptions: Array<{ value: PostPrivacy; label: string }> = [
+    { value: 0, label: t('privacyPublic') },
+    { value: 1, label: t('privacyFriendsFollowers') },
+    { value: 2, label: t('privacyFriends') },
+    { value: 3, label: t('privacyOnlyMe') },
+  ]
+
+  async function changePrivacy(nextPrivacy: PostPrivacy) {
+    if (!owned || isGroup || nextPrivacy === privacy) return
+    setPrivacyBusy(true)
+    setPrivacyError(null)
+    try {
+      const updated = await socialApi.updatePost(post.id, { privacy: nextPrivacy })
+      if (!updated) throw new Error('Privacy update rejected')
+      onPostChanged?.({ ...post, privacy: updated.privacy })
+    } catch {
+      setPrivacyError(t('postPrivacyUpdateError'))
+    } finally {
+      setPrivacyBusy(false)
+    }
+  }
+
   return <article className={`gateway-post thread-post-preview${hasSharedSource ? ' has-shared-source' : ''}`}>
     <header className={isGroup ? 'group-feed-post-head' : 'feed-post-head'}>
       <button type="button" className="post-author-avatar" onClick={openPrimary}>{isGroup ? <GroupPostAvatar groupName={post.group.name} groupAvatar={post.group.avatar || null} userName={post.author.name} userAvatar={post.author.avatar || null} size={40} /> : <Avatar name={post.author.name} src={post.author.avatar || null} size={40} />}</button>
@@ -631,14 +678,17 @@ function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, on
           {isGroup && <><button type="button" className="post-meta-author" onClick={() => onNavigate?.(`/profile/${post.author.id}`)}><span className="thread-post-meta-author-name">{post.author.name}</span><VerifiedBadge verified={post.author.isVerified} size={12} /></button><i>·</i></>}
           <HoverTooltip label={timestamp.detail} className="post-meta-hover post-time-hover"><time dateTime={post.create}>{timestamp.display}</time></HoverTooltip>
           <i>·</i>
-          <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={privacy} size={13} group={isGroup} /></span></HoverTooltip>
+          {owned && !isGroup
+            ? <PostPrivacyControl privacy={privacy} label={privacyLabel} options={privacyOptions} busy={privacyBusy} onSelect={(value) => void changePrivacy(value)} />
+            : <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={privacy} size={13} group={isGroup} /></span></HoverTooltip>}
         </span>
       </div>
       <PostOptionsMenu post={post} viewerId={viewerId} owned={viewerId === post.author.id} onPostHidden={onHidden} />
     </header>
+    {privacyError && <p className="form-error post-relationship-error">{privacyError}</p>}
     {decodedContent.text && <p className={`gateway-post-content${postBackground ? ' has-background' : ''}`} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={post.mentions} onNavigate={onNavigate} /></p>}
     {!hideMedia && <PostMediaGallery media={post.media} preferredAspectRatio={post.__typename === 'ReelDetail' ? post.aspectRatio : null} focalPointX={post.__typename === 'ReelDetail' ? post.focalPointX : null} focalPointY={post.__typename === 'ReelDetail' ? post.focalPointY : null} onOpenImage={onOpenImage && post.__typename !== 'ReelDetail' ? (media, index, initialPlaybackTime) => onOpenImage(post, media, index, initialPlaybackTime) : undefined} />}
-    {!hideMedia && post.__typename === 'FeedPostDetail' && post.sharedSource && <SharedPostSourceCard source={post.sharedSource} locale={locale} onNavigate={onNavigate} onOpenImage={onOpenImage ? (source, media, index, initialPlaybackTime) => onOpenImage(sharedSourceAsPost(source, post), media, index, initialPlaybackTime) : undefined} />}
+    {!hideMedia && post.sharedSource && <SharedPostSourceCard source={post.sharedSource} locale={locale} onNavigate={onNavigate} onOpenImage={onOpenImage ? (source, media, index, initialPlaybackTime) => onOpenImage(sharedSourceAsPost(source, post), media, index, initialPlaybackTime) : undefined} />}
   </article>
 }
 

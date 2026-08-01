@@ -5,6 +5,9 @@ import type { MediaUpload, MessengerConversationDto, MessengerMessageDto, UserSu
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { VerifiedBadge } from '../../components/VerifiedBadge'
+import { LinkPreview } from '../../components/LinkPreview'
+import { clipboardImageFiles } from '../../lib/clipboardMedia'
+import { isDirectImageUrl, remoteImageFileFromUrl } from '../../lib/urlMedia'
 import { EmojiButton } from './EmojiButton'
 import { MESSENGER_ATTACHMENT_ACCEPT } from './attachmentPolicy'
 import { conversationAvatar, conversationName, formatPresence, formatTime, messageGroupPosition, messengerLikeLevel, shouldShowAvatar, shouldShowTimestamp } from './helpers'
@@ -33,7 +36,7 @@ interface MessageThreadProps {
   typingUserId: string | null
   onInteract: () => void
   onDraftChange: (value: string) => void
-  onAttachFiles: (files: FileList | null) => void
+  onAttachFiles: (files: FileList | File[] | null) => void
   onRemoveAttachment: (url: string) => void
   onSubmit: (e: FormEvent) => void
   onSendLike: (level: MessengerLikeLevel) => void
@@ -45,6 +48,7 @@ interface MessageThreadProps {
   onEditMessage: (message: MessengerMessageDto, text: string) => void | Promise<void>
   onForwardMessage: (message: MessengerMessageDto) => void
   onOpenProfile: (id: string) => void
+  onNavigate?: (path: string) => void
   onOpenGroup?: () => void
   onToggleDetail: () => void
   onBack: () => void
@@ -77,6 +81,7 @@ export function MessageThread({
   onEditMessage,
   onForwardMessage,
   onOpenProfile,
+  onNavigate,
   onOpenGroup,
   onToggleDetail,
   onBack,
@@ -330,7 +335,7 @@ export function MessageThread({
                         ? <p className="message-deleted-bubble">Tin nhắn đã được thu hồi</p>
                         : likeLevel
                           ? <span className={`messenger-like-message level-${likeLevel}`} aria-label={t('like')}><MessengerLikeIcon size={48} /></span>
-                          : message.body && <p>{message.body}</p>}
+                          : message.body && <><p>{message.body}</p><LinkPreview content={message.body} onNavigate={onNavigate} /></>}
                       {!message.deleted && <MediaGallery attachments={message.attachments} messageId={message.id} mine={mine} senderName={message.sender.displayName} loadConversationImages={loadConversationImages} />}
                       <MessageHoverTimestamp createdAt={message.createdAt} mine={mine} />
                       <MessageReactionSummary reactions={message.reactions} viewerId={me.id} />
@@ -388,6 +393,19 @@ export function MessageThread({
             ref={inputRef}
             value={editingMessage ? editDraft : draft}
             onChange={(e) => editingMessage ? setEditDraft(e.target.value) : onDraftChange(e.target.value)}
+            onPaste={(event) => {
+              if (editingMessage || pendingAttachments.length >= 10) return
+              const pastedImages = clipboardImageFiles(event.clipboardData)
+              if (pastedImages.length > 0) {
+                event.preventDefault()
+                onAttachFiles(pastedImages.slice(0, 10 - pendingAttachments.length))
+                return
+              }
+              const pasted = event.clipboardData.getData('text').trim()
+              if (!isDirectImageUrl(pasted)) return
+              event.preventDefault()
+              void remoteImageFileFromUrl(pasted).then((file) => onAttachFiles([file])).catch(() => onDraftChange(`${draft}${draft ? ' ' : ''}${pasted}`))
+            }}
             placeholder="Aa"
             autoComplete="off"
           />

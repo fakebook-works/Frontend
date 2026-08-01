@@ -3,6 +3,7 @@ import { useI18n } from '../i18n'
 import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
 import { formatPostTimestamp } from '../lib/postTime'
 import { Avatar } from './Avatar'
+import { GroupPostAvatar } from './GroupPostAvatar'
 import { HoverTooltip } from './HoverTooltip'
 import { Icon } from './Icon'
 import { MentionContent } from './MentionContent'
@@ -18,8 +19,31 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource,
   onOpenImage?: (source: SharedPostSource, media: SharedPostSource['media'][number], index: number, initialPlaybackTime?: number) => void
 }) {
   const { t } = useI18n()
+  const sharedGroup = source.group ?? null
+  const openGroup = sharedGroup && onNavigate ? () => onNavigate(`/groups/${sharedGroup.id}`) : undefined
   if (!source.isAvailable) {
+    if (source.requiresGroupMembership && sharedGroup) {
+      return <section className="shared-post-source unavailable private-group-source">
+        <div className="shared-group-cover" style={sharedGroup.background ? { backgroundImage: `url(${sharedGroup.background})` } : undefined} />
+        <div className="shared-group-summary">
+          <button type="button" className="shared-group-avatar" onClick={openGroup}><Avatar className="shared-group-card-avatar" name={sharedGroup.name} src={sharedGroup.avatar || null} size={48} /></button>
+          <button type="button" className="shared-group-copy" onClick={openGroup}><strong>{sharedGroup.name}</strong><span>{t('privateGroup')} · {t('membersCount', { count: sharedGroup.memberCount })}</span></button>
+        </div>
+        <div className="shared-private-group-message"><Icon name="lock" size={22} /><div><strong>{t('privateGroupPostUnavailable')}</strong><p>{t('privateGroupPostUnavailableDesc')}</p></div></div>
+        <button type="button" className="btn-primary shared-group-join-link" onClick={openGroup}>{sharedGroup.joinRequestPending ? t('joinRequested') : t('joinGroupLong')}</button>
+      </section>
+    }
     return <section className="shared-post-source unavailable"><Icon name="lock" size={24} /><div><strong>{t('contentUnavailable')}</strong><p>{t('contentUnavailableDesc')}</p></div></section>
+  }
+
+  if (source.type === 1 && sharedGroup) {
+    return <section className="shared-post-source shared-group-source">
+      <button type="button" className="shared-group-cover" style={sharedGroup.background ? { backgroundImage: `url(${sharedGroup.background})` } : undefined} onClick={openGroup} aria-label={sharedGroup.name} />
+      <div className="shared-group-summary">
+        <button type="button" className="shared-group-avatar" onClick={openGroup}><Avatar className="shared-group-card-avatar" name={sharedGroup.name} src={sharedGroup.avatar || null} size={54} /></button>
+        <button type="button" className="shared-group-copy" onClick={openGroup}><strong>{sharedGroup.name}</strong><span>{sharedGroup.privacy === 0 ? t('publicGroup') : t('privateGroup')} · {t('membersCount', { count: sharedGroup.memberCount })}</span></button>
+      </div>
+    </section>
   }
 
   const decodedContent = decodePostContent(source.content)
@@ -47,12 +71,15 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource,
           openSource()
         }
       } : undefined}>
-        <span className="post-author-avatar shared-source-avatar"><Avatar name={source.author?.name || t('fakebookUser')} src={source.author?.avatar || null} size={38} /></span>
+        <span className="post-author-avatar shared-source-avatar">{isGroupSource && sharedGroup
+          ? <GroupPostAvatar groupName={sharedGroup.name} groupAvatar={sharedGroup.avatar || null} userName={source.author?.name || t('fakebookUser')} userAvatar={source.author?.avatar || null} size={38} />
+          : <Avatar name={source.author?.name || t('fakebookUser')} src={source.author?.avatar || null} size={38} />}</span>
         <div className="post-head-copy">
           <div className="post-head-primary">
-            <span className="post-author-name"><strong>{source.author?.name || t('fakebookUser')}<VerifiedBadge verified={source.author?.isVerified} size={12} /></strong></span>
+            <span className="post-author-name"><strong>{isGroupSource && sharedGroup ? sharedGroup.name : source.author?.name || t('fakebookUser')}<VerifiedBadge verified={!isGroupSource && source.author?.isVerified} size={12} /></strong></span>
           </div>
           {(timestamp || hasPrivacy) && <span className="post-head-meta">
+            {isGroupSource && source.author && <><span className="shared-source-group-author">{source.author.name}</span><i>·</i></>}
             {timestamp && <HoverTooltip label={timestamp.detail} className="post-meta-hover post-time-hover"><time dateTime={source.create ?? undefined}>{timestamp.display}</time></HoverTooltip>}
             {timestamp && hasPrivacy && <i>·</i>}
             {hasPrivacy && <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={privacy} size={13} group={isGroupSource} /></span></HoverTooltip>}

@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, FormEvent } from 'react'
-import { createPortal } from 'react-dom'
+import type { FormEvent } from 'react'
 import { api, visibleRecommendationPosts } from '../api/client'
 import type { GatewayPost, GatewayStory, GatewayTaggedUser, SharedStory, StoryBucket, VisitedGroup } from '../api/gatewayTypes'
 import { messengerApi, type MessengerPresenceDto } from '../api/messenger'
@@ -17,12 +16,14 @@ import { FriendsShortcutIcon, GroupsShortcutIcon, Icon, LiveVideoIcon, ReelIcon,
 import { PostMediaGallery } from '../components/PostMediaGallery'
 import { PostOptionsMenu } from '../components/PostOptionsMenu'
 import { PostPrivacyIcon, type PostPrivacy } from '../components/PostPrivacyIcon'
+import { PostPrivacyControl } from '../components/PostPrivacyControl'
 import { SharedPostSourceCard } from '../components/SharedPostSourceCard'
 import { SharedStoryMiniPreview } from '../components/SharedStoryMiniPreview'
 import { StoryMediaPreview } from '../components/StoryMediaPreview'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
+import { clipboardImageFiles } from '../lib/clipboardMedia'
 import { groupVisitRelativeTime } from '../lib/format'
 import { GROUP_MEMBERSHIP_CHANGED_EVENT, leftGroupIdFromEvent } from '../lib/groupMembershipEvents'
 import {
@@ -790,7 +791,7 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
     setMessage(null)
   }
 
-  function selectFiles(fileList: FileList | null, mode: 'append' | 'replace' = 'replace') {
+  function selectFiles(fileList: FileList | readonly File[] | null, mode: 'append' | 'replace' = 'replace') {
     const incoming = Array.from(fileList ?? [])
     if (incoming.length === 0) return
     const isVideo = (file: File) => file.type.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(file.name)
@@ -1024,7 +1025,13 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
             <Avatar name={displayName} src={avatarUrl} size={36} />
             <div><div className="home-post-author-name"><strong>{displayName}<VerifiedBadge verified={isVerified} size={13} /></strong>{taggedSummary && <span className="home-tagged-summary"> {taggedSummary}</span>}</div>{groupMode ? <div className="home-post-privacy-picker group-post-fixed-privacy"><span className="home-post-privacy-control" aria-label={effectivePrivacyLabel}><PostPrivacyIcon privacy={effectivePrivacy} size={14} group /><span>{effectivePrivacyLabel}</span></span></div> : <div className="home-post-privacy-picker" ref={privacyPickerRef}><button type="button" className="home-post-privacy-control" aria-label={t('privacy')} aria-haspopup="listbox" aria-expanded={activePicker === 'privacy'} onClick={() => setActivePicker((current) => current === 'privacy' ? null : 'privacy')}><PostPrivacyIcon privacy={privacy} size={14} /><span>{privacyLabel}</span><PrivacyCaretIcon /></button>{activePicker === 'privacy' && <div className="home-post-privacy-menu" role="listbox" aria-label={t('privacy')}>{privacyOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => choosePrivacy(option.value)}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span></button>)}</div>}</div>}</div>
           </div>
-          <div className={postEditorClass} data-replicated-value={selectedFiles.length > 0 ? content || composerPlaceholder : undefined} style={selectedBackground ? { background: selectedBackground.background } : undefined}><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} autoFocus value={content} onChange={(event) => changeMentionContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onSelect={(event) => setMentionCaret(event.currentTarget.selectionStart ?? content.length)} placeholder={composerPlaceholder} rows={selectedFiles.length > 0 ? 1 : 6} /><MentionSuggestions text={content} people={friends} textareaRef={textareaRef} caretIndex={mentionCaret} onSelected={selectMention} />{selectedFiles.length > 0 && renderEmojiPicker(true)}</div>
+          <div className={postEditorClass} data-replicated-value={selectedFiles.length > 0 ? content || composerPlaceholder : undefined} style={selectedBackground ? { background: selectedBackground.background } : undefined}><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} autoFocus value={content} onChange={(event) => changeMentionContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onPaste={(event) => {
+            if (busy) return
+            const pastedImages = clipboardImageFiles(event.clipboardData)
+            if (pastedImages.length === 0) return
+            event.preventDefault()
+            selectFiles(pastedImages, 'append')
+          }} onSelect={(event) => setMentionCaret(event.currentTarget.selectionStart ?? content.length)} placeholder={composerPlaceholder} rows={selectedFiles.length > 0 ? 1 : 6} /><MentionSuggestions text={content} people={friends} textareaRef={textareaRef} caretIndex={mentionCaret} onSelected={selectMention} />{selectedFiles.length > 0 && renderEmojiPicker(true)}</div>
           {selectedFiles.length > 0 && <div className="home-media-preview-viewport" key={`media-scroll-${fileKey}`}><div className="home-media-preview-scroll"><Suspense fallback={<div className="home-media-preview home-media-preview-loading"><span className="spinner" /></div>}><ComposerMediaPreview items={selectedFiles} fileKey={fileKey} busy={busy} onReplace={(fileList) => selectFiles(fileList, 'replace')} onClear={clearFiles} showClear={false} /></Suspense></div><button type="button" className="home-media-preview-fixed-clear" disabled={busy} aria-label={t('removeMedia')} title={t('removeMedia')} onClick={clearFiles}><Icon name="close" size={18} /></button></div>}
           {selectedFiles.length === 0 && <div className="home-post-style-row">
             <div className="home-post-background-picker" ref={backgroundPickerRef}><button type="button" className={selectedBackground ? 'home-post-background-toggle selected' : 'home-post-background-toggle'} style={selectedBackground ? { background: selectedBackground.background } : undefined} disabled={busy || selectedFiles.length > 0} aria-label={t('postBackground')} aria-expanded={activePicker === 'background'} onClick={() => setActivePicker((current) => current === 'background' ? null : 'background')}>{activePicker === 'background' ? <svg className="home-post-background-back-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg> : <span>Aa</span>}</button>{activePicker === 'background' && <div className="home-post-background-options"><button type="button" className={backgroundId === null ? 'none selected' : 'none'} aria-label={t('removePostBackground')} onClick={() => setBackgroundId(null)}><span aria-hidden="true">×</span></button>{POST_BACKGROUND_PRESETS.map((preset, index) => <button key={preset.id} type="button" className={backgroundId === preset.id ? 'selected' : ''} style={{ background: preset.background }} aria-label={`${t('postBackground')} ${index + 1}`} onClick={() => setBackgroundId(preset.id)} />)}</div>}</div>
@@ -1210,66 +1217,6 @@ function TaggedUsersInline({ users, onNavigate }: { users: GatewayTaggedUser[]; 
   </span>
 }
 
-function PostPrivacyControl({ privacy, label, options, busy, onSelect }: { privacy: PostPrivacy; label: string; options: Array<{ value: PostPrivacy; label: string }>; busy: boolean; onSelect: (privacy: PostPrivacy) => void }) {
-  const { t } = useI18n()
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState<CSSProperties>({ visibility: 'hidden' })
-
-  useEffect(() => {
-    if (!open) return
-    function closeFromOutside(event: PointerEvent) {
-      const target = event.target as Node
-      if (!buttonRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
-    }
-    function closeFromEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('pointerdown', closeFromOutside)
-    document.addEventListener('keydown', closeFromEscape)
-    return () => {
-      document.removeEventListener('pointerdown', closeFromOutside)
-      document.removeEventListener('keydown', closeFromEscape)
-    }
-  }, [open])
-
-  useLayoutEffect(() => {
-    if (!open) return
-    function placeMenu() {
-      const button = buttonRef.current
-      const menu = menuRef.current
-      if (!button || !menu) return
-      const buttonBox = button.getBoundingClientRect()
-      const menuBox = menu.getBoundingClientRect()
-      const padding = 6
-      const left = Math.min(
-        Math.max(padding, buttonBox.left),
-        Math.max(padding, window.innerWidth - menuBox.width - padding),
-      )
-      const below = buttonBox.bottom + 6
-      const top = below + menuBox.height <= window.innerHeight - padding
-        ? below
-        : Math.max(padding, buttonBox.top - menuBox.height - 6)
-      setPosition({ left, top, visibility: 'visible' })
-    }
-    placeMenu()
-    window.addEventListener('resize', placeMenu)
-    window.addEventListener('scroll', placeMenu, true)
-    return () => {
-      window.removeEventListener('resize', placeMenu)
-      window.removeEventListener('scroll', placeMenu, true)
-    }
-  }, [open])
-
-  return <>
-    <HoverTooltip label={label} className="post-meta-hover post-privacy-hover" disabled={open}>
-      <button ref={buttonRef} type="button" className="post-card-privacy-control" aria-label={label} aria-haspopup="listbox" aria-expanded={open} disabled={busy} onClick={() => setOpen((current) => !current)}><PostPrivacyIcon privacy={privacy} size={13} /></button>
-    </HoverTooltip>
-    {open && createPortal(<div ref={menuRef} className="home-post-privacy-menu post-card-privacy-menu" role="listbox" aria-label={t('privacy')} style={position}>{options.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => { setOpen(false); onSelect(option.value) }}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span></button>)}</div>, document.body)}
-  </>
-}
-
 export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage, onStoryCreated, authorPath, groupContextId, viewerCanModerateGroupPosts = false }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string; groupContextId?: string; viewerCanModerateGroupPosts?: boolean }) {
   const { t } = useI18n()
   const [current, setCurrent] = useState(post)
@@ -1311,10 +1258,8 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
   const taggedUsers = (current.taggedUsers ?? []).filter((person) => person.id !== current.author.id)
   const decodedContent = decodePostContent(current.content)
   const postBackground = current.media.length === 0 ? getPostBackgroundPreset(decodedContent.backgroundId) : null
-  const hasSharedSource = current.__typename === 'FeedPostDetail' && Boolean(current.sharedSource)
-  const canReshare = isFeedLike && current.privacy === 0 && (
-    current.__typename !== 'FeedPostDetail' || !current.sharedSource || current.sharedSource.isAvailable
-  )
+  const hasSharedSource = Boolean(current.sharedSource)
+  const canReshare = !current.sharedSource || current.sharedSource.isAvailable
 
   async function followAuthor() {
     if (!viewerId || current.__typename === 'GroupPostDetail') return
@@ -1399,8 +1344,8 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
       {(relationshipError || privacyError) && <p className="form-error post-relationship-error">{relationshipError || privacyError}</p>}
       {decodedContent.text && <p className={postBackground ? 'gateway-post-content has-background' : 'gateway-post-content'} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={current.mentions} onNavigate={onNavigate} /></p>}
       <PostMediaGallery media={current.media} preferredAspectRatio={current.__typename === 'ReelDetail' ? current.aspectRatio : null} focalPointX={current.__typename === 'ReelDetail' ? current.focalPointX : null} focalPointY={current.__typename === 'ReelDetail' ? current.focalPointY : null} onOpenImage={viewerId && current.__typename !== 'ReelDetail' ? (media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: current.id, mediaId: media.id, mediaUrl: media.url, initialPost: current, initialPlaybackTime }) : undefined} />
-      {current.__typename === 'FeedPostDetail' && current.sharedSource && <SharedPostSourceCard source={current.sharedSource} locale={locale} onNavigate={onNavigate} onOpenSource={(sourceId) => setSharedDetailId(sourceId)} onOpenImage={viewerId && current.sharedSource.type !== 4 ? (source, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: source.id, mediaId: media.id, mediaUrl: media.url, initialPlaybackTime }) : undefined} />}
-      {viewerId && <Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={current.id} post={current} canShare={current.__typename === 'GroupPostDetail' || current.privacy === 0} canReshare={canReshare} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} /></Suspense>}
+      {current.sharedSource && <SharedPostSourceCard source={current.sharedSource} locale={locale} onNavigate={onNavigate} onOpenSource={current.sharedSource.type === 1 && current.sharedSource.group ? undefined : (sourceId) => setSharedDetailId(sourceId)} onOpenImage={viewerId && current.sharedSource.type !== 4 ? (source, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: source.id, mediaId: media.id, mediaUrl: media.url, initialPlaybackTime }) : undefined} />}
+      {viewerId && <Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={current.id} post={current} canShare canReshare={canReshare} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} /></Suspense>}
       {deleting && <DeletePostModal postId={current.id} onClose={() => setDeleting(false)} onDeleted={() => setRemoved(true)} />}
     </article>
     {viewerId && sharedDetailId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={sharedDetailId} onClose={() => setSharedDetailId(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} /></Suspense>}

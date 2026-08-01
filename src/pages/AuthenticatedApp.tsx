@@ -1,11 +1,9 @@
-import { Activity, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Activity, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { api } from '../api/client'
 import { notificationApi, type AppNotification } from '../api/notifications'
 import { messengerApi } from '../api/messenger'
 import { searchApi, type QuickSearchItem, type SearchTab } from '../api/search'
 import { socialApi, type SocialProfile } from '../api/social'
-import type { GatewayPost } from '../api/gatewayTypes'
 import type { UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { FriendPeopleGlyph, FriendPersonActionGlyph, type FriendPersonAction } from '../components/FriendPeopleGlyph'
@@ -18,7 +16,7 @@ import { relativeTime } from '../lib/format'
 import { notificationTarget, notificationText } from '../lib/notifications'
 import { unlockSoundEffects } from '../lib/sounds'
 import { FriendsPage } from './FriendsPage'
-import { GatewayHomePage, GatewayPostCard } from './GatewayHomePage'
+import { GatewayHomePage } from './GatewayHomePage'
 import { GroupProfilePage, GroupsPage } from './GroupsPage'
 import { ProfilePage } from './ProfilePage'
 import { ReelsPage } from './ReelsPage'
@@ -31,6 +29,7 @@ import { MessengerDock, MessengerPage, type MessengerDockHandle } from './messen
 
 const SETTINGS = new Set<SettingsSection>(['overview', 'profile', 'security', 'privacy', 'sessions', 'language', 'appearance', 'premium'])
 type PrimaryDestination = 'home' | 'friends' | 'reels' | 'groups'
+const ContentDetailOverlay = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentDetailOverlay })))
 
 export function AuthenticatedApp() {
   const { user, logout } = useAuth()
@@ -436,14 +435,14 @@ export function AuthenticatedApp() {
     {groupId && <GroupProfilePage groupId={groupId} userId={user.userId} onBack={() => go('/groups')} onNavigate={go} />}
     {groupRouteId && groupMemberProfileId && <UserInGroupProfilePage groupId={groupRouteId} profileId={groupMemberProfileId} viewerId={user.userId} onBack={() => go(`/groups/${groupRouteId}`)} onNavigate={go} />}
     {profileId && <ProfilePage profile={viewedProfile} loading={profileLoading} error={profileError} canEdit={profileId === user.userId} viewerId={user.userId} onEdit={() => go('/settings/profile')} onNavigate={go} onMessage={openDirectMessage} />}
-    {location.pathname === '/messenger' && <div className="shell-messenger"><MessengerPage me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} initialConversationId={location.params.get('conversation')} onOpenProfile={(id) => go(`/profile/${id}`)} /></div>}
+    {location.pathname === '/messenger' && <div className="shell-messenger"><MessengerPage me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} initialConversationId={location.params.get('conversation')} onOpenProfile={(id) => go(`/profile/${id}`)} onNavigate={go} /></div>}
     {location.pathname === '/saved' && <SavedPage userId={user.userId} onNavigate={go} />}
     {location.pathname.startsWith('/settings') && <SettingsPage initialSection={settingsSection} />}
     {location.pathname === '/premium' && <SettingsPage initialSection="premium" />}
     {location.pathname === '/premium/payment' && <SettingsPage initialSection="premium" />}
     {location.pathname.startsWith('/content/') && <ContentPage contentId={pathSegment(location.pathname, 1)!} viewerId={user.userId} onNavigate={go} onBack={() => go('/home')} />}
     {!isKnownPath(location.pathname) && <main className="unknown-page"><div className="card state-card"><h1>{t('pageNotFound')}</h1><p>{t('pageNotFoundDesc')}</p><button className="btn-primary" onClick={() => go('/home')}>{t('backToHome')}</button></div></main>}
-    <MessengerDock ref={messengerDockRef} me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} panelOpen={messengerPanelOpen} hidden={location.pathname === '/messenger'} showComposeRail={isHomeRoute || location.pathname.startsWith('/friends') || isGroupsPath || Boolean(profileId)} onPanelClose={() => setMessengerPanelOpen(false)} onOpenAll={(conversationId) => go(conversationId ? `/messenger?conversation=${encodeURIComponent(conversationId)}` : '/messenger')} onOpenProfile={(id) => go(`/profile/${id}`)} />
+    <MessengerDock ref={messengerDockRef} me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} panelOpen={messengerPanelOpen} hidden={location.pathname === '/messenger'} showComposeRail={isHomeRoute || location.pathname.startsWith('/friends') || isGroupsPath || Boolean(profileId)} onPanelClose={() => setMessengerPanelOpen(false)} onOpenAll={(conversationId) => go(conversationId ? `/messenger?conversation=${encodeURIComponent(conversationId)}` : '/messenger')} onOpenProfile={(id) => go(`/profile/${id}`)} onNavigate={go} />
   </div>
 }
 
@@ -583,12 +582,7 @@ function QuickSearchMarker() {
 }
 
 function ContentPage({ contentId, viewerId, onNavigate, onBack }: { contentId: string; viewerId: string; onNavigate: (path: string) => void; onBack: () => void }) {
-  const { t, locale } = useI18n()
-  const [post, setPost] = useState<GatewayPost | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(false)
-  useEffect(() => { let active = true; api.postDetail(contentId).then((value) => active && setPost(value)).catch(() => active && setError(true)).finally(() => active && setLoading(false)); return () => { active = false } }, [contentId])
-  return <main className="single-content-page">{loading ? <div className="card state-card"><span className="spinner" /></div> : post ? <><button className="btn-soft content-back" onClick={onBack}>{t('back')}</button><GatewayPostCard post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} /></> : <div className="card state-card"><h2>{t('contentUnavailable')}</h2><p>{error ? t('genericError') : t('contentUnavailableDesc')}</p><button className="btn-primary" onClick={onBack}>{t('backToHome')}</button></div>}</main>
+  return <main className="single-content-page"><Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={contentId} onClose={onBack} onNavigate={onNavigate} /></Suspense></main>
 }
 
 function settingsSectionFor(pathname: string): SettingsSection {

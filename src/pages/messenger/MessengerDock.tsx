@@ -9,9 +9,12 @@ import type { MediaUpload, MessengerConversationDto, MessengerMessageDto, UserSu
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { VerifiedBadge } from '../../components/VerifiedBadge'
+import { LinkPreview } from '../../components/LinkPreview'
 import { useI18n } from '../../i18n'
 import { relativeTime } from '../../lib/format'
+import { clipboardImageFiles } from '../../lib/clipboardMedia'
 import { playIncomingMessageSound } from '../../lib/sounds'
+import { isDirectImageUrl, remoteImageFileFromUrl } from '../../lib/urlMedia'
 import { MESSENGER_ATTACHMENT_ACCEPT } from './attachmentPolicy'
 import { conversationAvatar, conversationName, encodeMessengerLike, formatPresence, formatTime, groupPresenceSummary, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, shouldShowAvatar, shouldShowTimestamp } from './helpers'
 import type { MessageVisualBreaks } from './helpers'
@@ -45,6 +48,7 @@ interface MessengerDockProps {
   onPanelClose: () => void
   onOpenAll: (conversationId?: string) => void
   onOpenProfile: (profileId: string) => void
+  onNavigate?: (path: string) => void
 }
 
 type PanelFilter = 'all' | 'unread' | 'groups'
@@ -148,6 +152,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   onPanelClose,
   onOpenAll,
   onOpenProfile,
+  onNavigate,
 }, ref) {
   const { t, locale } = useI18n()
   const [conversations, setConversations] = useState<MessengerConversationDto[]>([])
@@ -900,7 +905,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     )
   }
 
-  async function attachFiles(conversationId: string, files: FileList | null) {
+  async function attachFiles(conversationId: string, files: FileList | File[] | null) {
     if (!files?.length) return
     setUploadingId(conversationId)
     try {
@@ -1268,7 +1273,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
                           ? <p className="mini-msg-bubble message-deleted-bubble">Tin nhắn đã được thu hồi</p>
                           : likeLevel
                             ? <span className={`messenger-like-message level-${likeLevel}`} aria-label={t('like')}><MessengerLikeIcon size={48} /></span>
-                            : message.body && <p className="mini-msg-bubble">{message.body}</p>}
+                            : message.body && <><p className="mini-msg-bubble">{message.body}</p><LinkPreview content={message.body} onNavigate={onNavigate} /></>}
                         {!message.deleted && <MediaGallery attachments={message.attachments} compact messageId={message.id} mine={mine} senderName={message.sender.displayName} loadConversationImages={() => messengerApi.conversationImages(conversation.id)} />}
                         <MessageHoverTimestamp createdAt={message.createdAt} mine={mine} />
                         <MessageReactionSummary reactions={message.reactions} viewerId={me.id} />
@@ -1317,7 +1322,19 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
               <StickerButton disabled={Boolean(editingMessage) || sendingId === conversation.id} onPick={(sticker) => void sendPayload(conversation, sticker, [])} />
               <div className="mini-compose-body">
                 {attachments.length > 0 && <div className="mini-compose-previews">{attachments.map((attachment) => <div className="mini-compose-preview" key={attachment.url}><MediaAttachmentPreview attachment={attachment} /><button type="button" aria-label={t('removeMedia')} onClick={() => removePendingAttachment(conversation.id, attachment)}><Icon name="close" size={14} /></button></div>)}</div>}
-                <label className="mini-compose-input"><input value={editingMessage ? editDraft : draft} onChange={(event) => editingMessage ? setEditDraft(event.target.value) : updateDraft(conversation.id, event.target.value)} placeholder="Aa" /><EmojiButton onPick={(emoji) => editingMessage ? setEditDraft(`${editDraft}${emoji}`) : updateDraft(conversation.id, `${draft}${emoji}`)} /></label>
+                <label className="mini-compose-input"><input value={editingMessage ? editDraft : draft} onChange={(event) => editingMessage ? setEditDraft(event.target.value) : updateDraft(conversation.id, event.target.value)} onPaste={(event) => {
+                  if (editingMessage || attachments.length >= 10) return
+                  const pastedImages = clipboardImageFiles(event.clipboardData)
+                  if (pastedImages.length > 0) {
+                    event.preventDefault()
+                    void attachFiles(conversation.id, pastedImages.slice(0, 10 - attachments.length))
+                    return
+                  }
+                  const pasted = event.clipboardData.getData('text').trim()
+                  if (!isDirectImageUrl(pasted)) return
+                  event.preventDefault()
+                  void remoteImageFileFromUrl(pasted).then((file) => attachFiles(conversation.id, [file])).catch(() => updateDraft(conversation.id, `${draft}${draft ? ' ' : ''}${pasted}`))
+                }} placeholder="Aa" /><EmojiButton onPick={(emoji) => editingMessage ? setEditDraft(`${editDraft}${emoji}`) : updateDraft(conversation.id, `${draft}${emoji}`)} /></label>
               </div>
               {editingMessage || draft.trim() || attachments.length > 0 ? <button type="submit" className="mini-compose-btn send ready" aria-label={t('sendMessage')} disabled={editBusy || sendingId === conversation.id || uploadingId === conversation.id || (Boolean(editingMessage) && !editDraft.trim())}><Icon name="send" size={22} /></button> : <HoldLikeButton label={t('like')} disabled={sendingId === conversation.id} onSend={(level) => void sendPayload(conversation, encodeMessengerLike(level), [])} />}
             </form>

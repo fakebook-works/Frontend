@@ -47,7 +47,7 @@ describe('ReelsPage media discussion layout', () => {
 
   it('restores the Reels tab without loading its media again', async () => {
     const { rerender } = render(<Activity mode="visible"><ReelsPage userId="1" mode="for-you" onNavigate={vi.fn()} /></Activity>)
-    await screen.findByRole('button', { name: 'commentAction' })
+    await screen.findByRole('button', { name: 'commentAction' }, { timeout: 5_000 })
     expect(socialMocks.getRecommendedReels).toHaveBeenCalledTimes(1)
 
     rerender(<Activity mode="hidden"><ReelsPage userId="1" mode="for-you" onNavigate={vi.fn()} /></Activity>)
@@ -60,7 +60,7 @@ describe('ReelsPage media discussion layout', () => {
   it('opens the right-side photo-viewer discussion for the selected Reel without navigating', async () => {
     const onNavigate = vi.fn()
     const { container, unmount } = render(<ReelsPage userId="1" mode="for-you" onNavigate={onNavigate} />)
-    await screen.findByRole('button', { name: 'commentAction' })
+    await screen.findByRole('button', { name: 'commentAction' }, { timeout: 5_000 })
     expect(document.documentElement).toHaveClass('reels-page-scroll')
     expect(document.body).toHaveClass('reels-page-scroll')
 

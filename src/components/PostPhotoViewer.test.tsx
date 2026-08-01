@@ -7,6 +7,7 @@ import { PostPhotoViewer } from './PostPhotoViewer'
 
 const apiMocks = vi.hoisted(() => ({ postDetail: vi.fn() }))
 const socialMocks = vi.hoisted(() => ({
+  getProfile: vi.fn(),
   getContentEngagement: vi.fn(),
   likeContent: vi.fn(),
   unlikeContent: vi.fn(),
@@ -15,9 +16,9 @@ const socialMocks = vi.hoisted(() => ({
 vi.mock('../api/client', () => ({ api: apiMocks }))
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../i18n', () => ({ useI18n: () => ({ locale: 'en', t: (key: string) => key }) }))
-vi.mock('./ContentActions', () => ({ ShareModal: () => <div data-testid="share-modal" /> }))
+vi.mock('./ContentActions', () => ({ ShareModal: ({ canReshare }: { canReshare: boolean }) => <div data-testid="share-modal" data-can-reshare={String(canReshare)} /> }))
 vi.mock('./PostDetailCommentsModal', () => ({
-  PostDetailCommentsModal: ({ targetId, variant }: { targetId: string; variant?: string }) => <div data-testid="photo-discussion" data-target-id={targetId} data-variant={variant} />,
+  PostDetailCommentsModal: ({ targetId, variant, canShare, shareDisabled, onShare }: { targetId: string; variant?: string; canShare?: boolean; shareDisabled?: boolean; onShare?: () => void }) => <div data-testid="photo-discussion" data-target-id={targetId} data-variant={variant}>{canShare && <button type="button" aria-label="shareAction" disabled={shareDisabled} onClick={onShare} />}</div>,
 }))
 
 describe('PostPhotoViewer', () => {
@@ -41,6 +42,7 @@ describe('PostPhotoViewer', () => {
 
   beforeEach(() => {
     apiMocks.postDetail.mockReset().mockResolvedValue(post)
+    socialMocks.getProfile.mockReset().mockResolvedValue({ displayName: 'Viewer', avatarUrl: '/viewer.jpg' })
     socialMocks.getContentEngagement.mockReset().mockResolvedValue({
       targetId: 'post-1', likeCount: 1, commentCount: 2, shareCount: 0, viewCount: 0,
       viewerHasLiked: false, viewerHasSaved: false, viewerHasWatched: false,
@@ -69,6 +71,32 @@ describe('PostPhotoViewer', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows resharing a private photo post already authorized for the viewer', async () => {
+    const privatePost = { ...post, privacy: 2 }
+    render(<PostPhotoViewer viewerId="viewer-1" contentId="post-1" initialMediaId="photo-a" initialPost={privatePost} onClose={vi.fn()} />)
+
+    await waitFor(() => expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-a.jpg'))
+    fireEvent.click(screen.getByRole('button', { name: 'shareAction' }))
+    expect(screen.getByTestId('share-modal')).toHaveAttribute('data-can-reshare', 'true')
+  })
+
+  it('disables photo-sidebar sharing when the shared private-group source is unavailable', async () => {
+    const unavailableWrapper: GatewayPost = {
+      ...post,
+      sharedSource: {
+        id: 'private-source', isAvailable: false, type: 3, content: null, privacy: 1, create: null,
+        author: null, media: [], requiresGroupMembership: true,
+        group: { id: 'private-group', name: 'Private Group', avatar: '', background: '', privacy: 1, memberCount: 10, viewerIsMember: false, joinRequestPending: false },
+      },
+    }
+    apiMocks.postDetail.mockResolvedValue(unavailableWrapper)
+    render(<PostPhotoViewer viewerId="viewer-1" contentId="post-1" initialMediaId="photo-a" initialPost={unavailableWrapper} onClose={vi.fn()} />)
+
+    await waitFor(() => expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-a.jpg'))
+    expect(screen.getByRole('button', { name: 'shareAction' })).toBeDisabled()
+    expect(screen.queryByTestId('share-modal')).not.toBeInTheDocument()
   })
 
   it('loops across feed posts, switches the discussion owner and excludes Reel media', async () => {
@@ -106,18 +134,27 @@ describe('PostPhotoViewer', () => {
     expect(apiMocks.postDetail).not.toHaveBeenCalled()
   })
 
-  it('renders an unlinked profile picture without inventing a post discussion', async () => {
+  it('renders the protected unavailable discussion for an unlinked profile picture', async () => {
     render(<PostPhotoViewer
       viewerId="viewer-1"
       contentId="profile-avatar-author-1"
       initialMediaId="standalone-avatar"
       mediaEntries={[{ post: null, media: { id: 'standalone-avatar', type: 0, url: '/standalone-avatar.jpg' } }]}
+      unavailableAuthor={{ id: 'author-1', name: 'Author', avatar: '/standalone-avatar.jpg', isVerified: false }}
       onClose={vi.fn()}
     />)
 
     await waitFor(() => expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/standalone-avatar.jpg'))
-    expect(document.querySelector('.post-photo-viewer')).toHaveClass('no-sidebar')
-    expect(screen.queryByTestId('photo-discussion')).not.toBeInTheDocument()
+    expect(document.querySelector('.post-photo-viewer')).not.toHaveClass('no-sidebar')
+    expect(document.querySelector('[data-post-unavailable="true"]')).toBeInTheDocument()
+    expect(screen.getByText('unavailablePostPlaceholder')).toBeInTheDocument()
+    expect(screen.getByText('unknown')).toBeInTheDocument()
+    expect(screen.getByText('cannotComment')).toBeInTheDocument()
+    expect(screen.getByText('postCannotBeCommented')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'commentFeatureUnavailable' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'commentFeatureUnavailable' })).toBeDisabled()
+    await waitFor(() => expect(document.querySelector('.unavailable-comment-compose .avatar img')).toHaveAttribute('src', '/viewer.jpg'))
+    expect(apiMocks.postDetail).not.toHaveBeenCalled()
     expect(socialMocks.getContentEngagement).not.toHaveBeenCalled()
   })
 

@@ -827,4 +827,25 @@ describe('MessengerDock overflow windows', () => {
     expect(within(chat).queryByText('preview.png')).not.toBeInTheDocument()
     expect(within(chat).getByRole('button', { name: 'removeMedia' })).toBeInTheDocument()
   })
+
+  it('pastes a copied image into the floating chat attachment preview', async () => {
+    uploadMocks.uploadMediaFiles.mockResolvedValue([{
+      url: 'http://localhost/media/files/clipboard.png',
+      type: 'image', contentType: 'image/png', size: 12, name: 'clipboard.png',
+      assetId: 'clipboard-asset', state: 'pending',
+    }])
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    const image = new File(['clipboard'], 'clipboard.png', { type: 'image/png' })
+
+    fireEvent.paste(within(chat).getByPlaceholderText('Aa'), { clipboardData: {
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => image }],
+      files: [image],
+      getData: () => 'https://example.com/clipboard.png',
+    } })
+
+    await waitFor(() => expect(uploadMocks.uploadMediaFiles).toHaveBeenCalledWith([image]))
+    expect(await within(chat).findByRole('img', { name: 'clipboard.png' })).toBeInTheDocument()
+  })
 })

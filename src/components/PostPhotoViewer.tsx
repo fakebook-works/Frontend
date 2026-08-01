@@ -5,10 +5,13 @@ import { api } from '../api/client'
 import type { GatewayMedia, GatewayPost, SharedStory } from '../api/gatewayTypes'
 import { socialApi, type ContentEngagement } from '../api/social'
 import { useI18n } from '../i18n'
+import { Avatar } from './Avatar'
+import { HoverTooltip } from './HoverTooltip'
 import { Icon } from './Icon'
 import { PostDetailCommentsModal } from './PostDetailCommentsModal'
 import { PostVideoPlayer } from './PostVideoPlayer'
 import { ShareModal } from './ContentActions'
+import { VerifiedBadge } from './VerifiedBadge'
 
 const EMPTY_ENGAGEMENT: ContentEngagement = {
   targetId: '',
@@ -29,6 +32,7 @@ export interface PostPhotoViewerProps {
   initialPlaybackTime?: number
   initialPost?: GatewayPost
   mediaEntries?: PostPhotoViewerMediaEntry[]
+  unavailableAuthor?: GatewayPost['author']
   onClose: () => void
   onNavigate?: (path: string) => void
   onMessage?: (profileId: string) => Promise<void>
@@ -51,14 +55,88 @@ function PhotoViewerToolIcon({ name }: { name: 'zoom-in' | 'zoom-out' | 'fullscr
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15.1 15.1A6.5 6.5 0 1 1 5.9 5.9a6.5 6.5 0 0 1 9.2 9.2l5.15 5.15M7.5 10.5h6" />{name === 'zoom-in' && <path d="M10.5 7.5v6" />}</svg>
 }
 
+function CommentUnavailableIcon() {
+  return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="m6 6 12 12" /></svg>
+}
+
 const MIN_PHOTO_SCALE = 1
 const MAX_PHOTO_SCALE = 4
 const PHOTO_SCALE_STEP = 0.5
 
-export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMediaUrl, initialPlaybackTime = 0, initialPost, mediaEntries, onClose, onNavigate, onMessage, onStoryCreated }: PostPhotoViewerProps) {
+function UnavailablePhotoDiscussion({ viewerId, author, onNavigate }: { viewerId: string; author?: GatewayPost['author']; onNavigate?: (path: string) => void }) {
+  const { t } = useI18n()
+  const [viewer, setViewer] = useState<{ displayName: string; avatarUrl: string | null } | null>(null)
+  const authorName = author?.name || t('fakebookUser')
+  const openAuthor = () => {
+    if (author?.id) onNavigate?.(`/profile/${author.id}`)
+  }
+
+  useEffect(() => {
+    let active = true
+    socialApi.getProfile(viewerId)
+      .then((profile) => {
+        if (active && profile) setViewer({ displayName: profile.displayName, avatarUrl: profile.avatarUrl })
+      })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [viewerId])
+
+  return <section className="photo-detail-discussion content-thread-modal unavailable-photo-discussion" aria-label={t('comments')} data-post-unavailable="true">
+    <div className="content-thread-scroll unavailable-photo-thread">
+      <article className="gateway-post thread-post-preview unavailable-post-preview">
+        <header className="feed-post-head">
+          <button type="button" className="post-author-avatar" disabled={!author?.id || !onNavigate} onClick={openAuthor}><Avatar name={authorName} src={author?.avatar || null} size={40} /></button>
+          <div className="post-head-copy thread-post-head-copy">
+            <div className="post-head-primary">
+              <button type="button" className="post-author-name" disabled={!author?.id || !onNavigate} onClick={openAuthor}><strong><span className="thread-post-primary-name">{authorName}</span><VerifiedBadge verified={Boolean(author?.isVerified)} /></strong></button>
+            </div>
+            <span className="post-head-meta unavailable-post-meta">
+              <span>{t('unknown')}</span>
+              <i>·</i>
+              <HoverTooltip label={t('unknown')} className="post-meta-hover post-privacy-hover">
+                <span className="unavailable-post-privacy" aria-label={t('unknown')}><Icon name="info" size={13} /></span>
+              </HoverTooltip>
+            </span>
+          </div>
+        </header>
+        <p className="gateway-post-content unavailable-post-content">{t('unavailablePostPlaceholder')}</p>
+      </article>
+      <div className="content-thread-comments empty unavailable-photo-comments">
+        <div className="content-thread-list">
+          <div className="no-comments-state">
+            <span className="no-comments-document" aria-hidden="true"><i /></span>
+            <h3>{t('cannotComment')}</h3>
+            <p>{t('postCannotBeCommented')}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <form className="comment-compose unavailable-comment-compose" aria-disabled="true" onSubmit={(event) => event.preventDefault()}>
+      <div className="comment-compose-row">
+        <div className="comment-compose-avatar-stack">
+          <Avatar name={viewer?.displayName || t('fakebookUser')} src={viewer?.avatarUrl || null} size={32} />
+        </div>
+        <div className="comment-compose-box unavailable-comment-compose-box">
+          <div className="mention-compose-field"><textarea rows={1} value="" readOnly disabled aria-label={t('commentFeatureUnavailable')} placeholder={t('commentFeatureUnavailable')} /></div>
+          <div className="comment-compose-tools">
+            <div className="comment-compose-tool-list">
+              <button type="button" disabled aria-label={t('feeling')}><Icon name="feeling" size={18} /></button>
+              <button type="button" disabled aria-label={t('attachPhoto')}><Icon name="photo" size={18} /></button>
+              <button type="button" disabled aria-label={t('stickers')}><Icon name="sticker" size={18} /></button>
+            </div>
+            <button type="button" disabled aria-label={t('commentFeatureUnavailable')}><CommentUnavailableIcon /></button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </section>
+}
+
+export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMediaUrl, initialPlaybackTime = 0, initialPost, mediaEntries, unavailableAuthor, onClose, onNavigate, onMessage, onStoryCreated }: PostPhotoViewerProps) {
   const { t } = useI18n()
   const usableInitialPost = initialPost?.__typename === 'ReelDetail' ? null : initialPost ?? null
   const [post, setPost] = useState<GatewayPost | null>(usableInitialPost)
+  const [postOverrides, setPostOverrides] = useState<Record<string, GatewayPost>>({})
   const hasSuppliedEntries = Boolean(mediaEntries?.length)
   const [loading, setLoading] = useState(!usableInitialPost && !hasSuppliedEntries)
   const [loadError, setLoadError] = useState(false)
@@ -81,8 +159,13 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
   }, [mediaEntries, post])
   const activeEntry = viewerEntries[activeIndex] ?? null
   const activeMedia = activeEntry?.media ?? null
-  const activePost = activeEntry ? activeEntry.post : post
+  const activePostBase = activeEntry ? activeEntry.post : post
+  const activePost = activePostBase ? postOverrides[activePostBase.id] ?? activePostBase : null
   const activePhoto = activeMedia?.type === 0 ? activeMedia : null
+  // A media URL may remain valid after its source post is deleted, hidden by
+  // privacy, or absent for legacy avatars. Derive the protected sidebar from
+  // the resolved entry itself so a missing flag from a parent cannot hide it.
+  const showUnavailableSource = Boolean(activeMedia) && !activePost
 
   const clampOffset = useCallback((next: { x: number; y: number }, nextScale = scale) => {
     const stage = stageRef.current
@@ -258,17 +341,15 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
     }
   }
 
-  const canShare = Boolean(activePost && (activePost.__typename === 'GroupPostDetail' || activePost.privacy === 0))
-  const canReshare = Boolean(activePost && activePost.__typename !== 'GroupPostDetail' && activePost.privacy === 0 && (
-    activePost.__typename !== 'FeedPostDetail' || !activePost.sharedSource || activePost.sharedSource.isAvailable
-  ))
-  const shareSourceId = activePost?.__typename === 'FeedPostDetail' && activePost.sharedSource?.isAvailable
+  const canShare = Boolean(activePost)
+  const canReshare = Boolean(activePost && (!activePost.sharedSource || activePost.sharedSource.isAvailable))
+  const shareSourceId = activePost?.sharedSource?.isAvailable
     ? activePost.sharedSource.id
     : activePost?.id ?? contentId
 
   return createPortal(<>
     <button type="button" className="content-detail-shell-close post-photo-viewer-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>
-    <div className={`post-photo-viewer${fullscreen ? ' is-fullscreen' : ''}${activePost ? '' : ' no-sidebar'}`} role="dialog" aria-modal="true" aria-label={t('photoViewer')}>
+    <div className={`post-photo-viewer${fullscreen ? ' is-fullscreen' : ''}${activePost || showUnavailableSource ? '' : ' no-sidebar'}`} role="dialog" aria-modal="true" aria-label={t('photoViewer')}>
       <section ref={stageRef} className="post-photo-viewer-stage">
         {loading && !activeMedia ? <span className="spinner" /> : loadError || !activeMedia ? <div className="post-photo-viewer-error"><Icon name="photo" size={30} /><strong>{t('contentUnavailable')}</strong></div> : activeMedia.type === 1
           ? <div className="post-photo-viewer-video"><PostVideoPlayer
@@ -310,14 +391,20 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
           engagement={engagement}
           likeBusy={likeBusy}
           canShare={canShare}
+          shareDisabled={!canReshare}
           onToggleLike={toggleLike}
           onShare={() => setShareOpen(true)}
           onClose={onClose}
           onNavigate={onNavigate}
+          onPostChanged={(updatedPost) => {
+            setPostOverrides((current) => ({ ...current, [updatedPost.id]: updatedPost }))
+            setPost((current) => current?.id === updatedPost.id ? updatedPost : current)
+          }}
           onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))}
         />}
+        {showUnavailableSource && <UnavailablePhotoDiscussion viewerId={viewerId} author={unavailableAuthor} onNavigate={onNavigate} />}
       </aside>
     </div>
-    {shareOpen && activePost && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare={canReshare} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
+    {shareOpen && activePost && canReshare && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare initialPreview={activePost.sharedSource?.isAvailable ? activePost.sharedSource : null} allowStory={activePost.__typename !== 'GroupPostDetail' && activePost.sharedSource?.type !== 1 && activePost.sharedSource?.type !== 3} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
   </>, document.body)
 }

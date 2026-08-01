@@ -20,4 +20,15 @@ describe('MentionContent', () => {
     render(<p><MentionContent content="Hello [[mention:12]]" /></p>)
     expect(screen.getByText('fakebookUser')).toHaveClass('mention-content-name', 'unavailable')
   })
+
+  it('renders safe URLs as blue navigable links without changing mention rendering', () => {
+    const onNavigate = vi.fn()
+    window.history.replaceState({}, '', '/home')
+    render(<p><MentionContent content={`See ${window.location.origin}/content/42 and [[mention:12]]`} mentions={[{ userId: '12', name: 'Friend', available: true }]} onNavigate={onNavigate} /></p>)
+    const link = screen.getByRole('link', { name: `${window.location.origin}/content/42` })
+    expect(link).toHaveClass('inline-content-link')
+    fireEvent.click(link)
+    expect(onNavigate).toHaveBeenCalledWith('/content/42')
+    expect(screen.getByRole('button', { name: 'Friend' })).toBeInTheDocument()
+  })
 })

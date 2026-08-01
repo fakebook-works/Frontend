@@ -35,6 +35,17 @@ export interface SharedPostSource {
   author: Omit<GatewayAuthor, 'canFollow'> | null
   media: GatewayMedia[]
   mentions?: GatewayMention[]
+  group?: {
+    id: string
+    name: string
+    avatar: string
+    background: string
+    privacy: number
+    memberCount: number
+    viewerIsMember: boolean
+    joinRequestPending: boolean
+  } | null
+  requiresGroupMembership?: boolean
 }
 
 export interface FeedPost {
@@ -59,6 +70,7 @@ export interface GroupPost extends Omit<FeedPost, '__typename'> {
     avatar: string
     canJoin: boolean
   }
+  sharedSource?: SharedPostSource | null
 }
 
 export interface ReelPost extends Omit<FeedPost, '__typename'> {

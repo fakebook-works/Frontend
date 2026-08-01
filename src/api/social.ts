@@ -147,11 +147,6 @@ export type SavedContentItem =
   | { kind: 'post'; id: string; post: GatewayPost }
   | { kind: 'reel'; id: string; reel: SocialContent }
 
-interface AssociationPage {
-  items: Array<{ id2: string }>
-  nextCursor: string | null
-}
-
 interface GroupMembershipPage {
   items: SocialGroup[]
   endCursor: string | null
@@ -174,10 +169,11 @@ const POST_FIELDS = `
     author { id name avatar isVerified canFollow }
     media { id type url }
     sharedSource {
-      id isAvailable type content privacy create
+      id isAvailable type content privacy create requiresGroupMembership
       mentions { userId name available }
       author { id name avatar isVerified }
       media { id type url }
+      group { id name avatar background privacy memberCount viewerIsMember joinRequestPending }
     }
   }
   ... on ReelDetail {
@@ -193,6 +189,13 @@ const POST_FIELDS = `
     author { id name avatar isVerified canFollow }
     group { id name avatar canJoin }
     media { id type url }
+    sharedSource {
+      id isAvailable type content privacy create requiresGroupMembership
+      mentions { userId name available }
+      author { id name avatar isVerified }
+      media { id type url }
+      group { id name avatar background privacy memberCount viewerIsMember joinRequestPending }
+    }
   }
 `
 const GROUP_POST_FIELDS = `
@@ -203,6 +206,13 @@ const GROUP_POST_FIELDS = `
   author { id name avatar isVerified canFollow }
   group { id name avatar canJoin }
   media { id type url }
+  sharedSource {
+    id isAvailable type content privacy create requiresGroupMembership
+    mentions { userId name available }
+    author { id name avatar isVerified }
+    media { id type url }
+    group { id name avatar background privacy memberCount viewerIsMember joinRequestPending }
+  }
 `
 
 function profileFromGraphQl(value: ProfileGraphQl, email = ''): SocialProfile {
@@ -310,6 +320,7 @@ function postFromGraphQl(post: GatewayPost): GatewayPost {
       author: post.sharedSource.author ? { ...post.sharedSource.author, id: String(post.sharedSource.author.id) } : null,
       media: post.sharedSource.media.map((media) => ({ ...media, id: String(media.id), type: Number(media.type) })),
       mentions: normalizeMentionUsers(post.sharedSource.mentions),
+      group: post.sharedSource.group ? { ...post.sharedSource.group, id: String(post.sharedSource.group.id) } : null,
     } : null,
   }
   if (post.__typename === 'GroupPostDetail') {
@@ -404,6 +415,18 @@ export async function getGroupSuggestions(limit = 24): Promise<GroupSuggestion[]
     friendMembers: (suggestion.friendMembers ?? []).slice(0, 3).map(summaryFromGraphQl),
     yesterdayPostCount: Number(suggestion.yesterdayPostCount ?? 0),
   }))
+}
+
+export async function getGroupFriendMembers(groupId: string, limit = 12): Promise<UserSummary[]> {
+  const group = graphQlLongLiteral(groupId)
+  const size = Math.max(1, Math.min(12, Math.trunc(limit)))
+  const data = await gatewayGraphQl<{ groupFriendMembers: Array<Record<string, unknown>> }>(
+    `query GroupFriendMembers($limit: Int!) {
+      groupFriendMembers(groupId: ${group}, limit: $limit) { id name avatar }
+    }`,
+    { limit: size },
+  )
+  return (data.groupFriendMembers ?? []).map(summaryFromGraphQl)
 }
 
 export async function getProfilePosts(userId: string, limit = 12, cursor: string | null = null): Promise<{ items: GatewayPost[]; endCursor: string | null; hasNextPage: boolean }> {
@@ -743,15 +766,16 @@ export async function getGroupMembershipState(userId: string, groupId: string): 
   return data.groupViewerState ?? { isMember: false, isAdmin: false, joinRequestPending: false, canViewPosts: false }
 }
 
-export async function getGroupJoinRequests(groupId: string, limit = 100): Promise<SocialProfile[]> {
+export async function getGroupJoinRequests(groupId: string, limit = 50): Promise<UserSummary[]> {
   const id = graphQlLongLiteral(groupId)
-  const data = await gatewayGraphQl<{ groupJoinRequests: AssociationPage }>(
+  const size = Math.max(1, Math.min(50, Math.trunc(limit)))
+  const data = await gatewayGraphQl<{ groupJoinRequests: { items: Array<Record<string, unknown>>; endCursor: string | null; hasNextPage: boolean } }>(
     `query GroupJoinRequests($limit: Int!) {
-      groupJoinRequests(groupId: ${id}, limit: $limit) { items { id2 } nextCursor }
+      groupJoinRequests(groupId: ${id}, limit: $limit) { items { id name avatar isVerified } endCursor hasNextPage }
     }`,
-    { limit },
+    { limit: size },
   )
-  return getProfiles(data.groupJoinRequests.items.map((item) => String(item.id2)))
+  return (data.groupJoinRequests.items ?? []).map(summaryFromGraphQl)
 }
 
 async function getGroupPeople(groupId: string, field: 'groupMembers' | 'groupAdmins', limit = 50, cursor: string | null = null): Promise<{ items: UserSummary[]; endCursor: string | null; hasNextPage: boolean }> {
@@ -1372,12 +1396,13 @@ export async function createComment(viewerId: string, targetId: string, content:
   return contentFromGraphQl(data.createComment)
 }
 
-export async function sharePost(viewerId: string, sourceId: string, content: string, privacy: number): Promise<SocialContent> {
+export async function sharePost(viewerId: string, sourceId: string, content: string, privacy: number, destinationGroupId: string | null = null): Promise<SocialContent> {
   const viewer = graphQlLongLiteral(viewerId)
   const source = graphQlLongLiteral(sourceId)
+  const destination = destinationGroupId ? graphQlLongLiteral(destinationGroupId) : 'null'
   const data = await gatewayGraphQl<{ sharePost: Record<string, unknown> }>(
     `mutation SharePost($content: String!, $privacy: Int!) {
-      sharePost(input: { authorId: ${viewer}, sourceId: ${source}, content: $content, privacy: $privacy }) { ${CONTENT_FIELDS} }
+      sharePost(input: { authorId: ${viewer}, sourceId: ${source}, content: $content, privacy: $privacy, destinationGroupId: ${destination} }) { ${CONTENT_FIELDS} }
     }`,
     { content, privacy },
   )
@@ -1391,6 +1416,7 @@ export const socialApi = {
   getGroup,
   getGroups,
   getGroupSuggestions,
+  getGroupFriendMembers,
   getProfilePosts,
   getProfileReels,
   getUserPhotos,

@@ -573,6 +573,32 @@ describe('GatewayHomePage', () => {
     expect(apiMocks.cancelPendingMedia).not.toHaveBeenCalled()
   })
 
+  it('pastes a copied image into the same preview and upload pipeline as a local file', async () => {
+    apiMocks.uploadMediaFiles.mockResolvedValue([{
+      url: 'https://uploads.example.com/media/files/clipboard.png',
+      type: 'image', contentType: 'image/png', size: 4, name: 'clipboard.png',
+    }])
+    apiMocks.createFeedPost.mockResolvedValue({ id: 'clipboard-post' })
+    apiMocks.postDetail.mockResolvedValue(null)
+    render(<GatewayHomePage />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'postComposerPlaceholder' }))
+    const textarea = screen.getByPlaceholderText('postComposerPersonalPlaceholder')
+    const image = new File([new Uint8Array([137, 80, 78, 71])], 'clipboard.png', { type: 'image/png' })
+    fireEvent.paste(textarea, { clipboardData: {
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => image }],
+      files: [image],
+      getData: () => 'https://example.com/clipboard.png',
+    } })
+
+    expect(await screen.findByLabelText('mediaPreview')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'post' }))
+    await waitFor(() => expect(apiMocks.uploadMediaFiles).toHaveBeenCalledWith([image]))
+    expect(apiMocks.createFeedPost).toHaveBeenCalledWith(expect.objectContaining({
+      media: [{ type: 0, url: 'https://uploads.example.com/media/files/clipboard.png' }],
+    }))
+  })
+
   it('can publish the same video twice without remounting or refreshing the page', async () => {
     const video = new File([new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112])], 'repeat.mp4', { type: 'video/mp4' })
     apiMocks.uploadMediaFiles.mockImplementation(async () => [{

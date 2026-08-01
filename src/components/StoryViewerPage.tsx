@@ -45,11 +45,11 @@ function sharedPostSourceFromDetail(source: SharedStorySource, detail: GatewayPo
   }
   return {
     id: source.id,
-    isAvailable: true,
+    isAvailable: false,
     type: source.media?.type ?? null,
-    content: source.content,
-    author: source.author,
-    media: source.media ? [source.media] : [],
+    content: null,
+    author: null,
+    media: [],
   }
 }
 

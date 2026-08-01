@@ -18,7 +18,10 @@ const socialMocks = vi.hoisted(() => ({
   followUser: vi.fn(),
   mentionUser: vi.fn(),
   getProfile: vi.fn(),
+  getMemberGroups: vi.fn(),
+  getAdminGroups: vi.fn(),
   sharePost: vi.fn(),
+  updatePost: vi.fn(),
 }))
 const apiMocks = vi.hoisted(() => ({
   createShareStory: vi.fn(),
@@ -26,7 +29,7 @@ const apiMocks = vi.hoisted(() => ({
   uploadMediaFiles: vi.fn(),
   cancelPendingMedia: vi.fn(),
 }))
-const messengerMocks = vi.hoisted(() => ({ createDirectConversation: vi.fn(), sendMessage: vi.fn() }))
+const messengerMocks = vi.hoisted(() => ({ conversations: vi.fn(), createDirectConversation: vi.fn(), sendMessage: vi.fn() }))
 const translate = vi.hoisted(() => (key: string) => key)
 
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
@@ -61,12 +64,16 @@ describe('ContentActions refreshed overlays', () => {
     socialMocks.followUser.mockReset().mockResolvedValue(true)
     socialMocks.mentionUser.mockReset()
     socialMocks.getProfile.mockReset().mockResolvedValue(null)
+    socialMocks.getMemberGroups.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
+    socialMocks.getAdminGroups.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
     socialMocks.sharePost.mockReset().mockResolvedValue({ id: 'share-1' })
+    socialMocks.updatePost.mockReset().mockResolvedValue({ id: '90', privacy: 2 })
     apiMocks.createShareStory.mockReset().mockResolvedValue({ id: 'story-1' })
     apiMocks.postDetail.mockReset()
     apiMocks.uploadMediaFiles.mockReset()
     apiMocks.cancelPendingMedia.mockReset().mockResolvedValue(undefined)
     messengerMocks.createDirectConversation.mockReset()
+    messengerMocks.conversations.mockReset().mockResolvedValue([])
     messengerMocks.sendMessage.mockReset()
   })
 
@@ -231,6 +238,54 @@ describe('ContentActions refreshed overlays', () => {
     await waitFor(() => expect(container.querySelector('.thread-post-engagement .content-comment-summary')).toHaveTextContent('2 comments'))
   })
 
+  it('keeps the next-reply-page control reachable when a filtered page is empty', async () => {
+    const rootComment = {
+      id: 'empty-page-root', content: 'Root before an empty reply page', createdAt: '2026-07-20T01:00:00Z',
+      author: { id: '3', username: 'root', displayName: 'Root User', avatarUrl: null, isVerified: false },
+      likeCount: 0, replyCount: 2, viewerHasLiked: false, canFollowAuthor: false, isFollowingAuthor: false, mentions: [], media: null,
+    }
+    const visibleReply = {
+      id: 'visible-after-filter', content: 'Visible reply after filtered records', createdAt: '2026-07-20T01:05:00Z',
+      author: { id: '4', username: 'reply', displayName: 'Reply User', avatarUrl: null, isVerified: false },
+      likeCount: 0, replyCount: 0, viewerHasLiked: false, canFollowAuthor: false, isFollowingAuthor: false, mentions: [], media: null,
+    }
+    socialMocks.getComments.mockImplementation((targetId: string, _limit: number, cursor: string | null) => {
+      if (targetId === '90') return Promise.resolve({ items: [rootComment], endCursor: null, hasNextPage: false })
+      return cursor == null
+        ? Promise.resolve({ items: [], endCursor: '20', hasNextPage: true })
+        : Promise.resolve({ items: [visibleReply], endCursor: null, hasNextPage: false })
+    })
+    render(<ContentActions viewerId="1" contentId="90" post={post} />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: /viewReplies/ }))
+    const loadNextPage = await screen.findByRole('button', { name: 'seeMoreReplies' })
+    expect(loadNextPage).toBeEnabled()
+    fireEvent.click(loadNextPage)
+
+    expect(await screen.findByText('Visible reply after filtered records')).toBeInTheDocument()
+    expect(socialMocks.getComments).toHaveBeenCalledWith('empty-page-root', 20, '20')
+  })
+
+  it('deduplicates root comments when offset pages overlap', async () => {
+    const repeated = {
+      id: 'repeated-root', content: 'Repeated root comment', createdAt: '2026-07-20T01:00:00Z',
+      author: { id: '3', username: 'root', displayName: 'Root User', avatarUrl: null, isVerified: false },
+      likeCount: 0, replyCount: 0, viewerHasLiked: false, canFollowAuthor: false, isFollowingAuthor: false, mentions: [], media: null,
+    }
+    const next = { ...repeated, id: 'next-root', content: 'Next unique root comment' }
+    socialMocks.getComments.mockImplementation((_targetId: string, _limit: number, cursor: string | null) => cursor == null
+      ? Promise.resolve({ items: [repeated], endCursor: '1', hasNextPage: true })
+      : Promise.resolve({ items: [repeated, next], endCursor: null, hasNextPage: false }))
+    render(<ContentActions viewerId="1" contentId="90" post={post} />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+
+    await screen.findByText('Repeated root comment')
+    fireEvent.click(screen.getByRole('button', { name: 'seeMore' }))
+    expect(await screen.findByText('Next unique root comment')).toBeInTheDocument()
+    expect(screen.getAllByText('Repeated root comment')).toHaveLength(1)
+  })
+
   it('uses the own-comment reply copy when the viewer replies to themself', async () => {
     socialMocks.getComments.mockResolvedValue({
       items: [{
@@ -376,6 +431,31 @@ describe('ContentActions refreshed overlays', () => {
     expect(apiMocks.cancelPendingMedia).not.toHaveBeenCalled()
   })
 
+  it('pastes a copied image into the existing one-image comment upload flow', async () => {
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:clipboard-comment') })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+    apiMocks.uploadMediaFiles.mockResolvedValue([{
+      url: 'https://uploads.example.com/comment-clipboard.png', type: 'image', contentType: 'image/png',
+      size: 10, name: 'comment-clipboard.png', assetId: 'asset-comment-clipboard', state: 'pending',
+    }])
+    socialMocks.createComment.mockResolvedValue({ id: 'comment-clipboard' })
+    const { container } = render(<ContentActions viewerId="1" contentId="90" post={post} />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+    const textarea = await screen.findByPlaceholderText('commentAs')
+    const image = new File(['clipboard'], 'comment-clipboard.png', { type: 'image/png' })
+
+    fireEvent.paste(textarea, { clipboardData: {
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => image }],
+      files: [image],
+      getData: () => 'https://example.com/comment-clipboard.png',
+    } })
+    await waitFor(() => expect(container.querySelector('.comment-image-preview img')).toHaveAttribute('src', 'blob:clipboard-comment'))
+    fireEvent.click(screen.getByRole('button', { name: 'sendComment' }))
+
+    await waitFor(() => expect(apiMocks.uploadMediaFiles).toHaveBeenCalledWith([image]))
+    expect(socialMocks.createComment).toHaveBeenCalledWith('1', '90', '', { type: 0, url: 'https://uploads.example.com/comment-clipboard.png' })
+  })
+
   it('shows reel views last and hides the metric when it is zero', async () => {
     const reel: GatewayPost = {
       __typename: 'ReelDetail', id: '91', type: 3, content: 'Reel in home', privacy: 0,
@@ -418,8 +498,7 @@ describe('ContentActions refreshed overlays', () => {
 
   it('sends the canonical content link through a direct Messenger conversation', async () => {
     const friend = { id: '3', username: 'friend', email: '', displayName: 'Friend Name', avatarUrl: null, isVerified: false, bio: null, birthDate: null, gender: null, location: null, createdAt: '', friendCount: 1, postCount: 0 }
-    socialMocks.getRelationProfiles.mockResolvedValue([friend])
-    messengerMocks.createDirectConversation.mockResolvedValue({ id: 'conversation-1' })
+    messengerMocks.conversations.mockResolvedValue([{ id: 'conversation-1', type: 'DIRECT', participants: [{ id: '1', username: 'me', displayName: 'Me', avatarUrl: null }, friend], title: null, avatarUrl: null, updatedAt: '', unreadCount: 0, lastMessage: null }])
     messengerMocks.sendMessage.mockResolvedValue({ id: 'message-1' })
     render(<ContentActions viewerId="1" contentId="90" post={post} />)
 
@@ -427,13 +506,101 @@ describe('ContentActions refreshed overlays', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'sendInMessenger' }))
     const contactName = await screen.findByText('Friend Name')
     fireEvent.click(contactName.closest('button')!)
+    fireEvent.click(screen.getByRole('button', { name: 'send' }))
 
-    await waitFor(() => expect(messengerMocks.createDirectConversation).toHaveBeenCalledWith('3', '1'))
+    await waitFor(() => expect(messengerMocks.sendMessage).toHaveBeenCalled())
+    expect(messengerMocks.createDirectConversation).not.toHaveBeenCalled()
     expect(messengerMocks.sendMessage).toHaveBeenCalledWith('conversation-1', expect.objectContaining({ id: '1' }), { body: `${window.location.origin}/content/90` })
-    expect(await screen.findByText('sentInMessenger')).toBeInTheDocument()
+  })
+
+  it('sends one shared link to multiple direct and group conversations in one action', async () => {
+    const friend = { id: '3', username: 'friend', displayName: 'Friend Name', avatarUrl: null }
+    messengerMocks.conversations.mockResolvedValue([
+      { id: 'direct-1', type: 'DIRECT', participants: [{ id: '1', username: 'me', displayName: 'Me', avatarUrl: null }, friend], title: null, avatarUrl: null, updatedAt: '', unreadCount: 0, lastMessage: null },
+      { id: 'group-1', type: 'GROUP', participants: [{ id: '1', username: 'me', displayName: 'Me', avatarUrl: null }, friend], title: 'Project team', avatarUrl: null, updatedAt: '', unreadCount: 0, lastMessage: null },
+    ])
+    render(<ContentActions viewerId="1" contentId="90" post={post} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'shareAction' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'sendInMessenger' }))
+    fireEvent.click(await screen.findByText('Friend Name'))
+    fireEvent.click(screen.getByText('Project team'))
+    fireEvent.click(screen.getByRole('button', { name: 'send' }))
+
+    await waitFor(() => expect(messengerMocks.sendMessage).toHaveBeenCalledTimes(2))
+    expect(messengerMocks.sendMessage).toHaveBeenCalledWith('direct-1', expect.anything(), { body: `${window.location.origin}/content/90` })
+    expect(messengerMocks.sendMessage).toHaveBeenCalledWith('group-1', expect.anything(), { body: `${window.location.origin}/content/90` })
+  })
+
+  it('keeps only failed Messenger targets selected after a partial send', async () => {
+    const friend = { id: '3', username: 'friend', displayName: 'Friend Name', avatarUrl: null }
+    messengerMocks.conversations.mockResolvedValue([
+      { id: 'direct-1', type: 'DIRECT', participants: [{ id: '1', username: 'me', displayName: 'Me', avatarUrl: null }, friend], title: null, avatarUrl: null, updatedAt: '', unreadCount: 0, lastMessage: null },
+      { id: 'group-1', type: 'GROUP', participants: [{ id: '1', username: 'me', displayName: 'Me', avatarUrl: null }, friend], title: 'Project team', avatarUrl: null, updatedAt: '', unreadCount: 0, lastMessage: null },
+    ])
+    messengerMocks.sendMessage.mockImplementation((conversationId: string) => conversationId === 'group-1'
+      ? Promise.reject(new Error('temporary failure'))
+      : Promise.resolve({ id: 'sent' }))
+    render(<ContentActions viewerId="1" contentId="90" post={post} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'shareAction' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'sendInMessenger' }))
+    fireEvent.click(await screen.findByText('Friend Name'))
+    fireEvent.click(screen.getByText('Project team'))
+    fireEvent.click(screen.getByRole('button', { name: 'send' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('sendInMessengerError')
+    expect(screen.getByText('Friend Name').closest('button')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText('Project team').closest('button')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('opens the selected group composer preview and creates a GroupPost share wrapper', async () => {
+    socialMocks.getMemberGroups.mockResolvedValue({ items: [{ id: 'group-8', name: 'Design group', avatarUrl: null, backgroundUrl: null, privacy: 1, memberCount: 12, adminCount: 1, bio: null, createdAt: '' }], endCursor: null, hasNextPage: false })
+    render(<ContentActions viewerId="1" contentId="90" post={post} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'shareAction' }))
+    const dialog = await screen.findByRole('dialog', { name: 'sharePost' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'shareToGroup' }))
+    fireEvent.click(await within(dialog).findByText('Design group'))
+    expect(within(dialog).getByText('privateGroup')).toBeInTheDocument()
+    const shareToGroupButtons = within(dialog).getAllByRole('button', { name: 'shareToGroup' })
+    fireEvent.click(shareToGroupButtons[shareToGroupButtons.length - 1])
+
+    await waitFor(() => expect(socialMocks.sharePost).toHaveBeenCalledWith('1', '90', '', 0, 'group-8'))
+  })
+
+  it('renders a full unavailable post and disabled discussion shell for an inaccessible deep link', async () => {
+    apiMocks.postDetail.mockResolvedValue(null)
+    render(<ContentDetailOverlay viewerId="1" contentId="missing-post" onClose={vi.fn()} />)
+
+    const dialog = await screen.findByRole('dialog', { name: 'contentUnavailable' })
+    expect(within(dialog).getAllByText('unavailablePostPlaceholder').length).toBeGreaterThan(0)
+    expect(within(dialog).getByText('cannotComment')).toBeInTheDocument()
+    expect(within(dialog).getByPlaceholderText('commentFeatureUnavailable')).toBeDisabled()
+  })
+
+  it('lets the owner change privacy from the post-detail header', async () => {
+    const ownedPost: GatewayPost = {
+      __typename: 'FeedPostDetail', id: 'owned-1', type: 2, content: 'Owned', privacy: 0, create: '2026-07-20T08:00:00Z',
+      author: { id: '1', name: 'Owner', avatar: '', isVerified: false }, media: [], sharedSource: null,
+    }
+    apiMocks.postDetail.mockResolvedValue(ownedPost)
+    socialMocks.updatePost.mockResolvedValue({ id: 'owned-1', privacy: 2 })
+    render(<ContentDetailOverlay viewerId="1" contentId="owned-1" onClose={vi.fn()} />)
+
+    const dialog = await screen.findByRole('dialog', { name: 'comments' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'privacyPublic' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'privacyFriends' }))
+
+    await waitFor(() => expect(socialMocks.updatePost).toHaveBeenCalledWith('owned-1', { privacy: 2 }))
   })
 
   it('returns the fully created shared story so Home can update its tile and unseen ring immediately', async () => {
+    const feedPost: GatewayPost = {
+      __typename: 'FeedPostDetail', id: '90', type: 2, content: 'Original post content', privacy: 0,
+      create: '2026-07-21T08:00:00Z', author: { id: '2', name: 'Original Author', avatar: '', isVerified: false },
+      media: [], sharedSource: null,
+    }
     const story: SharedStory = {
       __typename: 'FeedPostShareStory',
       id: 'story-shared-1',
@@ -448,7 +615,7 @@ describe('ContentActions refreshed overlays', () => {
     }
     apiMocks.createShareStory.mockResolvedValue(story)
     const onStoryCreated = vi.fn()
-    render(<ContentActions viewerId="1" contentId="90" post={post} onStoryCreated={onStoryCreated} />)
+    render(<ContentActions viewerId="1" contentId="90" post={feedPost} onStoryCreated={onStoryCreated} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'shareAction' }))
     fireEvent.click(await screen.findByRole('button', { name: 'shareToStory' }))
@@ -471,7 +638,7 @@ describe('ContentActions refreshed overlays', () => {
       sharedSource: {
         id: 'original-post',
         isAvailable: true,
-        type: 1,
+        type: 2,
         content: 'Original content',
         privacy: 0,
         create: '2026-07-20T08:00:00Z',
@@ -482,7 +649,7 @@ describe('ContentActions refreshed overlays', () => {
     apiMocks.postDetail.mockResolvedValue({
       __typename: 'FeedPostDetail',
       id: 'original-post',
-      type: 1,
+      type: 2,
       content: 'Original content',
       privacy: 0,
       create: '2026-07-20T08:00:00Z',
@@ -502,7 +669,7 @@ describe('ContentActions refreshed overlays', () => {
     expect(within(shareDialog).getByRole('button', { name: 'shareToGroup' })).toBeInTheDocument()
     fireEvent.click(within(shareDialog).getByRole('button', { name: 'shareNow' }))
 
-    await waitFor(() => expect(socialMocks.sharePost).toHaveBeenCalledWith('1', 'original-post', '', 0))
+    await waitFor(() => expect(socialMocks.sharePost).toHaveBeenCalledWith('1', 'original-post', '', 0, null))
   })
 
   it('loads a shared source into the existing post-detail modal without navigating', async () => {
@@ -529,8 +696,31 @@ describe('ContentActions refreshed overlays', () => {
     expect(onNavigate).not.toHaveBeenCalled()
   })
 
-  it('keeps group-post sharing link-only while exposing it from the detail thread', async () => {
-    render(<ContentActions viewerId="1" contentId="90" post={post} canShare canReshare={false} />)
+  it('keeps feed and story sharing available for a private post the viewer can read', async () => {
+    const privatePost: GatewayPost = {
+      __typename: 'FeedPostDetail',
+      id: 'friends-post',
+      type: 1,
+      content: 'Friends-only source',
+      privacy: 2,
+      create: '2026-07-20T08:00:00Z',
+      author: { id: '2', name: 'Friend Author', avatar: '', isVerified: false, canFollow: false },
+      media: [],
+      sharedSource: null,
+    }
+    apiMocks.postDetail.mockResolvedValue(privatePost)
+    socialMocks.getContentEngagement.mockResolvedValue({ targetId: privatePost.id, likeCount: 0, commentCount: 0, shareCount: 0, viewCount: 0, viewerHasLiked: false, viewerHasSaved: false, viewerHasWatched: false })
+    render(<ContentDetailOverlay viewerId="1" contentId={privatePost.id} onClose={vi.fn()} />)
+
+    const thread = await screen.findByRole('dialog', { name: 'comments' })
+    fireEvent.click(within(thread).getByRole('button', { name: 'shareAction' }))
+    const shareDialog = await screen.findByRole('dialog', { name: 'sharePost' })
+    expect(within(shareDialog).getByRole('button', { name: 'shareNow' })).toBeInTheDocument()
+    expect(within(shareDialog).getByRole('button', { name: 'shareToStory' })).toBeInTheDocument()
+  })
+
+  it('allows a visible group post to be shared to feed or group, but not to Story', async () => {
+    render(<ContentActions viewerId="1" contentId="90" post={post} canShare canReshare />)
     fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
 
     const thread = await screen.findByRole('dialog', { name: 'comments' })
@@ -538,8 +728,52 @@ describe('ContentActions refreshed overlays', () => {
 
     const shareDialog = await screen.findByRole('dialog', { name: 'sharePost' })
     expect(within(shareDialog).getByRole('button', { name: 'copyLink' })).toBeInTheDocument()
-    expect(within(shareDialog).queryByRole('button', { name: 'shareNow' })).not.toBeInTheDocument()
+    expect(within(shareDialog).getByRole('button', { name: 'shareNow' })).toBeInTheDocument()
+    expect(within(shareDialog).getByRole('button', { name: 'shareToGroup' })).toBeInTheDocument()
     expect(within(shareDialog).queryByRole('button', { name: 'shareToStory' })).not.toBeInTheDocument()
     expect(socialMocks.sharePost).not.toHaveBeenCalled()
+  })
+
+  it('disables the share action when a private group source is unavailable to the viewer', async () => {
+    const wrapper: GatewayPost = {
+      __typename: 'FeedPostDetail', id: 'private-wrapper', type: 1, content: '', privacy: 0,
+      create: '2026-07-20T08:00:00Z',
+      author: { id: '2', name: 'Wrapper Author', avatar: '', isVerified: false },
+      media: [],
+      sharedSource: {
+        id: 'private-group-post', isAvailable: false, type: 3, content: null, privacy: 1,
+        create: null, author: null, media: [], requiresGroupMembership: true,
+        group: { id: 'private-group', name: 'Private Group', avatar: '', background: '', privacy: 1, memberCount: 20, viewerIsMember: false, joinRequestPending: false },
+      },
+    }
+    render(<ContentActions viewerId="1" contentId={wrapper.id} post={wrapper} canShare canReshare={false} />)
+
+    const shareButton = await screen.findByRole('button', { name: 'shareAction' })
+    expect(shareButton).toBeDisabled()
+    fireEvent.click(shareButton)
+    expect(screen.queryByRole('dialog', { name: 'sharePost' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+    const detail = await screen.findByRole('dialog', { name: 'comments' })
+    expect(within(detail).getByRole('button', { name: 'shareAction' })).toBeDisabled()
+  })
+
+  it('reuses the canonical Group preview when resharing a post that already shares a group', async () => {
+    const wrapper: GatewayPost = {
+      __typename: 'FeedPostDetail', id: 'group-wrapper', type: 1, content: '', privacy: 0,
+      create: '2026-07-20T08:00:00Z',
+      author: { id: '2', name: 'Wrapper Author', avatar: '', isVerified: false },
+      media: [],
+      sharedSource: {
+        id: 'group-source', isAvailable: true, type: 1, content: null, privacy: 1,
+        create: '2026-07-19T08:00:00Z', author: null, media: [],
+        group: { id: 'group-source', name: 'Canonical Group', avatar: '/group.jpg', background: '/cover.jpg', privacy: 1, memberCount: 20, viewerIsMember: true, joinRequestPending: false },
+      },
+    }
+    render(<ContentActions viewerId="1" contentId={wrapper.id} post={wrapper} canShare canReshare />)
+    fireEvent.click(await screen.findByRole('button', { name: 'shareAction' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'sharePost' })
+    expect(within(dialog).getByText('Canonical Group')).toBeInTheDocument()
+    expect(apiMocks.postDetail).not.toHaveBeenCalledWith('group-source')
   })
 })
