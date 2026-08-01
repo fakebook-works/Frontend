@@ -13,7 +13,7 @@ describe('URL media safety', () => {
   })
 
   it('downloads only CORS-readable image responses into a bounded File for the normal upload pipeline', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new Blob(['image'], { type: 'image/png' }), {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('image', {
       status: 200,
       headers: { 'content-type': 'image/png', 'content-length': '5' },
     })))
