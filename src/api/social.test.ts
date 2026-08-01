@@ -10,6 +10,7 @@ vi.mock('./client', () => ({
   },
 }))
 
+import { GROUP_MEMBERSHIP_CHANGED_EVENT, type GroupMembershipChangedDetail } from '../lib/groupMembershipEvents'
 import { socialApi } from './social'
 
 describe('SocialGraph Gateway adapter', () => {
@@ -65,6 +66,10 @@ describe('SocialGraph Gateway adapter', () => {
             id: '11', isAvailable: true, type: 1, content: 'source', privacy: 2, create: '2026-07-28T10:00:00Z',
             author: { id: '3', name: 'Source owner', avatar: '', isVerified: false }, media: [], mentions: [],
           },
+        }, {
+          __typename: 'GroupPostDetail', id: '13', type: 3, content: 'group only', privacy: 1, create: '2026-07-28T10:00:00Z',
+          author: { id: '2', name: 'Owner', avatar: '', isVerified: false, canFollow: false },
+          group: { id: '20', name: 'Private group', avatar: '', canJoin: false }, media: [], mentions: [], taggedUsers: [],
         }, {
           __typename: 'ReelDetail', id: '12', type: 2, content: 'reel', privacy: 1, create: '2026-07-27T10:00:00Z',
           author: { id: '2', name: 'Owner', avatar: '', isVerified: false, canFollow: false }, media: [], mentions: [],
@@ -455,5 +460,68 @@ describe('SocialGraph Gateway adapter', () => {
       content: 'New reel', privacy: 2, aspectRatio: 0.5625, focalPointX: 0.25, focalPointY: 0.75, media: { type: 1, url: '/reel.mp4' },
     })
     expect(reel).toMatchObject({ id: '9007199254740993555', privacy: 2, aspectRatio: 0.5625, focalPointX: 0.25, focalPointY: 0.75 })
+  })
+
+  it('invalidates mounted group views only after a successful leave mutation', async () => {
+    const received: GroupMembershipChangedDetail[] = []
+    const listener = (event: Event) => received.push((event as CustomEvent<GroupMembershipChangedDetail>).detail)
+    window.addEventListener(GROUP_MEMBERSHIP_CHANGED_EVENT, listener)
+    try {
+      gatewayGraphQl.mockResolvedValueOnce({ leaveGroup: true })
+      await expect(socialApi.leaveGroup('9007199254740993123', '9007199254740993999')).resolves.toBe(true)
+      expect(received).toEqual([{ groupId: '9007199254740993999', state: 'left' }])
+
+      gatewayGraphQl.mockResolvedValueOnce({ leaveGroup: false })
+      await expect(socialApi.leaveGroup('9007199254740993123', '9007199254740994000')).resolves.toBe(false)
+      expect(received).toHaveLength(1)
+    } finally {
+      window.removeEventListener(GROUP_MEMBERSHIP_CHANGED_EVENT, listener)
+    }
+  })
+
+  it('loads the privacy-filtered group photo and video gallery through Gateway GraphQL', async () => {
+    gatewayGraphQl.mockResolvedValue({ groupMedia: {
+      items: [
+        { media: { id: '91', type: 0, url: '/photo.jpg' }, contentId: '81', contentType: 3, create: 'now', authorId: '71', groupId: '61' },
+        { media: { id: '92', type: 1, url: '/video.mp4' }, contentId: '82', contentType: 3, create: 'now', authorId: '72', groupId: '61' },
+      ],
+      endCursor: null,
+      hasNextPage: false,
+    } })
+
+    const page = await socialApi.getGroupMedia('61', 50)
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('groupMedia(groupId: 61')
+    expect(page.items.map((item) => item.media.type)).toEqual([0, 1])
+    expect(page.items[1]).toMatchObject({ contentId: '82', authorId: '72', groupId: '61' })
+  })
+
+  it('creates a group post with stable tagged Snowflake IDs and no client-selected privacy', async () => {
+    gatewayGraphQl.mockResolvedValue({ createGroupPost: {
+      id: '81', type: 3, content: 'hello', privacy: 1, create: 'now', authorId: '71', media: [],
+    } })
+
+    await socialApi.createGroupPost('71', '61', { content: 'hello', taggedUserIds: ['9007199254740993123'] })
+
+    const query = gatewayGraphQl.mock.calls[0][0] as string
+    expect(query).toContain('groupId: 61')
+    expect(query).toContain('taggedUserIds: [9007199254740993123]')
+    expect(query).not.toContain('privacy:')
+  })
+
+  it('batches member relationship metadata without accepting a spoofable viewer argument', async () => {
+    gatewayGraphQl.mockResolvedValue({
+      r0: { isFriend: true, isFollowing: false, followsViewer: false, friendRequestSent: false, friendRequestReceived: false, isBlocked: false, isBlockedBy: false },
+      r1: { isFriend: false, isFollowing: true, followsViewer: true, friendRequestSent: false, friendRequestReceived: false, isBlocked: false, isBlockedBy: false },
+    })
+
+    const states = await socialApi.getProfileRelationshipStates('71', ['72', '73'])
+
+    expect(states['72'].friendship).toBe('friend')
+    expect(states['73'].isFollowing).toBe(true)
+    const query = gatewayGraphQl.mock.calls[0][0] as string
+    expect(query).toContain('r0: relationshipState(userId: 72)')
+    expect(query).toContain('r1: relationshipState(userId: 73)')
+    expect(query).not.toContain('viewerId')
   })
 })

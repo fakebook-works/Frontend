@@ -391,9 +391,10 @@ describe('ContentActions refreshed overlays', () => {
   })
 
   it('renders Reel comments in the reusable photo-viewer sidebar without opening a modal', async () => {
+    const longAuthorName = 'Reel Author With A Name That Exceeds The Comment Sidebar Width'
     const reel: GatewayPost = {
       __typename: 'ReelDetail', id: 'reel-sidebar-9007199254740993', type: 3, content: 'Reel discussion', privacy: 0,
-      create: '2026-07-20T01:00:00Z', author: { id: '2', name: 'Reel Author', avatar: '', isVerified: false },
+      create: '2026-07-20T01:00:00Z', author: { id: '2', name: longAuthorName, avatar: '', isVerified: false },
       media: [{ id: 'rm-sidebar', type: 1, url: 'https://uploads.example.com/reel-sidebar.mp4' }],
     }
     const onCommentsOpenChange = vi.fn()
@@ -405,6 +406,8 @@ describe('ContentActions refreshed overlays', () => {
 
     rerender(<ContentActions viewerId="1" contentId={reel.id} post={reel} variant="reel" commentsPresentation="sidebar" commentsOpen onCommentsOpenChange={onCommentsOpenChange} />)
     expect(container.querySelector('.reels-comments-sidebar .photo-detail-discussion')).toBeInTheDocument()
+    expect(container.querySelector('.photo-detail-discussion .thread-post-primary-name')).toHaveTextContent(longAuthorName)
+    expect(container.querySelector('.photo-detail-discussion .post-privacy-hover')).toBeInTheDocument()
     expect(container.querySelector('.reels-comments-sidebar')).toHaveAttribute('aria-label', 'comments')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(await screen.findByText('Reel discussion')).toBeInTheDocument()

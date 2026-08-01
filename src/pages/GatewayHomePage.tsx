@@ -19,11 +19,12 @@ import { PostOptionsMenu } from '../components/PostOptionsMenu'
 import { PostPrivacyIcon, type PostPrivacy } from '../components/PostPrivacyIcon'
 import { SharedPostSourceCard } from '../components/SharedPostSourceCard'
 import { SharedStoryMiniPreview } from '../components/SharedStoryMiniPreview'
-import { StoryImageMedia } from '../components/StoryImageMedia'
+import { StoryMediaPreview } from '../components/StoryMediaPreview'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
 import { groupVisitRelativeTime } from '../lib/format'
+import { GROUP_MEMBERSHIP_CHANGED_EVENT, leftGroupIdFromEvent } from '../lib/groupMembershipEvents'
 import {
   POST_BACKGROUND_PRESETS,
   decodePostContent,
@@ -110,6 +111,7 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
   const leftRailRef = useRef<HTMLElement>(null)
   const rightRailRef = useRef<HTMLElement>(null)
   const initialLoadKeyRef = useRef<string | null>(null)
+  const groupsRequestRef = useRef(0)
 
   useEffect(() => {
     const preloadInteractionChunks = () => {
@@ -180,16 +182,29 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
 
   const loadGroups = useCallback(async () => {
     if (!user) return
+    const requestId = ++groupsRequestRef.current
     setGroupsLoading(true)
     setGroupsError(null)
     try {
-      setGroups((await api.visitedGroups(user.userId, 8)).items)
+      const page = await api.visitedGroups(user.userId, 8)
+      if (groupsRequestRef.current === requestId) setGroups(page.items)
     } catch {
-      setGroupsError(t('genericError'))
+      if (groupsRequestRef.current === requestId) setGroupsError(t('genericError'))
     } finally {
-      setGroupsLoading(false)
+      if (groupsRequestRef.current === requestId) setGroupsLoading(false)
     }
   }, [t, user])
+
+  useEffect(() => {
+    const removeLeftGroup = (event: Event) => {
+      const groupId = leftGroupIdFromEvent(event)
+      if (!groupId) return
+      setGroups((current) => current.filter((group) => group.id !== groupId))
+      void loadGroups()
+    }
+    window.addEventListener(GROUP_MEMBERSHIP_CHANGED_EVENT, removeLeftGroup)
+    return () => window.removeEventListener(GROUP_MEMBERSHIP_CHANGED_EVENT, removeLeftGroup)
+  }, [loadGroups])
 
   const applyCreatedStory = useCallback((story: GatewayStory) => {
     if (!user) return
@@ -564,14 +579,6 @@ function HomeFeedSkeleton({ label }: { label: string }) {
   </article>
 }
 
-function HomeStoryMediaPreview({ type, url }: { type: number; url: string }) {
-  return <span className={`home-story-media-preview${type === 1 ? ' video' : ' image'}`}>
-    {type === 1
-      ? <><span className="story-stage-backdrop" aria-hidden="true"><video src={url} muted playsInline preload="auto" /></span><video className="home-story-video-foreground" src={url} muted playsInline preload="auto" /></>
-      : <StoryImageMedia src={url} onReady={() => undefined} />}
-  </span>
-}
-
 interface ComposerMediaFile {
   file: File
   previewUrl: string
@@ -608,7 +615,14 @@ function PrivacyCaretIcon() {
   </svg>
 }
 
-export function PostComposer({ variant = 'home', userId, displayName, avatarUrl, isVerified, friends, onReel, onCreated, triggerOnly = false, externalOpenRequest = 0 }: { variant?: 'home' | 'profile'; userId: string; displayName: string; avatarUrl: string | null; isVerified?: boolean; friends: UserSummary[]; onReel?: () => void; onCreated: (post: GatewayPost) => void; triggerOnly?: boolean; externalOpenRequest?: number }) {
+function PollComposerIcon({ size = 27 }: { size?: number }) {
+  return <svg className="group-poll-composer-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <circle cx="12" cy="12" r="9.25" fill="currentColor" />
+    <path d="M7.8 13.2h2.05v4H7.8v-4Zm3.18-6.4h2.05v10.4h-2.05V6.8Zm3.18 3.15h2.05v7.25h-2.05V9.95Z" fill="var(--card)" />
+  </svg>
+}
+
+export function PostComposer({ variant = 'home', userId, displayName, avatarUrl, isVerified, friends, groupId = null, groupName = '', groupAvatarUrl = null, groupPrivacy = 0, onReel, onCreated, triggerOnly = false, externalOpenRequest = 0, externalReelOpenRequest = 0 }: { variant?: 'home' | 'profile' | 'group'; userId: string; displayName: string; avatarUrl: string | null; isVerified?: boolean; friends: UserSummary[]; groupId?: string | null; groupName?: string; groupAvatarUrl?: string | null; groupPrivacy?: number; onReel?: () => void; onCreated: (post: GatewayPost) => void; triggerOnly?: boolean; externalOpenRequest?: number; externalReelOpenRequest?: number }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [reelOpen, setReelOpen] = useState(false)
@@ -630,6 +644,7 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   const emojiPickerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const files = selectedFiles.map((item) => item.file)
+  const groupMode = variant === 'group' && Boolean(groupId)
 
   useEffect(() => {
     selectedFilesRef.current = selectedFiles
@@ -642,6 +657,12 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
     setMessage(null)
     setOpen(true)
   }, [externalOpenRequest])
+
+  useEffect(() => {
+    if (externalReelOpenRequest <= 0 || groupMode || onReel) return
+    void loadCreateReelModal()
+    setReelOpen(true)
+  }, [externalReelOpenRequest, groupMode, onReel])
 
   useEffect(() => {
     if (variant === 'home' && !onReel) void loadCreateReelModal()
@@ -684,6 +705,8 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
     { value: 3, label: t('privacyOnlyMe') },
   ]
   const privacyLabel = privacyOptions.find((option) => option.value === privacy)?.label ?? t('privacyPublic')
+  const effectivePrivacy: PostPrivacy = groupMode ? groupPrivacy === 0 ? 0 : 2 : privacy
+  const effectivePrivacyLabel = groupMode ? groupPrivacy === 0 ? t('publicGroup') : t('privateGroup') : privacyLabel
   const selectedBackground = selectedFiles.length === 0 ? getPostBackgroundPreset(backgroundId) : null
   const composerPlaceholder = t('postComposerPersonalPlaceholder', { name: displayName })
   const postEditorClass = selectedBackground
@@ -887,21 +910,28 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
         avatar: person.avatarUrl ?? '',
         isVerified: Boolean(person.isVerified),
       }))
-      const created = await api.createFeedPost({
-        authorId: userId,
-        content: persistedContent,
-        privacy,
-        media: uploaded.map((item) => ({ type: mediaType(item.type), url: item.url })),
-        ...(taggedPeople.length > 0 ? { taggedUserIds: taggedPeople.map((person) => person.id) } : {}),
-      })
+      const media = uploaded.map((item) => ({ type: mediaType(item.type), url: item.url }))
+      const taggedUserIds = taggedPeople.map((person) => person.id)
+      const created = groupMode && groupId
+        ? await socialApi.createGroupPost(userId, groupId, {
+            content: persistedContent,
+            media,
+            ...(taggedUserIds.length > 0 ? { taggedUserIds } : {}),
+          })
+        : await api.createFeedPost({
+            authorId: userId,
+            content: persistedContent,
+            privacy,
+            media,
+            ...(taggedUserIds.length > 0 ? { taggedUserIds } : {}),
+          })
       persisted = true
-      const optimisticPost: GatewayPost = {
-        __typename: 'FeedPostDetail',
+      const optimisticBase = {
         id: created.id,
         type: created.type ?? 1,
         content: created.content ?? persistedContent,
-        privacy: created.privacy ?? privacy,
-        create: created.create ?? new Date().toISOString(),
+        privacy: created.privacy ?? effectivePrivacy,
+        create: ('create' in created ? created.create : created.createdAt) ?? new Date().toISOString(),
         author: {
           id: userId,
           name: displayName,
@@ -916,8 +946,14 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
         })),
         mentions: optimisticMentions,
         taggedUsers: optimisticTaggedUsers,
-        sharedSource: null,
       }
+      const optimisticPost: GatewayPost = groupMode && groupId
+        ? {
+            ...optimisticBase,
+            __typename: 'GroupPostDetail',
+            group: { id: groupId, name: groupName, avatar: groupAvatarUrl ?? '', canJoin: false },
+          }
+        : { ...optimisticBase, __typename: 'FeedPostDetail', sharedSource: null }
       let hydrated: GatewayPost | null = null
       try {
         hydrated = await api.postDetail(created.id)
@@ -961,10 +997,10 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   }
 
   return <>
-    {!triggerOnly && <section className={variant === 'profile' ? 'card gateway-composer home-composer-card profile-composer-card' : 'card gateway-composer home-composer-card'} aria-label={t('createPost')}>
+    {!triggerOnly && <section className={variant === 'home' ? 'card gateway-composer home-composer-card' : variant === 'group' ? 'card gateway-composer home-composer-card profile-composer-card group-profile-composer-card' : 'card gateway-composer home-composer-card profile-composer-card'} aria-label={t('createPost')}>
       <div className="home-composer-row">
         <Avatar name={displayName} src={avatarUrl} size={40} />
-        <button type="button" className="home-composer-prompt" onClick={showComposer}>{t(variant === 'profile' ? 'profilePostPrompt' : 'postComposerPlaceholder')}</button>
+        <button type="button" className="home-composer-prompt" onClick={showComposer}>{t(variant === 'group' ? 'groupPostPrompt' : variant === 'profile' ? 'profilePostPrompt' : 'postComposerPlaceholder')}</button>
         {variant === 'home' && <div className="home-composer-quick-actions">
           <button type="button" className="home-composer-quick-action live" aria-label={t('liveVideo')} title={t('liveVideo')} onClick={() => undefined}><LiveVideoIcon size={29} /></button>
           <label className="home-composer-media" aria-label={t('photoVideo')} title={t('photoVideo')}>
@@ -976,6 +1012,7 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
         </div>}
       </div>
       {variant === 'profile' && <div className="profile-composer-actions"><button type="button" className="live" onClick={showComposer}><LiveVideoIcon size={29} /><span className="profile-composer-action-label">{t('profileLiveVideo')}</span></button><label className="media"><Icon name="photo" size={26} /><span className="profile-composer-action-label">{t('photoVideo')}</span><input key={`profile-quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} /></label><button type="button" className="reel" onClick={showReelComposer}><ReelIcon size={26} filled /><span className="profile-composer-action-label">{t('profileTabReels')}</span></button></div>}
+      {variant === 'group' && <div className="profile-composer-actions group-profile-composer-actions"><button type="button" className="live" onClick={showComposer}><LiveVideoIcon size={29} /><span className="profile-composer-action-label">{t('profileLiveVideo')}</span></button><label className="media"><Icon name="photo" size={26} /><span className="profile-composer-action-label">{t('photoVideo')}</span><input key={`group-quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} /></label><button type="button" className="poll" onClick={showComposer}><PollComposerIcon size={27} /><span className="profile-composer-action-label">{t('groupPoll')}</span></button></div>}
       {message && !open && <p className="form-error home-composer-message">{message}</p>}
     </section>}
 
@@ -985,7 +1022,7 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
         <div className={selectedFiles.length > 0 ? 'home-post-modal-body has-media' : 'home-post-modal-body'}>
           <div className="home-post-author">
             <Avatar name={displayName} src={avatarUrl} size={36} />
-            <div><div className="home-post-author-name"><strong>{displayName}<VerifiedBadge verified={isVerified} size={13} /></strong>{taggedSummary && <span className="home-tagged-summary"> {taggedSummary}</span>}</div><div className="home-post-privacy-picker" ref={privacyPickerRef}><button type="button" className="home-post-privacy-control" aria-label={t('privacy')} aria-haspopup="listbox" aria-expanded={activePicker === 'privacy'} onClick={() => setActivePicker((current) => current === 'privacy' ? null : 'privacy')}><PostPrivacyIcon privacy={privacy} size={14} /><span>{privacyLabel}</span><PrivacyCaretIcon /></button>{activePicker === 'privacy' && <div className="home-post-privacy-menu" role="listbox" aria-label={t('privacy')}>{privacyOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => choosePrivacy(option.value)}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span></button>)}</div>}</div></div>
+            <div><div className="home-post-author-name"><strong>{displayName}<VerifiedBadge verified={isVerified} size={13} /></strong>{taggedSummary && <span className="home-tagged-summary"> {taggedSummary}</span>}</div>{groupMode ? <div className="home-post-privacy-picker group-post-fixed-privacy"><span className="home-post-privacy-control" aria-label={effectivePrivacyLabel}><PostPrivacyIcon privacy={effectivePrivacy} size={14} group /><span>{effectivePrivacyLabel}</span></span></div> : <div className="home-post-privacy-picker" ref={privacyPickerRef}><button type="button" className="home-post-privacy-control" aria-label={t('privacy')} aria-haspopup="listbox" aria-expanded={activePicker === 'privacy'} onClick={() => setActivePicker((current) => current === 'privacy' ? null : 'privacy')}><PostPrivacyIcon privacy={privacy} size={14} /><span>{privacyLabel}</span><PrivacyCaretIcon /></button>{activePicker === 'privacy' && <div className="home-post-privacy-menu" role="listbox" aria-label={t('privacy')}>{privacyOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => choosePrivacy(option.value)}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span></button>)}</div>}</div>}</div>
           </div>
           <div className={postEditorClass} data-replicated-value={selectedFiles.length > 0 ? content || composerPlaceholder : undefined} style={selectedBackground ? { background: selectedBackground.background } : undefined}><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} autoFocus value={content} onChange={(event) => changeMentionContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onSelect={(event) => setMentionCaret(event.currentTarget.selectionStart ?? content.length)} placeholder={composerPlaceholder} rows={selectedFiles.length > 0 ? 1 : 6} /><MentionSuggestions text={content} people={friends} textareaRef={textareaRef} caretIndex={mentionCaret} onSelected={selectMention} />{selectedFiles.length > 0 && renderEmojiPicker(true)}</div>
           {selectedFiles.length > 0 && <div className="home-media-preview-viewport" key={`media-scroll-${fileKey}`}><div className="home-media-preview-scroll"><Suspense fallback={<div className="home-media-preview home-media-preview-loading"><span className="spinner" /></div>}><ComposerMediaPreview items={selectedFiles} fileKey={fileKey} busy={busy} onReplace={(fileList) => selectFiles(fileList, 'replace')} onClear={clearFiles} showClear={false} /></Suspense></div><button type="button" className="home-media-preview-fixed-clear" disabled={busy} aria-label={t('removeMedia')} title={t('removeMedia')} onClick={clearFiles}><Icon name="close" size={18} /></button></div>}
@@ -1074,7 +1111,7 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
             {sharedStory
               ? <SharedStoryMiniPreview source={sharedStory.sharedSource} className="home-shared-story-preview" />
               : preview
-              ? <HomeStoryMediaPreview key={preview.url} type={preview.type} url={preview.url} />
+              ? <StoryMediaPreview key={preview.url} type={preview.type} url={preview.url} />
               : <span className="story-text-preview" style={{ background: sharedBackground?.background ?? ('backgroundColor' in decodedContent ? decodedContent.backgroundColor : undefined) }}>{decodedContent.text || t('stories')}</span>}
             {!sharedStory && preview && decodedContent.text && <p className="home-story-caption-preview">{decodedContent.text}</p>}
             <span className={`story-avatar-ring${unseen ? ' unseen' : ''}`}><Avatar name={bucket.author.name} src={bucket.author.avatar || null} size={32} /></span>
@@ -1233,7 +1270,7 @@ function PostPrivacyControl({ privacy, label, options, busy, onSelect }: { priva
   </>
 }
 
-export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage, onStoryCreated, authorPath }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string }) {
+export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage, onStoryCreated, authorPath, groupContextId, viewerCanModerateGroupPosts = false }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string; groupContextId?: string; viewerCanModerateGroupPosts?: boolean }) {
   const { t } = useI18n()
   const [current, setCurrent] = useState(post)
   const [deleting, setDeleting] = useState(false)
@@ -1256,10 +1293,11 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
   if (removed) return null
   const timestamp = formatPostTimestamp(current.create, locale)
   const owned = viewerId != null && viewerId === current.author.id
+  const inOwningGroupContext = current.__typename === 'GroupPostDetail' && current.group.id === groupContextId
   const isFeedLike = current.__typename !== 'GroupPostDetail'
   const openAuthor = () => onNavigate?.(authorPath?.(current.author.id) ?? `/profile/${current.author.id}`)
   const canFollow = isFeedLike && !owned && (Boolean(current.author.canFollow) || followingFromCard)
-  const canJoin = current.__typename === 'GroupPostDetail' && (Boolean(current.group.canJoin) || joinRequestedFromCard)
+  const canJoin = current.__typename === 'GroupPostDetail' && !inOwningGroupContext && (Boolean(current.group.canJoin) || joinRequestedFromCard)
   const postPrivacy: PostPrivacy = current.privacy === 1 || current.privacy === 2 || current.privacy === 3 ? current.privacy : 0
   const privacyLabel = current.__typename === 'GroupPostDetail'
     ? current.privacy === 0 ? t('publicGroup') : t('privateGroup')
@@ -1270,9 +1308,7 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
     { value: 2, label: t('privacyFriends') },
     { value: 3, label: t('privacyOnlyMe') },
   ]
-  const taggedUsers = current.__typename === 'FeedPostDetail'
-    ? (current.taggedUsers ?? []).filter((person) => person.id !== current.author.id)
-    : []
+  const taggedUsers = (current.taggedUsers ?? []).filter((person) => person.id !== current.author.id)
   const decodedContent = decodePostContent(current.content)
   const postBackground = current.media.length === 0 ? getPostBackgroundPreset(decodedContent.backgroundId) : null
   const hasSharedSource = current.__typename === 'FeedPostDetail' && Boolean(current.sharedSource)
@@ -1337,17 +1373,17 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
 
   return <>
     <article className={`card gateway-post${hasSharedSource ? ' has-shared-source' : ''}`}>
-      <header className={current.__typename === 'GroupPostDetail' ? 'group-feed-post-head' : 'feed-post-head'}>
-        {current.__typename === 'GroupPostDetail' ? <button type="button" className="post-author-avatar" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><GroupPostAvatar groupName={current.group.name} groupAvatar={current.group.avatar || null} userName={current.author.name} userAvatar={current.author.avatar || null} size={40} /></button> : <button type="button" className="post-author-avatar" onClick={openAuthor}><Avatar name={current.author.name} src={current.author.avatar || null} size={40} /></button>}
+      <header className={current.__typename === 'GroupPostDetail' ? `group-feed-post-head${inOwningGroupContext ? ' group-profile-owning-context' : ''}` : 'feed-post-head'}>
+        {current.__typename === 'GroupPostDetail' && !inOwningGroupContext ? <button type="button" className="post-author-avatar" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><GroupPostAvatar groupName={current.group.name} groupAvatar={current.group.avatar || null} userName={current.author.name} userAvatar={current.author.avatar || null} size={40} /></button> : <button type="button" className="post-author-avatar" onClick={openAuthor}><Avatar name={current.author.name} src={current.author.avatar || null} size={40} /></button>}
         <div className="post-head-copy">
           <div className="post-head-primary">
-            {current.__typename === 'GroupPostDetail' ? <button type="button" className="post-group-link" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><strong>{current.group.name}</strong></button> : <button type="button" className="post-author-name" onClick={openAuthor}><strong>{current.author.name}<VerifiedBadge verified={current.author.isVerified} /></strong></button>}
+            {current.__typename === 'GroupPostDetail' && !inOwningGroupContext ? <button type="button" className="post-group-link" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><strong>{current.group.name}</strong></button> : <button type="button" className="post-author-name" onClick={openAuthor}><strong>{current.author.name}<VerifiedBadge verified={current.author.isVerified} /></strong></button>}
             <TaggedUsersInline users={taggedUsers} onNavigate={onNavigate} />
             {canFollow && <button type="button" className={followingFromCard ? 'post-inline-action is-settled' : 'post-inline-action'} disabled={relationshipBusy} onClick={() => void followAuthor()}><span>{t(followingFromCard ? 'following' : 'follow')}</span></button>}
             {canJoin && <button type="button" className={joinRequestedFromCard ? 'post-inline-action is-settled' : 'post-inline-action'} disabled={relationshipBusy} onClick={() => void joinGroup()}><span>{t(joinRequestedFromCard ? 'joinRequested' : 'joinGroup')}</span></button>}
           </div>
           <span className="post-head-meta">
-            {current.__typename === 'GroupPostDetail' && <><button type="button" className="post-meta-author" onClick={openAuthor}>{current.author.name}<VerifiedBadge verified={current.author.isVerified} size={12} /></button><i>·</i></>}
+            {current.__typename === 'GroupPostDetail' && !inOwningGroupContext && <><button type="button" className="post-meta-author" onClick={openAuthor}>{current.author.name}<VerifiedBadge verified={current.author.isVerified} size={12} /></button><i>·</i></>}
             <HoverTooltip label={timestamp.detail} className="post-meta-hover post-time-hover"><time dateTime={current.create}>{timestamp.display}</time></HoverTooltip>
             <i>·</i>
             {owned && isFeedLike
@@ -1356,7 +1392,7 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
           </span>
         </div>
         <div className="post-header-actions">
-          {(viewerId || owned) && <PostOptionsMenu post={current} viewerId={viewerId} owned={owned} onDelete={() => setDeleting(true)} onPostHidden={() => setRemoved(true)} />}
+          {(viewerId || owned) && <PostOptionsMenu post={current} viewerId={viewerId} owned={owned} canDelete={owned || (inOwningGroupContext && viewerCanModerateGroupPosts)} onDelete={() => setDeleting(true)} onPostHidden={() => setRemoved(true)} />}
           <button type="button" className="post-header-icon" aria-label={t('hidePost')} title={t('hidePost')} onClick={() => setRemoved(true)}><Icon name="close" size={20} /></button>
         </div>
       </header>

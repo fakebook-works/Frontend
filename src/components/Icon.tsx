@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { FriendPeopleGlyph, FriendPersonActionGlyph, FriendPersonGlyph, FriendPersonShape } from './FriendPeopleGlyph'
 
 // Filled glyph set used across the UI. Single-path 24x24 icons drawn with
 // currentColor so callers control size/color via CSS.
@@ -165,10 +166,9 @@ export function FriendsShortcutIcon({ size = 20, className }: { size?: number; c
           <stop offset="1" stopColor="#ef5e6f" />
         </linearGradient>
       </defs>
-      <circle cx="16.85" cy="7.55" r="3.15" fill={`url(#${backGradientId})`} />
-      <path d="M12.9 19.95v-1.02c0-3.14 1.78-5.25 4.35-5.25s4.55 2.11 4.55 5.25v1.02H12.9Z" fill={`url(#${backGradientId})`} stroke={`url(#${backGradientId})`} strokeWidth="0.85" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="8.65" cy="7.75" r="4.05" fill={`url(#${frontGradientId})`} />
-      <path d="M1.75 21v-1.18c0-4.02 2.96-6.65 6.9-6.65s6.9 2.63 6.9 6.65V21H1.75Z" fill={`url(#${frontGradientId})`} stroke={`url(#${frontGradientId})`} strokeWidth="0.85" strokeLinecap="round" strokeLinejoin="round" />
+      <g fill={`url(#${backGradientId})`}><FriendPersonShape transform="translate(15 11.5) scale(.9)" /></g>
+      <FriendPersonShape className="friends-shortcut-separator" transform="translate(8 14.4) scale(.9)" />
+      <g fill={`url(#${frontGradientId})`}><FriendPersonShape transform="translate(8 14.4) scale(.9)" /></g>
     </svg>
   )
 }
@@ -280,6 +280,11 @@ export function Icon({
   size?: number
   className?: string
 }) {
+  if (name === 'friends') return <FriendPeopleGlyph className={className} filled size={size} />
+  if (name === 'user') return <FriendPersonGlyph className={className} size={size} />
+  if (name === 'userPlus') return <FriendPersonActionGlyph action="add" className={className} size={size} />
+  if (name === 'userMinus') return <FriendPersonActionGlyph action="remove" className={className} size={size} />
+  if (name === 'block') return <FriendPersonActionGlyph action="block" className={className} size={size} />
   const outline = name === 'likeOutline' || name === 'commentOutline' || name === 'shareOutline' || name === 'sticker' || name === 'link' || name === 'compose'
   return (
     <svg

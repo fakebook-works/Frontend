@@ -1,3 +1,4 @@
+import { notifyGroupLeft } from '../lib/groupMembershipEvents'
 import { gatewayGraphQl, graphQlLongLiteral } from './client'
 import type { GatewayMedia, GatewayMention, GatewayPost } from './gatewayTypes'
 import type { UserProfile, UserSummary } from './types'
@@ -188,6 +189,7 @@ const POST_FIELDS = `
   ... on GroupPostDetail {
     id type content privacy create
     mentions { userId name available }
+    taggedUsers { id name avatar isVerified }
     author { id name avatar isVerified canFollow }
     group { id name avatar canJoin }
     media { id type url }
@@ -197,6 +199,7 @@ const GROUP_POST_FIELDS = `
   __typename
   id type content privacy create
   mentions { userId name available }
+  taggedUsers { id name avatar isVerified }
   author { id name avatar isVerified canFollow }
   group { id name avatar canJoin }
   media { id type url }
@@ -411,7 +414,12 @@ export async function getProfilePosts(userId: string, limit = 12, cursor: string
     }`,
     { limit, cursor },
   )
-  return { ...data.profilePosts, items: data.profilePosts.items.map(postFromGraphQl) }
+  return {
+    ...data.profilePosts,
+    items: data.profilePosts.items
+      .map(postFromGraphQl)
+      .filter((post) => post.__typename === 'FeedPostDetail' || post.__typename === 'ReelDetail'),
+  }
 }
 
 export async function getProfileReels(userId: string, limit = 20, cursor: string | null = null): Promise<{ items: SocialContent[]; endCursor: string | null; hasNextPage: boolean }> {
@@ -481,6 +489,17 @@ export async function getGroupPhotos(groupId: string, limit = 60, cursor: string
     { limit, cursor },
   )
   return photoPageFromGraphQl(data.groupPhotos)
+}
+
+export async function getGroupMedia(groupId: string, limit = 60, cursor: string | null = null): Promise<SocialPage<SocialPhoto>> {
+  const group = graphQlLongLiteral(groupId)
+  const data = await gatewayGraphQl<{ groupMedia: PhotoPageGraphQl }>(
+    `query GroupMedia($limit: Int!, $cursor: String) {
+      groupMedia(groupId: ${group}, limit: $limit, cursor: $cursor) { ${PHOTO_PAGE_FIELDS} }
+    }`,
+    { limit, cursor },
+  )
+  return photoPageFromGraphQl(data.groupMedia)
 }
 
 export async function getGroupUserPhotos(groupId: string, userId: string, limit = 60, cursor: string | null = null): Promise<SocialPage<SocialPhoto>> {
@@ -647,6 +666,40 @@ export async function getProfileRelationshipState(viewerId: string, targetId: st
     isBlocked: state.isBlocked,
     isBlockedBy: state.isBlockedBy,
   }
+}
+
+export async function getProfileRelationshipStates(viewerId: string, targetIds: string[]): Promise<Record<string, ProfileRelationshipState>> {
+  graphQlLongLiteral(viewerId)
+  const ids = [...new Set(targetIds.filter((id) => id !== viewerId))].slice(0, 100)
+  if (ids.length === 0) return {}
+  const selections = ids.map((id, index) => `r${index}: relationshipState(userId: ${graphQlLongLiteral(id)}) {
+    isFriend isFollowing followsViewer friendRequestSent friendRequestReceived isBlocked isBlockedBy
+  }`).join('\n')
+  const data = await gatewayGraphQl<Record<string, {
+    isFriend: boolean
+    isFollowing: boolean
+    followsViewer: boolean
+    friendRequestSent: boolean
+    friendRequestReceived: boolean
+    isBlocked: boolean
+    isBlockedBy: boolean
+  } | null>>(`query RelationshipStates { ${selections} }`)
+  return Object.fromEntries(ids.map((id, index) => {
+    const state = data[`r${index}`]
+    return [id, state ? {
+      friendship: state.isFriend ? 'friend' : state.friendRequestSent ? 'outgoing' : state.friendRequestReceived ? 'incoming' : 'none',
+      isFollowing: state.isFollowing,
+      followsViewer: state.followsViewer,
+      isBlocked: state.isBlocked,
+      isBlockedBy: state.isBlockedBy,
+    } satisfies ProfileRelationshipState : {
+      friendship: 'none',
+      isFollowing: false,
+      followsViewer: false,
+      isBlocked: false,
+      isBlockedBy: false,
+    } satisfies ProfileRelationshipState]
+  }))
 }
 
 async function getGroupMembershipPage(userId: string, field: 'memberGroups' | 'adminGroups', limit = 50, cursor: string | null = null): Promise<GroupMembershipPage> {
@@ -1123,6 +1176,7 @@ export async function leaveGroup(viewerId: string, groupId: string): Promise<boo
   const data = await gatewayGraphQl<{ leaveGroup: boolean }>(
     `mutation { leaveGroup(userId: ${viewer}, groupId: ${group}) }`,
   )
+  if (data.leaveGroup) notifyGroupLeft(groupId)
   return data.leaveGroup
 }
 
@@ -1200,12 +1254,13 @@ export async function createReel(viewerId: string, input: { content: string; pri
   return { ...contentFromGraphQl(data.createReel), privacy: input.privacy, aspectRatio: input.aspectRatio, focalPointX: input.focalPointX, focalPointY: input.focalPointY }
 }
 
-export async function createGroupPost(viewerId: string, groupId: string, input: { content: string; media?: Array<{ type: number; url: string }> }): Promise<SocialContent> {
+export async function createGroupPost(viewerId: string, groupId: string, input: { content: string; media?: Array<{ type: number; url: string }>; taggedUserIds?: string[] }): Promise<SocialContent> {
   const viewer = graphQlLongLiteral(viewerId)
   const group = graphQlLongLiteral(groupId)
+  const taggedUserIds = [...new Set(input.taggedUserIds ?? [])].map(graphQlLongLiteral).join(', ')
   const data = await gatewayGraphQl<{ createGroupPost: Record<string, unknown> }>(
     `mutation CreateGroupPost($content: String!, $media: [MediaInput!]) {
-      createGroupPost(input: { authorId: ${viewer}, groupId: ${group}, content: $content, media: $media }) { ${CONTENT_FIELDS} }
+      createGroupPost(input: { authorId: ${viewer}, groupId: ${group}, content: $content, media: $media, taggedUserIds: [${taggedUserIds}] }) { ${CONTENT_FIELDS} }
     }`,
     { content: input.content, media: input.media ?? null },
   )
@@ -1340,6 +1395,7 @@ export const socialApi = {
   getProfileReels,
   getUserPhotos,
   getGroupPhotos,
+  getGroupMedia,
   getGroupUserPhotos,
   getMyFeedPhotoCandidates,
   getGroupPhotoCandidates,
@@ -1349,6 +1405,7 @@ export const socialApi = {
   getProfileConnections,
   getFriendSuggestions,
   getProfileRelationshipState,
+  getProfileRelationshipStates,
   getMemberGroups,
   getAdminGroups,
   getPendingGroupJoins,

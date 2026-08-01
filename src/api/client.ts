@@ -588,6 +588,7 @@ const HOME_POST_FIELDS = `
   ... on GroupPostDetail {
     id type content privacy create
     mentions { userId name available }
+    taggedUsers { id name avatar isVerified }
     author { id name avatar isVerified canFollow }
     group { id name avatar canJoin }
     media { id type url }

@@ -1,26 +1,31 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api/client'
+import { searchLocations, type LocationSuggestion } from '../api/locationSearch'
 import type { GatewayPost, GatewayStory, StoryBucket } from '../api/gatewayTypes'
 import type { MediaUpload } from '../api/types'
 import { socialApi, type ProfileRelationshipState, type SocialContent, type SocialGroup, type SocialPhoto, type SocialProfile } from '../api/social'
 import { searchApi } from '../api/search'
 import { Avatar } from '../components/Avatar'
 import { AnchoredMenuPortal } from '../components/AnchoredMenuPortal'
+import { FriendPersonActionGlyph } from '../components/FriendPeopleGlyph'
 import { Icon } from '../components/Icon'
-import { MentionContent } from '../components/MentionContent'
-import { PostPrivacyIcon, type PostPrivacy } from '../components/PostPrivacyIcon'
+import { PostPrivacyIcon } from '../components/PostPrivacyIcon'
+import { ProfilePostGridCard, ProfilePostGridIcon, ProfilePostListIcon } from '../components/ProfilePostGrid'
 import { SharedStoryMiniPreview } from '../components/SharedStoryMiniPreview'
+import { StoryMediaPreview } from '../components/StoryMediaPreview'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import type { PostPhotoViewerMediaEntry } from '../components/PostPhotoViewer'
 import { useI18n } from '../i18n'
 import { cropImageFile } from '../lib/imageCrop'
 import { forgetOwnUnseenStory, reconcileOwnUnseenStories, rememberOwnUnseenStory } from '../lib/ownStoryUnseen'
-import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
-import { formatPostTimestamp } from '../lib/postTime'
+import { decodePostContent } from '../lib/postContent'
+import { groupProfilePostsByMonth } from '../lib/profilePostGrid'
 import { decodeStoryContent } from '../lib/storyContent'
 import { useInlineImageCrop } from '../lib/useInlineImageCrop'
+import { useImageAmbientColor } from '../lib/useImageAmbientColor'
 import { GatewayPostCard, PostComposer } from './GatewayHomePage'
+import { birthDateBounds, isAllowedBirthDate } from './birthDate'
 
 const StoryViewerPage = lazy(() => import('../components/StoryViewerPage').then((module) => ({ default: module.StoryViewerPage })))
 const StoryCreatorModal = lazy(() => import('../components/StoryCreatorModal').then((module) => ({ default: module.StoryCreatorModal })))
@@ -62,58 +67,12 @@ interface ProfileMediaViewerState {
   entries: PostPhotoViewerMediaEntry[]
 }
 
-interface ProfilePostMonthGroup {
-  id: string
-  label: string
-  posts: GatewayPost[]
-}
-
-interface ProfileGridMediaSource {
-  contentId: string
-  media: GatewayPost['media']
-}
-
-function normalizePostPrivacy(value: number): PostPrivacy {
-  return Math.min(3, Math.max(0, Math.trunc(Number(value) || 0))) as PostPrivacy
-}
-
-function profileGridMediaSource(post: GatewayPost): ProfileGridMediaSource {
-  if (post.media.length > 0) return { contentId: post.id, media: post.media }
-  if (post.__typename === 'FeedPostDetail' && post.sharedSource?.isAvailable && post.sharedSource.media.length > 0) {
-    return { contentId: post.sharedSource.id, media: post.sharedSource.media }
-  }
-  return { contentId: post.id, media: [] }
-}
-
-function groupProfilePostsByMonth(posts: GatewayPost[], locale: string): ProfilePostMonthGroup[] {
-  const groups = new Map<string, ProfilePostMonthGroup>()
-  for (const post of posts) {
-    const created = new Date(post.create)
-    const valid = !Number.isNaN(created.getTime())
-    const id = valid ? `${created.getFullYear()}-${String(created.getMonth() + 1).padStart(2, '0')}` : 'unknown'
-    let group = groups.get(id)
-    if (!group) {
-      const formatted = valid
-        ? new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(created)
-        : post.create
-      group = {
-        id,
-        label: formatted ? `${formatted.charAt(0).toLocaleUpperCase(locale)}${formatted.slice(1)}` : '',
-        posts: [],
-      }
-      groups.set(id, group)
-    }
-    group.posts.push(post)
-  }
-  return [...groups.values()]
-}
-
 async function loadAllProfileFeedPosts(userId: string): Promise<GatewayPost[]> {
   const posts: GatewayPost[] = []
   let cursor: string | null = null
   for (let pageIndex = 0; pageIndex < 20; pageIndex++) {
     const page = await socialApi.getProfilePosts(userId, 40, cursor)
-    posts.push(...page.items.filter((post) => post.__typename !== 'ReelDetail'))
+    posts.push(...page.items.filter((post) => post.__typename === 'FeedPostDetail'))
     if (!page.hasNextPage || !page.endCursor) break
     cursor = page.endCursor
   }
@@ -127,14 +86,17 @@ function buildProfileMediaEntries(posts: GatewayPost[]): PostPhotoViewerMediaEnt
 }
 
 function profilePhotoPreviewCornerClass(index: number, total: number) {
-  const lastIndex = total - 1
-  const lastRowStart = Math.floor(lastIndex / 3) * 3
+  const columnCount = 3
+  const row = Math.floor(index / columnCount)
+  const rowStart = row * columnCount
+  const rowEnd = Math.min(rowStart + columnCount - 1, total - 1)
+  const lastRow = Math.floor((total - 1) / columnCount)
+  const hasPhotoBelow = index + columnCount < total
   const classes: string[] = []
   if (index === 0) classes.push('round-top-left')
-  if (index === Math.min(2, lastIndex)) classes.push('round-top-right')
-  if (index === lastRowStart) classes.push('round-bottom-left')
-  if (index === lastIndex) classes.push('round-bottom-right')
-  if (total % 3 !== 0 && index === lastIndex) classes.push('round-trailing-right')
+  if (row === 0 && index === rowEnd) classes.push('round-top-right')
+  if (row === lastRow && index === rowStart) classes.push('round-bottom-left')
+  if (index === rowEnd && !hasPhotoBelow) classes.push('round-bottom-right')
   return classes.join(' ')
 }
 
@@ -260,6 +222,250 @@ function ProfilePageSkeleton() {
   </main>
 }
 
+type ProfileAboutEditableField = 'bio' | 'location' | 'birthDate' | 'gender'
+type ProfileAboutEditTarget = ProfileAboutEditableField | 'all'
+
+function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEdit: boolean }) {
+  const { t, locale } = useI18n()
+  const [current, setCurrent] = useState(profile)
+  const [editTarget, setEditTarget] = useState<ProfileAboutEditTarget | null>(null)
+  const [bio, setBio] = useState(profile.bio ?? '')
+  const [location, setLocation] = useState(profile.location ?? '')
+  const [birthDate, setBirthDate] = useState(profile.birthDate ?? '')
+  const [gender, setGender] = useState(profile.gender === 'male' ? 'male' : 'female')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([])
+  const [locationSuggestionsLoading, setLocationSuggestionsLoading] = useState(false)
+  const [locationSuggestionsError, setLocationSuggestionsError] = useState(false)
+  const [locationQueryTouched, setLocationQueryTouched] = useState(false)
+  const [locationActiveIndex, setLocationActiveIndex] = useState(-1)
+  const [genderMenuOpen, setGenderMenuOpen] = useState(false)
+  const birthDateInputRef = useRef<HTMLInputElement>(null)
+  const locationListboxId = useId()
+  const dateBounds = useMemo(() => birthDateBounds(), [])
+
+  useEffect(() => {
+    setCurrent(profile)
+    setBio(profile.bio ?? '')
+    setLocation(profile.location ?? '')
+    setBirthDate(profile.birthDate ?? '')
+    setGender(profile.gender === 'male' ? 'male' : 'female')
+    setGenderMenuOpen(false)
+    setEditTarget(null)
+  }, [profile])
+
+  useEffect(() => {
+    if ((editTarget !== 'location' && editTarget !== 'all') || !locationQueryTouched || location.trim().length < 3) {
+      setLocationSuggestions([])
+      setLocationSuggestionsLoading(false)
+      setLocationSuggestionsError(false)
+      setLocationActiveIndex(-1)
+      return
+    }
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      setLocationSuggestionsLoading(true)
+      setLocationSuggestionsError(false)
+      searchLocations(location, controller.signal).then((items) => {
+        if (controller.signal.aborted) return
+        setLocationSuggestions(items)
+        setLocationActiveIndex(-1)
+      }).catch((requestError: unknown) => {
+        if (controller.signal.aborted || (requestError instanceof DOMException && requestError.name === 'AbortError')) return
+        setLocationSuggestions([])
+        setLocationSuggestionsError(true)
+      }).finally(() => {
+        if (!controller.signal.aborted) setLocationSuggestionsLoading(false)
+      })
+    }, 380)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [editTarget, location, locationQueryTouched])
+
+  function beginEdit(target: ProfileAboutEditTarget) {
+    setBio(current.bio ?? '')
+    setLocation(current.location ?? '')
+    setBirthDate(current.birthDate ?? '')
+    setGender(current.gender === 'male' ? 'male' : 'female')
+    setError(null)
+    setLocationQueryTouched(false)
+    setLocationSuggestions([])
+    setLocationSuggestionsError(false)
+    setLocationActiveIndex(-1)
+    setGenderMenuOpen(false)
+    setEditTarget(target)
+  }
+
+  function cancel() {
+    setEditTarget(null)
+    setError(null)
+    setBio(current.bio ?? '')
+    setLocation(current.location ?? '')
+    setBirthDate(current.birthDate ?? '')
+    setGender(current.gender === 'male' ? 'male' : 'female')
+    setLocationQueryTouched(false)
+    setLocationSuggestions([])
+    setLocationSuggestionsError(false)
+    setLocationActiveIndex(-1)
+    setGenderMenuOpen(false)
+  }
+
+  function removeValue(target: ProfileAboutEditableField | 'all') {
+    if (target === 'all' || target === 'bio') setBio('')
+    if (target === 'all' || target === 'location') setLocation('')
+    if (target === 'all' || target === 'birthDate') setBirthDate('')
+  }
+
+  const changed = bio.trim() !== (current.bio ?? '').trim()
+    || location.trim() !== (current.location ?? '').trim()
+    || birthDate !== (current.birthDate ?? '')
+    || gender !== (current.gender === 'male' ? 'male' : 'female')
+  const birthDateInvalid = Boolean(birthDate) && !isAllowedBirthDate(birthDate)
+
+  async function save() {
+    if (!changed || busy) return
+    if (birthDateInvalid) {
+      setError(t('birthDateAgeError'))
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await socialApi.updateProfile(current.id, {
+        name: current.displayName,
+        bio: bio.trim(),
+        location: location.trim(),
+        birthdate: birthDate,
+        gender: gender === 'male',
+      })
+      if (!updated) throw new Error('Missing profile update')
+      const merged: SocialProfile = { ...current, ...updated, email: current.email }
+      setCurrent(merged)
+      setEditTarget(null)
+      setGenderMenuOpen(false)
+      window.dispatchEvent(new CustomEvent('fakebook:profile-updated', { detail: merged }))
+    } catch {
+      setError(t('profileUpdateError'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const created = current.createdAt && !Number.isNaN(new Date(current.createdAt).getTime())
+    ? new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(current.createdAt))
+    : current.createdAt || t('notAvailable')
+  const editingAll = editTarget === 'all'
+
+  function editorActions(target: ProfileAboutEditableField | 'all', placement: 'header' | 'inline') {
+    const removable = target === 'bio'
+    const removeDisabled = busy || (target === 'bio' && !bio.trim()) || (target === 'location' && !location.trim()) || (target === 'birthDate' && !birthDate) || (target === 'all' && !bio.trim() && !location.trim() && !birthDate)
+    return <div className={`profile-about-edit-actions ${placement}`}>
+      {removable && <button type="button" className="profile-about-remove" disabled={removeDisabled} onClick={() => removeValue(target)}>{t('remove')}</button>}
+      <span className="profile-about-commit-actions"><button type="button" className="profile-about-cancel" disabled={busy} onClick={cancel}>{t('cancel')}</button><button type="button" className="profile-about-save" disabled={busy || !changed || birthDateInvalid} onClick={() => void save()}>{busy ? t('saving') : t('save')}</button></span>
+    </div>
+  }
+
+  function chooseLocation(suggestion: LocationSuggestion) {
+    setLocation(suggestion.value)
+    setLocationQueryTouched(false)
+    setLocationSuggestions([])
+    setLocationActiveIndex(-1)
+  }
+
+  function handleLocationKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Escape') {
+      setLocationQueryTouched(false)
+      setLocationSuggestions([])
+      setLocationActiveIndex(-1)
+      return
+    }
+    if (locationSuggestions.length === 0) return
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      setLocationActiveIndex((currentIndex) => event.key === 'ArrowDown'
+        ? (currentIndex + 1) % locationSuggestions.length
+        : currentIndex <= 0 ? locationSuggestions.length - 1 : currentIndex - 1)
+      return
+    }
+    if (event.key === 'Enter' && locationActiveIndex >= 0) {
+      event.preventDefault()
+      chooseLocation(locationSuggestions[locationActiveIndex])
+    }
+  }
+
+  function openBirthDatePicker() {
+    const input = birthDateInputRef.current
+    if (!input) return
+    input.focus()
+    try {
+      if (typeof input.showPicker === 'function') input.showPicker()
+      else input.click()
+    } catch {
+      input.click()
+    }
+  }
+
+  function fieldEditor(field: ProfileAboutEditableField) {
+    const autoFocus = editTarget === field || (editingAll && field === 'bio')
+    const locationPopoverOpen = locationQueryTouched && location.trim().length >= 3
+    const hasLocationOptions = locationPopoverOpen && !locationSuggestionsLoading && !locationSuggestionsError && locationSuggestions.length > 0
+    const birthDateErrorId = `${locationListboxId}-birth-date-error`
+    const control = field === 'bio' ? <textarea autoFocus={autoFocus} rows={2} maxLength={500} value={bio} onChange={(event) => setBio(event.target.value)} aria-label={t('bio')} spellCheck={false} data-gramm="false" data-gramm_editor="false" />
+      : field === 'location' ? <div className="profile-about-location-field" onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setLocationQueryTouched(false)
+          setLocationSuggestions([])
+          setLocationActiveIndex(-1)
+        }
+      }}><input
+          autoFocus={autoFocus}
+          role="combobox"
+          value={location}
+          maxLength={160}
+          onChange={(event) => { setLocation(event.target.value); setLocationQueryTouched(true); setLocationActiveIndex(-1) }}
+          onFocus={() => { if (location.trim().length >= 3) setLocationQueryTouched(true) }}
+          onKeyDown={handleLocationKeyDown}
+          aria-label={t('location')}
+          aria-autocomplete="list"
+          aria-expanded={locationPopoverOpen}
+          aria-controls={hasLocationOptions ? locationListboxId : undefined}
+          aria-activedescendant={hasLocationOptions && locationActiveIndex >= 0 ? `${locationListboxId}-option-${locationActiveIndex}` : undefined}
+          autoComplete="off"
+          spellCheck={false}
+        />{locationPopoverOpen && <div className="profile-about-location-results">{locationSuggestionsLoading ? <div className="profile-about-location-state" role="status" aria-label={t('loading')}><span className="spinner" /></div> : locationSuggestionsError ? <p role="status">{t('locationSuggestionsError')}</p> : locationSuggestions.length > 0 ? <><div className="profile-about-location-options" id={locationListboxId} role="listbox" aria-label={t('locationSuggestions')}>{locationSuggestions.map((suggestion, index) => <button type="button" id={`${locationListboxId}-option-${index}`} role="option" aria-selected={locationActiveIndex === index} key={suggestion.id} onMouseEnter={() => setLocationActiveIndex(index)} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseLocation(suggestion)}><span><ProfileLocationIcon /></span><span><strong>{suggestion.label}</strong>{suggestion.detail && <small>{suggestion.detail}</small>}</span></button>)}</div><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">{t('locationDataAttribution')}</a></> : <p role="status">{t('noLocationSuggestions')}</p>}</div>}</div>
+        : field === 'birthDate' ? <div className="profile-about-date-field"><input ref={birthDateInputRef} autoFocus={autoFocus} type="date" min={dateBounds.min} max={dateBounds.max} value={birthDate} onChange={(event) => { setBirthDate(event.target.value); setError(null) }} aria-label={t('birthDate')} aria-invalid={birthDateInvalid || undefined} aria-describedby={birthDateInvalid ? birthDateErrorId : undefined} /><button type="button" className="profile-about-date-trigger" aria-label={t('chooseBirthDate')} onClick={openBirthDatePicker}><ProfileDateInputIcon /></button>{birthDateInvalid && <p id={birthDateErrorId} role="alert">{t('birthDateAgeError')}</p>}</div>
+          : <div className={`profile-about-select-field${genderMenuOpen ? ' open' : ''}`} onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setGenderMenuOpen(false)
+          }} onKeyDown={(event) => {
+            if (event.key === 'Escape') setGenderMenuOpen(false)
+          }}><button type="button" className="profile-about-select-trigger" autoFocus={autoFocus} aria-label={t('profileGenderTitle')} aria-haspopup="listbox" aria-expanded={genderMenuOpen} onClick={() => setGenderMenuOpen((open) => !open)}><span>{t(gender === 'male' ? 'genderMale' : 'genderFemale')}</span><ProfileSelectChevronIcon /></button>{genderMenuOpen && <div className="profile-about-gender-options" role="listbox" aria-label={t('profileGenderTitle')}>{(['male', 'female'] as const).map((value) => <button type="button" key={value} role="option" aria-selected={gender === value} onClick={() => { setGender(value); setGenderMenuOpen(false) }}><span>{t(value === 'male' ? 'genderMale' : 'genderFemale')}</span>{gender === value && <ProfileOptionCheckIcon />}</button>)}</div>}</div>
+    return <div className={`profile-about-inline-editor${editingAll ? ' editing-all' : ''}`}>
+      {control}
+      {!editingAll && editorActions(field, 'inline')}
+    </div>
+  }
+
+  return <section className={`card profile-about-panel${editTarget ? ' editing' : ''}`}>
+    <header className="self-profile-section-head"><h2>{t('profileTabAbout')}</h2>{canEdit && editTarget === null && <button type="button" className="self-profile-section-action" onClick={() => beginEdit('all')}>{t('edit')}</button>}{canEdit && editingAll && editorActions('all', 'header')}</header>
+    <div className="profile-about-details">
+      <div className="profile-about-column">
+        <article><h3>{t('bio')}</h3>{editTarget === 'bio' || editingAll ? fieldEditor('bio') : <div className="profile-about-detail-value"><span><ProfileBioIcon /></span><p>{current.bio || t('notAvailable')}</p>{canEdit && editTarget === null && <button type="button" className="profile-about-detail-edit" aria-label={`${t('edit')} ${t('bio')}`} onClick={() => beginEdit('bio')}><ProfileInfoEditIcon /></button>}</div>}</article>
+        <article><h3>{t('profileJoinDate')}</h3><div className="profile-about-detail-value"><span><Icon name="clock" size={25} /></span><p>{created}</p></div></article>
+        <article><h3>{t('profileContact')}</h3><div className="profile-about-detail-value"><span><ProfileEmailIcon /></span><p>{current.email ? <a className="profile-about-email" href={`mailto:${current.email}`}>{current.email}</a> : t('notAvailable')}</p></div></article>
+      </div>
+      <div className="profile-about-column">
+        <article><h3>{t('location')}</h3>{editTarget === 'location' || editingAll ? fieldEditor('location') : <div className="profile-about-detail-value"><span><ProfileLocationIcon /></span><p>{current.location || t('notAvailable')}</p>{canEdit && editTarget === null && <button type="button" className="profile-about-detail-edit" aria-label={`${t('edit')} ${t('location')}`} onClick={() => beginEdit('location')}><ProfileInfoEditIcon /></button>}</div>}</article>
+        <article><h3>{t('birthDate')}</h3>{editTarget === 'birthDate' || editingAll ? fieldEditor('birthDate') : <div className="profile-about-detail-value"><span><ProfileZodiacIcon zodiac={getProfileZodiac(current.birthDate)} /></span><p>{current.birthDate ? new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${current.birthDate}T00:00:00`)) : t('notAvailable')}</p>{canEdit && editTarget === null && <button type="button" className="profile-about-detail-edit" aria-label={`${t('edit')} ${t('birthDate')}`} onClick={() => beginEdit('birthDate')}><ProfileInfoEditIcon /></button>}</div>}</article>
+        <article><h3>{t('profileGenderTitle')}</h3>{editTarget === 'gender' || editingAll ? fieldEditor('gender') : <div className="profile-about-detail-value"><span><ProfileGenderIcon gender={current.gender} /></span><p>{t(current.gender === 'male' ? 'genderMale' : current.gender === 'female' ? 'genderFemale' : current.gender === 'custom' ? 'genderCustom' : 'genderPreferNot')}</p>{canEdit && editTarget === null && <button type="button" className="profile-about-detail-edit" aria-label={`${t('edit')} ${t('profileGenderTitle')}`} onClick={() => beginEdit('gender')}><ProfileInfoEditIcon /></button>}</div>}</article>
+      </div>
+    </div>
+    {error && <p className="form-error profile-about-error" role="alert">{error}</p>}
+  </section>
+}
+
 export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit, onNavigate, onMessage }: { profile: SocialProfile | null; loading: boolean; error: string | null; canEdit: boolean; viewerId: string; onEdit: () => void; onNavigate: (path: string) => void; onMessage: (profileId: string) => Promise<void> }) {
   const { t, locale } = useI18n()
   const [posts, setPosts] = useState<GatewayPost[]>([])
@@ -273,6 +479,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
   const [photosLoading, setPhotosLoading] = useState(false)
   const [photosHaveMore, setPhotosHaveMore] = useState(false)
   const [profileGroups, setProfileGroups] = useState<SocialGroup[]>([])
+  const [profileManagedGroups, setProfileManagedGroups] = useState<SocialGroup[]>([])
   const [groupsLoading, setGroupsLoading] = useState(false)
   const [groupsLoaded, setGroupsLoaded] = useState(false)
   const [groupsUnavailable, setGroupsUnavailable] = useState(false)
@@ -537,6 +744,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
     setProfileFriendMutualCounts({})
     setPhotos([])
     setProfileGroups([])
+    setProfileManagedGroups([])
     setGroupsLoading(false)
     setGroupsLoaded(false)
     setGroupsUnavailable(false)
@@ -674,6 +882,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
     if (tab !== 'groups' || !profile?.id || groupsLoaded) return
     if (!canEdit) {
       setProfileGroups([])
+      setProfileManagedGroups([])
       setGroupsUnavailable(false)
       setGroupsLoaded(true)
       return
@@ -681,14 +890,14 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
     let active = true
     setGroupsLoading(true)
     setGroupsUnavailable(false)
-    socialApi.getMemberGroups(profile.id, 60).then((page) => {
+    Promise.allSettled([
+      socialApi.getMemberGroups(profile.id, 60),
+      socialApi.getAdminGroups(profile.id, 60),
+    ]).then(([joinedResult, managedResult]) => {
       if (!active) return
-      setProfileGroups(page.items)
-      setGroupsLoaded(true)
-    }).catch(() => {
-      if (!active) return
-      setProfileGroups([])
-      setGroupsUnavailable(true)
+      setProfileGroups(joinedResult.status === 'fulfilled' ? joinedResult.value.items : [])
+      setProfileManagedGroups(managedResult.status === 'fulfilled' ? managedResult.value.items : [])
+      setGroupsUnavailable(joinedResult.status === 'rejected' && managedResult.status === 'rejected')
       setGroupsLoaded(true)
     }).finally(() => active && setGroupsLoading(false))
     return () => { active = false }
@@ -736,7 +945,8 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
     return () => { active = false }
   }, [canEdit, profile?.id, relationship.friendship, relationship.isFollowing, viewerId])
 
-  const filteredPosts = useMemo(() => posts.filter((post) => {
+  const filteredPosts = useMemo(() => posts.filter((post) =>
+    post.__typename === 'FeedPostDetail' || post.__typename === 'ReelDetail').filter((post) => {
     const sharedMedia = post.__typename === 'FeedPostDetail' ? post.sharedSource?.media ?? [] : []
     const hasMedia = post.media.length > 0 || sharedMedia.length > 0
     return postFilter === 'all' || (postFilter === 'media' ? hasMedia : !hasMedia)
@@ -1141,6 +1351,8 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
     }
   }
 
+  const coverAmbientColor = useImageAmbientColor(coverCropTarget?.previewUrl ?? profile?.backgroundUrl)
+
   if (loading) return <ProfilePageSkeleton />
   if (!profile) return <main className="profile-destination"><div className="card state-card"><h2>{t('profileUnavailable')}</h2><p>{error || t('profileLoadError')}</p></div></main>
 
@@ -1181,9 +1393,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
   }
 
   const coverStyle = profile.backgroundUrl ? { backgroundImage: `url(${profile.backgroundUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined
-  const coverAmbientStyle = coverCropTarget
-    ? { backgroundImage: `url(${coverCropTarget.previewUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-    : coverStyle
+  const coverAmbientStyle = { '--profile-cover-ambient-color': coverAmbientColor } as CSSProperties
   const coverPreviewImageStyle = coverPreviewPlacement ? {
     width: `${coverPreviewPlacement.width}px`,
     height: `${coverPreviewPlacement.height}px`,
@@ -1317,7 +1527,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
         {tab === 'posts' && <aside ref={profileInfoColumnRef} className="self-profile-left-column">
           <section className="card self-profile-side-card self-profile-intro-card">
             <div className="self-profile-info-section">
-              <header><h2>{t('profilePersonalInfo')}</h2>{canEdit && <button type="button" aria-label={t('editDetails')} onClick={onEdit}><ProfileInfoEditIcon /></button>}</header>
+              <header><h2>{t('profilePersonalInfo')}</h2>{canEdit && <button type="button" aria-label={t('editDetails')} onClick={() => setTab('about')}><ProfileInfoEditIcon /></button>}</header>
               <div className="self-profile-info-rows">
                 {profile.location && <p className="prominent"><ProfileLocationIcon /><span>{t('livesIn', { location: profile.location })}</span></p>}
                 {profileBirthDate && <p className="prominent"><ProfileZodiacIcon zodiac={profileZodiac} /><span>{t('profileBornLabel')} <time dateTime={profile.birthDate ?? undefined}>{profileBirthDate}</time></span></p>}
@@ -1325,7 +1535,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
               </div>
             </div>
             <div className="self-profile-info-section">
-              <header><h2>{t('profileContactInfo')}</h2>{canEdit && <button type="button" aria-label={t('editDetails')} onClick={onEdit}><ProfileInfoEditIcon /></button>}</header>
+              <header><h2>{t('profileContactInfo')}</h2>{canEdit && <button type="button" aria-label={t('editDetails')} onClick={() => setTab('about')}><ProfileInfoEditIcon /></button>}</header>
               <div className="self-profile-info-rows"><p><ProfileEmailIcon />{profile.email ? <a href={`mailto:${profile.email}`}>{profile.email}</a> : <span>{t('notAvailable')}</span>}</p></div>
             </div>
           </section>
@@ -1355,11 +1565,11 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
           </section>}
 
           {tab === 'posts' && (postsLoading ? <div className="card state-card"><span className="spinner" /></div> : filteredPosts.length > 0 ? postView === 'grid' ? <div className="self-profile-post-months">{profilePostMonthGroups.map((group) => <section className="card self-profile-post-month" key={group.id}><h3>{group.label}</h3><div className="self-profile-post-grid">{group.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} onOpenDetail={() => setProfileDetailPostId(post.id)} onOpenMedia={(item) => void openProfileMediaViewer(item)} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} />) : <div className="card state-card"><h2>{postsUnavailable ? t('unableToLoad') : t('profileNoPosts')}</h2><p>{postsUnavailable ? t('profilePostsLoadError') : canEdit ? t('yourPostsEmpty') : t('userPostsEmpty', { name: profile.displayName.split(' ')[0] })}</p></div>)}
-          {tab === 'about' && <div className="card profile-tab-card"><h2>{t('about')}</h2><dl><div><dt>{t('bio')}</dt><dd>{profile.bio || t('notAvailable')}</dd></div><div><dt>{t('location')}</dt><dd>{profile.location || t('notAvailable')}</dd></div><div><dt>{t('birthDate')}</dt><dd>{profile.birthDate || t('notAvailable')}</dd></div><div><dt>{t('createdAt')}</dt><dd>{profile.createdAt || t('notAvailable')}</dd></div></dl></div>}
+          {tab === 'about' && <ProfileAboutPanel profile={profile} canEdit={canEdit} />}
           {tab === 'friends' && <ProfileConnectionsTab profile={profile} viewerId={viewerId} canManage={canEdit} onNavigate={onNavigate} />}
           {tab === 'photos' && <ProfileMediaTab profile={profile} canEdit={canEdit} friends={profileFriends} onOpenMedia={(item, entries) => void openProfileMediaViewer(item, entries)} onPostCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
-          {tab === 'reels' && <ProfileReelsTab profile={profile} canEdit={canEdit} onNavigate={onNavigate} />}
-          {tab === 'groups' && <div className="card profile-tab-card"><h2>{t('groups')}</h2>{groupsLoading ? <div className="state-card"><span className="spinner" /></div> : profileGroups.length === 0 ? <p className="muted">{groupsUnavailable ? t('groupsLoadError') : t('joinedGroupsEmpty')}</p> : <div className="group-grid self-profile-group-grid">{profileGroups.map((group) => <button type="button" className="card group-card" key={group.id} onClick={() => onNavigate(`/groups/${group.id}`)}><div className="group-card-cover" style={group.backgroundUrl ? { backgroundImage: `url(${group.backgroundUrl})` } : undefined} /><Avatar name={group.name} src={group.avatarUrl} size={64} /><strong>{group.name}</strong><small>{group.memberCount == null ? t('groupResult') : t('membersCount', { count: group.memberCount })}</small></button>)}</div>}</div>}
+          {tab === 'reels' && <ProfileReelsTab profile={profile} canEdit={canEdit} friends={profileFriends} onNavigate={onNavigate} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
+          {tab === 'groups' && <ProfileGroupsTab groups={profileGroups} managedGroups={profileManagedGroups} loading={groupsLoading} unavailable={groupsUnavailable} canManage={canEdit} onNavigate={onNavigate} />}
         </section>
       </div>
     </main>
@@ -1525,7 +1735,7 @@ function ProfileMediaTab({ profile, canEdit, friends, onOpenMedia, onPostCreated
   }
 
   return <section className="card self-profile-collection-card self-profile-media-tab">
-    <header className="self-profile-collection-head"><h2>{t('photos')}</h2>{canEdit && <button type="button" onClick={() => setComposerRequest((value) => value + 1)}>{t('profileAddPhotoVideo')}</button>}</header>
+    <header className="self-profile-collection-head self-profile-section-head"><h2>{t('photos')}</h2>{canEdit && <button type="button" className="self-profile-section-action" onClick={() => setComposerRequest((value) => value + 1)}>{t('profileAddPhotoVideo')}</button>}</header>
     <nav className="self-profile-collection-tabs" aria-label={t('photos')}>
       {(['all', 'photos', 'videos'] as ProfileMediaFilter[]).map((value) => <button type="button" key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)}>{t(value === 'all' ? 'profileMediaAll' : value === 'photos' ? 'photos' : 'videos')}</button>)}
     </nav>
@@ -1654,17 +1864,39 @@ function ProfileConnectionsTab({ profile, viewerId, canManage, onNavigate }: { p
   }
 
   return <section className="card self-profile-collection-card self-profile-connections-tab">
-    <header className="self-profile-collection-head"><h2>{t('friends')}</h2><label className="self-profile-connections-search"><Icon name="search" size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label></header>
+    <header className="self-profile-collection-head self-profile-section-head"><h2>{t('friends')}</h2><div className="self-profile-section-actions"><label className="self-profile-connections-search"><ProfileTabSearchIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label>{canManage && <><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/friends/incoming')}>{t('friendRequests')}</button><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/friends/suggestions')}>{t('profileFindFriends')}</button></>}</div></header>
     <nav className="self-profile-collection-tabs" aria-label={t('friends')}>{sections.map((item) => <button type="button" key={item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}>{item.label}</button>)}</nav>
     {loading ? <div className="self-profile-collection-state"><span className="spinner" /></div> : visibleItems.length === 0 ? <div className="self-profile-collection-state muted">{query ? t('noSearchResults') : t('friendListEmpty')}</div> : <div className="self-profile-connections-grid">{visibleItems.map((item) => {
       const person = item.profile
       const isUnfollowed = unfollowedIds.has(person.id)
       return <article key={person.id}>
-        <button type="button" className="self-profile-connection-person" onClick={() => onNavigate(`/profile/${person.id}`)}><Avatar name={person.displayName} src={person.avatarUrl} size={90} /><span><strong>{person.displayName}<VerifiedBadge verified={person.isVerified} size={13} /></strong>{section === 'friends' && item.mutualFriendCount > 0 && <small>{t('mutualFriendsCount', { count: item.mutualFriendCount })}</small>}</span></button>
-        {canManage && (section === 'following' ? <button type="button" className={isUnfollowed ? 'self-profile-follow-toggle follow' : 'self-profile-follow-toggle'} disabled={busyId === person.id} onClick={() => void toggleFollowing(person.id)}>{t(isUnfollowed ? 'follow' : 'following')}</button> : <div className="self-profile-connection-menu" data-profile-connection-menu={person.id}><button type="button" aria-label={t('more')} aria-haspopup="menu" aria-expanded={menuId === person.id} onClick={(event) => { const nextOpen = menuId !== person.id; setMenuId(nextOpen ? person.id : null); setMenuAnchor(nextOpen ? event.currentTarget : null) }}><Icon name="more" size={18} /></button>{menuId === person.id && <AnchoredMenuPortal anchor={menuAnchor} className="self-profile-connection-menu-popover" onRequestClose={closeMenu}>{section === 'friends' ? <button type="button" role="menuitem" disabled={busyId === person.id} onClick={() => void removeFriend(person.id)}><Icon name="userMinus" size={18} />{t('removeFriend')}</button> : <button type="button" role="menuitem" disabled={busyId === person.id || requestedIds.has(person.id)} onClick={() => void addFriend(person.id)}><Icon name="userPlus" size={18} />{t(requestedIds.has(person.id) ? 'requestSent' : 'addFriend')}</button>}<button type="button" role="menuitem" disabled={busyId === person.id} onClick={() => void block(person.id)}><Icon name="block" size={18} />{t('block')}</button></AnchoredMenuPortal>}</div>)}
+        <button type="button" className="self-profile-connection-person" onClick={() => onNavigate(`/profile/${person.id}`)}><Avatar name={person.displayName} src={person.avatarUrl} size={72} /><span><strong><span className="self-profile-result-name-text">{person.displayName}</span><VerifiedBadge verified={person.isVerified} size={13} /></strong>{section === 'friends' && item.mutualFriendCount > 0 && <small>{t('mutualFriendsCount', { count: item.mutualFriendCount })}</small>}</span></button>
+        {canManage && (section === 'following' ? <button type="button" className={isUnfollowed ? 'self-profile-follow-toggle follow' : 'self-profile-follow-toggle'} disabled={busyId === person.id} onClick={() => void toggleFollowing(person.id)}>{t(isUnfollowed ? 'follow' : 'following')}</button> : <div className="self-profile-connection-menu" data-profile-connection-menu={person.id}><button type="button" aria-label={t('more')} aria-haspopup="menu" aria-expanded={menuId === person.id} onClick={(event) => { const nextOpen = menuId !== person.id; setMenuId(nextOpen ? person.id : null); setMenuAnchor(nextOpen ? event.currentTarget : null) }}><Icon name="more" size={18} /></button>{menuId === person.id && <AnchoredMenuPortal anchor={menuAnchor} className="self-profile-cover-menu self-profile-connection-menu-popover" onRequestClose={closeMenu}>{section === 'friends' ? <button type="button" role="menuitem" disabled={busyId === person.id} onClick={() => void removeFriend(person.id)}><FriendPersonActionGlyph action="remove" />{t('removeFriend')}</button> : <button type="button" role="menuitem" disabled={busyId === person.id || requestedIds.has(person.id)} onClick={() => void addFriend(person.id)}><FriendPersonActionGlyph action={requestedIds.has(person.id) ? 'request-sent' : 'add'} />{t(requestedIds.has(person.id) ? 'requestSent' : 'addFriend')}</button>}<button type="button" role="menuitem" disabled={busyId === person.id} onClick={() => void block(person.id)}><FriendPersonActionGlyph action="block" />{t('block')}</button></AnchoredMenuPortal>}</div>)}
       </article>
     })}</div>}
   </section>
+}
+
+function ProfileGroupsTab({ groups, managedGroups, loading, unavailable, canManage, onNavigate }: { groups: SocialGroup[]; managedGroups: SocialGroup[]; loading: boolean; unavailable: boolean; canManage: boolean; onNavigate: (path: string) => void }) {
+  const { t } = useI18n()
+  const [section, setSection] = useState<'joined' | 'managed'>('joined')
+  const [query, setQuery] = useState('')
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const managedIds = useMemo(() => new Set(managedGroups.map((group) => group.id)), [managedGroups])
+  const sectionGroups = section === 'managed' ? managedGroups : groups.filter((group) => !managedIds.has(group.id))
+  const visibleGroups = normalizedQuery
+    ? sectionGroups.filter((group) => group.name.toLocaleLowerCase().includes(normalizedQuery))
+    : sectionGroups
+
+  return <section className="card self-profile-collection-card self-profile-groups-tab">
+    <header className="self-profile-collection-head self-profile-section-head"><h2>{t('groups')}</h2><div className="self-profile-section-actions"><label className="self-profile-connections-search"><ProfileTabSearchIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label>{canManage && <><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/groups')}>{t('profileGroupInvitations')}</button><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/groups')}>{t('profileFindGroups')}</button></>}</div></header>
+    <nav className="self-profile-collection-tabs" aria-label={t('groups')}><button type="button" className={section === 'joined' ? 'active' : ''} onClick={() => setSection('joined')}>{t('profileJoinedGroupsTab')}</button><button type="button" className={section === 'managed' ? 'active' : ''} onClick={() => setSection('managed')}>{t('profileManagedGroupsTab')}</button></nav>
+    {loading ? <div className="self-profile-collection-state"><span className="spinner" /></div> : visibleGroups.length === 0 ? <div className="self-profile-collection-state muted">{unavailable ? t('groupsLoadError') : normalizedQuery ? t('noSearchResults') : t(section === 'managed' ? 'managedGroupsEmpty' : 'joinedGroupsEmpty')}</div> : <div className="self-profile-connections-grid self-profile-group-results-grid">{visibleGroups.map((group) => <article key={group.id}><button type="button" className="self-profile-connection-person self-profile-group-result" onClick={() => onNavigate(`/groups/${group.id}`)}><Avatar name={group.name} src={group.avatarUrl} size={72} className="group-square-avatar" /><span><strong><span className="self-profile-result-name-text">{group.name}</span></strong><small className="self-profile-group-meta"><span className="self-profile-group-privacy"><PostPrivacyIcon privacy={group.privacy === 0 ? 0 : 1} group={group.privacy !== 0} size={15} />{group.privacy === 0 ? t('groupPublicVisibility') : t('groupPrivateVisibility')}</span><b className="groups-meta-separator" aria-hidden="true">·</b><span>{group.memberCount == null ? t('groupResult') : t('membersCount', { count: group.memberCount })}</span></small></span></button></article>)}</div>}
+  </section>
+}
+
+function ProfileTabSearchIcon() {
+  return <svg className="self-profile-tab-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.35" cy="10.35" r="6.55" /><path d="m15.25 15.25 3.35 3.35" /></svg>
 }
 
 async function loadProfileReelItems(userId: string, mode: 'own' | 'saved'): Promise<SocialContent[]> {
@@ -1686,12 +1918,13 @@ async function loadProfileReelItems(userId: string, mode: 'own' | 'saved'): Prom
   return [...new Map(reels.map((reel) => [reel.id, reel])).values()]
 }
 
-function ProfileReelsTab({ profile, canEdit, onNavigate }: { profile: SocialProfile; canEdit: boolean; onNavigate: (path: string) => void }) {
+function ProfileReelsTab({ profile, canEdit, friends, onNavigate, onCreated }: { profile: SocialProfile; canEdit: boolean; friends: SocialProfile[]; onNavigate: (path: string) => void; onCreated: (post: GatewayPost) => void }) {
   const { t } = useI18n()
   const [mode, setMode] = useState<'own' | 'saved'>('own')
   const [items, setItems] = useState<SocialContent[]>([])
   const [viewCounts, setViewCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
+  const [reelOpenRequest, setReelOpenRequest] = useState(0)
 
   useEffect(() => {
     if (!canEdit && mode === 'saved') setMode('own')
@@ -1717,14 +1950,46 @@ function ProfileReelsTab({ profile, canEdit, onNavigate }: { profile: SocialProf
     return () => { active = false }
   }, [mode, profile.id])
 
-  return <section className="card self-profile-collection-card self-profile-reels-tab">
-    <header className="self-profile-collection-head"><h2>{t('profileTabReels')}</h2>{canEdit && <button type="button" onClick={() => onNavigate('/reels')}>{t('profileCreateReel')}</button>}</header>
-    <nav className="self-profile-collection-tabs" aria-label={t('profileTabReels')}><button type="button" className={mode === 'own' ? 'active' : ''} onClick={() => setMode('own')}>{t('profileYourReels')}</button>{canEdit && <button type="button" className={mode === 'saved' ? 'active' : ''} onClick={() => setMode('saved')}>{t('profileSavedReels')}</button>}</nav>
+  function addCreatedReel(createdReel: GatewayPost) {
+    if (createdReel.__typename === 'ReelDetail') {
+      setMode('own')
+      const reel: SocialContent = {
+        id: createdReel.id,
+        type: createdReel.type,
+        content: createdReel.content,
+        privacy: createdReel.privacy,
+        createdAt: createdReel.create,
+        authorId: createdReel.author.id,
+        media: createdReel.media,
+        aspectRatio: createdReel.aspectRatio,
+        focalPointX: createdReel.focalPointX,
+        focalPointY: createdReel.focalPointY,
+        author: {
+          id: createdReel.author.id,
+          username: profile.username,
+          displayName: createdReel.author.name,
+          avatarUrl: createdReel.author.avatar || null,
+          isVerified: createdReel.author.isVerified,
+        },
+        mentions: createdReel.mentions,
+      }
+      setItems((current) => [reel, ...current.filter((item) => item.id !== reel.id)])
+      setViewCounts((current) => ({ ...current, [reel.id]: current[reel.id] ?? 0 }))
+    }
+    onCreated(createdReel)
+  }
+
+  return <>
+    <section className="card self-profile-collection-card self-profile-reels-tab">
+    <header className="self-profile-collection-head self-profile-section-head"><h2>{t('profileTabReels')}</h2>{canEdit && <button type="button" className="self-profile-section-action" onPointerEnter={() => { void import('../components/CreateReelModal') }} onFocus={() => { void import('../components/CreateReelModal') }} onClick={() => setReelOpenRequest((request) => request + 1)}>{t('profileCreateReel')}</button>}</header>
+    <nav className="self-profile-collection-tabs" aria-label={t('profileTabReels')}><button type="button" className={mode === 'own' ? 'active' : ''} onClick={() => setMode('own')}>{canEdit ? t('profileYourReels') : t('profileUserReels', { name: profile.displayName })}</button>{canEdit && <button type="button" className={mode === 'saved' ? 'active' : ''} onClick={() => setMode('saved')}>{t('profileSavedReels')}</button>}</nav>
     {loading ? <div className="self-profile-collection-state"><span className="spinner" /></div> : items.length === 0 ? <div className="self-profile-collection-state muted">{t('profileNoReels')}</div> : <div className="self-profile-reels-grid">{items.map((reel) => {
       const media = reel.media[0]
       return <button type="button" key={reel.id} onClick={() => onNavigate(`/content/${reel.id}`)}>{media ? media.type === 1 ? <video src={media.url} muted playsInline preload="metadata" /> : <img src={media.url} alt="" loading="lazy" /> : <span>{decodePostContent(reel.content).text}</span>}<small><Icon name="eye" size={17} />{viewCounts[reel.id] ?? 0}</small></button>
     })}</div>}
-  </section>
+    </section>
+    {canEdit && <PostComposer variant="profile" triggerOnly externalReelOpenRequest={reelOpenRequest} userId={profile.id} displayName={profile.displayName} avatarUrl={profile.avatarUrl} isVerified={profile.isVerified} friends={friends} onCreated={addCreatedReel} />}
+  </>
 }
 
 function ProfileCoverCameraIcon() {
@@ -1744,7 +2009,19 @@ function ProfileViewAvatarIcon() {
 }
 
 function ProfileInfoEditIcon() {
-  return <svg className="self-profile-info-edit-icon" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="m4.2 19.8 1.05-4.15L15.7 5.2a2.05 2.05 0 0 1 2.9 0l.2.2a2.05 2.05 0 0 1 0 2.9L8.35 18.75 4.2 19.8Z" /><path d="m13.85 7.05 3.1 3.1" /></svg>
+  return <svg className="self-profile-info-edit-icon" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="M5.15 18.85 6.2 15.5l9.35-9.35a2.02 2.02 0 0 1 2.86 0l.18.18a2.02 2.02 0 0 1 0 2.86l-9.35 9.35-3.38.98" /><path d="m13.9 7.8 3.05 3.05M6.2 15.5l3.04 3.04" /></svg>
+}
+
+function ProfileDateInputIcon() {
+  return <svg className="profile-about-date-icon" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><rect x="3.15" y="4.35" width="17.7" height="16.45" rx="3.35" /><path d="M7.35 2.85v3.5M16.65 2.85v3.5M3.45 9.05h17.1" /><path d="M7.35 12.1h2.2v2.2h-2.2zM11 12.1h2.2v2.2H11zM14.65 12.1h2.2v2.2h-2.2zM7.35 15.75h2.2v2.2h-2.2zM11 15.75h2.2v2.2H11z" fill="currentColor" stroke="none" /></svg>
+}
+
+function ProfileSelectChevronIcon() {
+  return <svg className="profile-about-select-chevron" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.15" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="m7.25 9.5 4.75 4.75 4.75-4.75" /></svg>
+}
+
+function ProfileOptionCheckIcon() {
+  return <svg className="profile-about-option-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="m5.5 12.25 4.05 4.05L18.7 7.2" /></svg>
 }
 
 function ProfileBioIcon() {
@@ -1778,14 +2055,6 @@ function ProfilePostManageIcon() {
   return <svg className="profile-post-manage-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path fillRule="evenodd" clipRule="evenodd" d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.49 1a9.2 9.2 0 0 0-1.69-.98l-.38-2.65A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.49.42l-.38 2.65a9.2 9.2 0 0 0-1.69.98l-2.49-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65a7.2 7.2 0 0 0 0 1.96l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46c.12.22.37.31.6.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65a9.2 9.2 0 0 0 1.69-.98l2.49 1c.23.09.48 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z" /></svg>
 }
 
-function ProfilePostListIcon() {
-  return <svg className="profile-post-list-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.45" strokeLinecap="round" aria-hidden="true" focusable="false"><path d="M5 6h14M5 12h14M5 18h14" /></svg>
-}
-
-function ProfilePostGridIcon() {
-  return <svg className="profile-post-grid-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="4" y="4" width="6.5" height="6.5" rx="1" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1" /></svg>
-}
-
 function ProfileCoverPhotoIcon() {
   return <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><rect x="3.25" y="2.75" width="17.5" height="18.5" rx="2.4" /><circle cx="8.25" cy="8" r="1.35" /><path d="m5.6 18 4.2-4.55 2.7 2.55 2.45-2.75 3.45 4.75" /></svg>
 }
@@ -1803,11 +2072,11 @@ function ProfileHeaderChevronIcon() {
 }
 
 function ProfileFriendStatusIcon() {
-  return <svg className="visitor-profile-status-icon" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M9.25 12.15a4.15 4.15 0 1 0 0-8.3 4.15 4.15 0 0 0 0 8.3ZM1.9 20.15v-.95c0-3.25 3.65-5.25 7.35-5.25 1.55 0 3.1.35 4.35 1.02a5.95 5.95 0 0 0-.25 5.18H1.9Zm18.86-6.42 1.25 1.22-5.2 5.38-2.8-2.72 1.22-1.27 1.55 1.5 3.98-4.11Z" /></svg>
+  return <FriendPersonActionGlyph className="visitor-profile-status-icon" action="check" size={17} />
 }
 
 function ProfileCancelRequestIcon() {
-  return <svg className="visitor-profile-status-icon" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><path d="M9.1 12.1a4.1 4.1 0 1 0 0-8.2 4.1 4.1 0 0 0 0 8.2ZM1.8 20.15v-.95c0-3.2 3.65-5.2 7.3-5.2 1.45 0 2.9.3 4.08.9a5.95 5.95 0 0 0 .38 5.25H1.8Zm13.45-5.4 1.35-1.35 1.65 1.65 1.65-1.65 1.35 1.35-1.65 1.65 1.65 1.65-1.35 1.35-1.65-1.65-1.65 1.65-1.35-1.35 1.65-1.65-1.65-1.65Z" /></svg>
+  return <FriendPersonActionGlyph className="visitor-profile-status-icon" action="cancel" size={17} />
 }
 
 function ProfileImagePhotoPicker({ kind, images, loading, error, onClose, onSelect }: { kind: 'avatar' | 'cover'; images: SocialPhoto[]; loading: boolean; error: string | null; onClose: () => void; onSelect: (photo: SocialPhoto) => void }) {
@@ -1823,45 +2092,9 @@ function ProfileStoryTile({ story, onOpen }: { story: GatewayStory; onOpen: () =
     {story.__typename !== 'NormalStory'
       ? <SharedStoryMiniPreview source={story.sharedSource} />
       : media
-        ? media.type === 1 ? <video src={media.url} muted playsInline preload="metadata" /> : <img src={media.url} alt="" loading="lazy" />
-        : <span style={{ backgroundColor: decoded?.backgroundColor }}>{decoded?.text}</span>}
+        ? <><StoryMediaPreview type={media.type} url={media.url} />{decoded?.text && <p className="home-story-caption-preview">{decoded.text}</p>}</>
+        : <span className="story-text-preview" style={{ backgroundColor: decoded?.backgroundColor }}>{decoded?.text}</span>}
   </button>
-}
-
-function ProfilePostGridCard({ post, locale, onOpenDetail, onOpenMedia }: { post: GatewayPost; locale: string; onOpenDetail: () => void; onOpenMedia: (item: { contentId: string; mediaId: string; mediaUrl: string; mediaType: number }) => void }) {
-  const decoded = decodePostContent(post.content)
-  const source = profileGridMediaSource(post)
-  const visibleMedia = source.media.slice(0, 4)
-  const background = source.media.length === 0 ? getPostBackgroundPreset(decoded.backgroundId) : null
-  const timestamp = formatPostTimestamp(post.create, locale)
-  const privacy = normalizePostPrivacy(post.privacy)
-  const openMedia = (media: GatewayPost['media'][number]) => {
-    if (post.__typename === 'ReelDetail') return
-    onOpenMedia({ contentId: source.contentId, mediaId: media.id, mediaUrl: media.url, mediaType: media.type })
-  }
-
-  return <article className={`profile-post-grid-card${post.__typename === 'ReelDetail' ? ' is-reel' : ''}`} data-post-id={post.id}>
-    {visibleMedia.length > 0 ? <div className={`profile-post-grid-media media-count-${Math.min(visibleMedia.length, 4)}`}>{visibleMedia.map((media, index) => <button type="button" className="profile-post-grid-media-item" key={media.id} aria-label={decoded.text || post.author.name} onMouseEnter={(event) => {
-      const video = event.currentTarget.querySelector('video')
-      if (video) void video.play().catch(() => undefined)
-    }} onMouseLeave={(event) => {
-      const video = event.currentTarget.querySelector('video')
-      if (!video) return
-      video.pause()
-      try { video.currentTime = 0 } catch { /* Metadata may not be ready yet. */ }
-    }} onClick={() => openMedia(media)}>
-      {media.type === 1 ? <video src={media.url} muted loop playsInline preload="metadata" /> : <img src={media.url} alt="" loading="lazy" />}
-      {media.type === 1 && <span className="profile-post-grid-video-mark" aria-hidden="true"><Icon name="play" size={18} /></span>}
-      {index === 3 && source.media.length > 4 && <strong className="profile-post-grid-media-more">+{source.media.length - 4}</strong>}
-    </button>)}</div> : <button type="button" className={`profile-post-grid-media profile-post-grid-text${background ? ' has-background' : ' plain-text'}`} style={background ? { background: background.background } : undefined} onClick={onOpenDetail}><span><MentionContent content={decoded.text} mentions={post.mentions} /></span></button>}
-    <button type="button" className="profile-post-grid-footer" onClick={onOpenDetail}>
-      <Avatar name={post.author.name} src={post.author.avatar} size={38} />
-      <span className="profile-post-grid-footer-copy">
-        {decoded.text && <span className="profile-post-grid-caption"><MentionContent content={decoded.text} mentions={post.mentions} /></span>}
-        <span className="profile-post-grid-meta"><time dateTime={post.create} title={timestamp.detail}>{timestamp.display}</time><PostPrivacyIcon privacy={privacy} size={12} /></span>
-      </span>
-    </button>
-  </article>
 }
 
 function ProfileActions({ profile, relationship, loading, busyAction, onFriend, onFollow, onBlock, onMessage }: { profile: SocialProfile; relationship: ProfileRelationshipState; loading: boolean; busyAction: string | null; onFriend: (action: 'send' | 'cancel' | 'accept' | 'reject' | 'unfriend') => void; onFollow: () => void; onBlock: () => void; onMessage: () => void }) {

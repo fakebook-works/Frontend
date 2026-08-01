@@ -25,9 +25,12 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource,
   const decodedContent = decodePostContent(source.content)
   const postBackground = source.media.length === 0 ? getPostBackgroundPreset(decodedContent.backgroundId) : null
   const hasPrivacy = source.privacy != null
+  const isGroupSource = source.type === 3
   const privacy: PostPrivacy = source.privacy === 1 || source.privacy === 2 || source.privacy === 3 ? source.privacy : 0
-  const privacyLabel = privacy === 0
-    ? t('privacyPublic')
+  const privacyLabel = isGroupSource
+    ? privacy === 0 ? t('publicGroup') : t('privateGroup')
+    : privacy === 0
+      ? t('privacyPublic')
     : privacy === 1
       ? t('privacyFriendsFollowers')
       : privacy === 2
@@ -52,7 +55,7 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource,
           {(timestamp || hasPrivacy) && <span className="post-head-meta">
             {timestamp && <HoverTooltip label={timestamp.detail} className="post-meta-hover post-time-hover"><time dateTime={source.create ?? undefined}>{timestamp.display}</time></HoverTooltip>}
             {timestamp && hasPrivacy && <i>·</i>}
-            {hasPrivacy && <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={privacy} size={13} /></span></HoverTooltip>}
+            {hasPrivacy && <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={privacy} size={13} group={isGroupSource} /></span></HoverTooltip>}
           </span>}
         </div>
       </header>

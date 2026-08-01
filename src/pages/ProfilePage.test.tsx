@@ -18,6 +18,8 @@ const socialMocks = vi.hoisted(() => ({
   getContentViewCounts: vi.fn(),
   getSavedContent: vi.fn(),
   getMemberGroups: vi.fn(),
+  getAdminGroups: vi.fn(),
+  updateProfile: vi.fn(),
   changeUserAvatar: vi.fn(),
   changeUserBackground: vi.fn(),
   sendFriendRequest: vi.fn(),
@@ -38,8 +40,9 @@ const apiMocks = vi.hoisted(() => ({
   cancelPendingMedia: vi.fn(),
 }))
 const searchMocks = vi.hoisted(() => ({ searchProfileConnections: vi.fn() }))
+const locationMocks = vi.hoisted(() => ({ searchLocations: vi.fn() }))
 const cropMocks = vi.hoisted(() => ({ cropImageFile: vi.fn() }))
-const i18nMocks = vi.hoisted(() => ({ t: (key: string) => key, locale: 'en' }))
+const i18nMocks = vi.hoisted(() => ({ t: (key: string, values?: Record<string, unknown>) => key === 'profileUserReels' ? `${key}:${String(values?.name ?? '')}` : key, locale: 'en' }))
 
 vi.mock('../api/social', () => ({
   socialApi: {
@@ -48,9 +51,27 @@ vi.mock('../api/social', () => ({
 }))
 vi.mock('../api/client', () => ({ api: apiMocks }))
 vi.mock('../api/search', () => ({ searchApi: searchMocks }))
+vi.mock('../api/locationSearch', () => ({ searchLocations: locationMocks.searchLocations }))
 vi.mock('../i18n', () => ({ useI18n: () => ({ t: i18nMocks.t, locale: i18nMocks.locale }) }))
 vi.mock('../lib/imageCrop', () => ({ cropImageFile: cropMocks.cropImageFile }))
-vi.mock('./GatewayHomePage', () => ({ GatewayPostCard: () => null, PostComposer: ({ triggerOnly, externalOpenRequest }: { triggerOnly?: boolean; externalOpenRequest?: number }) => <div data-testid="profile-post-composer" data-trigger-only={triggerOnly ? 'true' : 'false'} data-open-request={externalOpenRequest ?? 0} /> }))
+vi.mock('./GatewayHomePage', () => ({
+  GatewayPostCard: () => null,
+  PostComposer: ({ triggerOnly, externalOpenRequest, externalReelOpenRequest, onCreated }: { triggerOnly?: boolean; externalOpenRequest?: number; externalReelOpenRequest?: number; onCreated?: (post: Record<string, unknown>) => void }) => <div data-testid="profile-post-composer" data-trigger-only={triggerOnly ? 'true' : 'false'} data-open-request={externalOpenRequest ?? 0} data-reel-open-request={externalReelOpenRequest ?? 0}>
+    {(externalReelOpenRequest ?? 0) > 0 && <div data-testid="profile-create-reel-modal"><button type="button" onClick={() => onCreated?.({
+      __typename: 'ReelDetail',
+      id: 'created-profile-reel',
+      type: 2,
+      content: 'Created from profile',
+      privacy: 0,
+      create: '2026-08-01T00:00:00Z',
+      author: { id: 'me', name: 'Owner Name', avatar: '', isVerified: true },
+      media: [{ id: 'created-reel-media', type: 1, url: '/created-reel.mp4' }],
+      aspectRatio: 9 / 16,
+      focalPointX: .5,
+      focalPointY: .5,
+    })}>finish-profile-reel</button></div>}
+  </div>,
+}))
 vi.mock('../components/StoryViewerPage', () => ({
   StoryViewerPage: ({ buckets, initialBucketId, onViewed }: { buckets: Array<{ author: { id: string }; stories: Array<{ id: string }> }>; initialBucketId: string; onViewed?: (storyId: string) => void }) => <div data-testid="profile-story-viewer" data-initial-bucket={initialBucketId} data-bucket-order={buckets.map((bucket) => bucket.author.id).join(',')}><button type="button" onClick={() => onViewed?.(buckets[0]?.stories[0]?.id ?? '')}>mark-first-story-viewed</button>{buckets[0]?.stories[1] && <button type="button" onClick={() => onViewed?.(buckets[0].stories[1].id)}>mark-second-story-viewed</button>}</div>,
 }))
@@ -89,6 +110,8 @@ describe('ProfilePage messaging', () => {
     socialMocks.getContentViewCounts.mockReset().mockResolvedValue({})
     socialMocks.getSavedContent.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
     socialMocks.getMemberGroups.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
+    socialMocks.getAdminGroups.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
+    socialMocks.updateProfile.mockReset().mockResolvedValue(null)
     socialMocks.changeUserAvatar.mockReset().mockResolvedValue(null)
     socialMocks.changeUserBackground.mockReset()
     socialMocks.sendFriendRequest.mockReset().mockResolvedValue(true)
@@ -101,6 +124,7 @@ describe('ProfilePage messaging', () => {
     socialMocks.blockUser.mockReset().mockResolvedValue(true)
     socialMocks.unblockUser.mockReset().mockResolvedValue(true)
     searchMocks.searchProfileConnections.mockReset().mockResolvedValue([])
+    locationMocks.searchLocations.mockReset().mockResolvedValue([])
     apiMocks.myStories.mockReset().mockResolvedValue(null)
     apiMocks.homeStories.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
     apiMocks.postDetail.mockReset().mockResolvedValue(null)
@@ -226,6 +250,10 @@ describe('ProfilePage messaging', () => {
     expect(await screen.findByText('Visible Friend')).toBeInTheDocument()
     expect(screen.getByText('mutualFriendsCount')).toBeInTheDocument()
     expect(socialMocks.getProfileFriends).toHaveBeenCalledWith('creator-1', 100)
+
+    fireEvent.click(screen.getByRole('button', { name: 'profileTabReels' }))
+    expect(await screen.findByText('profileUserReels:Creator Name')).toBeInTheDocument()
+    expect(screen.queryByText('profileSavedReels')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'profileTabFriends' }))
     expect(await screen.findByText('Visible Friend')).toBeInTheDocument()
@@ -514,10 +542,18 @@ describe('ProfilePage messaging', () => {
     expect(introCard).not.toHaveTextContent('followingCount')
     expect(introCard.querySelector('a')).toHaveAttribute('href', 'mailto:owner@example.com')
     expect(introCard.querySelector('a')).toHaveTextContent('owner@example.com')
+    fireEvent.click(within(introCard as HTMLElement).getAllByRole('button', { name: 'editDetails' })[0])
+    expect(screen.getByRole('button', { name: 'profileTabAbout' })).toHaveClass('active')
+    expect(screen.getByRole('heading', { name: 'profileTabAbout' })).toBeInTheDocument()
+    expect(onEdit).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'profileTabAll' }))
     expect(await screen.findByText('Lan Nguyen')).toBeInTheDocument()
     expect(screen.getByText('mutualFriendsCount')).toBeInTheDocument()
     expect(document.querySelector('.self-profile-photo-preview img')).toHaveAttribute('src', '/media/profile-photo.jpg')
     expect(document.querySelector('.self-profile-featured-list img')).toHaveAttribute('src', '/media/story.jpg')
+    expect(container.querySelector('.self-profile-featured-list .home-story-media-preview.image')).toBeInTheDocument()
+    expect(container.querySelector('.self-profile-featured-list .story-stage-backdrop canvas')).toBeInTheDocument()
+    expect(container.querySelector('.self-profile-featured-list .story-image-foreground')).toBeInTheDocument()
     const profileTitle = container.querySelector('.profile-destination-title')!
     expect(profileTitle).toHaveTextContent('profileFriendStat')
     expect(profileTitle).toHaveTextContent('profileFollowerStat')
@@ -567,6 +603,44 @@ describe('ProfilePage messaging', () => {
     unmount()
     expect(document.documentElement).not.toHaveClass('profile-page-scroll')
     expect(document.body).not.toHaveClass('profile-page-scroll')
+  })
+
+  it('rounds the exposed outline of an incomplete three-column photo preview', async () => {
+    socialMocks.getUserPhotos.mockResolvedValue({
+      items: Array.from({ length: 5 }, (_, index) => ({
+        media: { id: `media-${index}`, type: 0, url: `/media/photo-${index}.jpg` },
+        contentId: `post-${index}`,
+        contentType: 1,
+        createdAt: `2026-07-${String(index + 1).padStart(2, '0')}T10:00:00Z`,
+        authorId: 'me',
+        groupId: null,
+      })),
+      endCursor: null,
+      hasNextPage: false,
+    })
+
+    const { container } = render(<ProfilePage
+      profile={{
+        id: 'me', username: 'owner', email: 'owner@example.com', displayName: 'Owner', avatarUrl: null, backgroundUrl: null,
+        bio: null, location: null, birthDate: null, gender: null, createdAt: '', privacy: 0, isVerified: false,
+        friendCount: 0, postCount: 0, followerCount: 0, followingCount: 0,
+      }}
+      loading={false}
+      error={null}
+      canEdit
+      viewerId="me"
+      onEdit={vi.fn()}
+      onNavigate={vi.fn()}
+      onMessage={vi.fn()}
+    />)
+
+    await waitFor(() => expect(container.querySelectorAll('.self-profile-photo-preview > button')).toHaveLength(5))
+    const items = Array.from(container.querySelectorAll('.self-profile-photo-preview > button'))
+    expect(items[0]).toHaveClass('round-top-left')
+    expect(items[2]).toHaveClass('round-top-right', 'round-bottom-right')
+    expect(items[3]).toHaveClass('round-bottom-left')
+    expect(items[4]).toHaveClass('round-bottom-right')
+    expect(items[4]).not.toHaveClass('round-top-right')
   })
 
   it('falls back to the existing friend-profile query while a gateway is still on the previous schema', async () => {
@@ -621,7 +695,18 @@ describe('ProfilePage messaging', () => {
     })
     socialMocks.getContentViewCounts.mockResolvedValue({ 'reel-1': 12 })
     socialMocks.getProfileConnections.mockResolvedValue([{ profile: friendProfile, mutualFriendCount: 2 }])
+    socialMocks.getMemberGroups.mockResolvedValue({
+      items: [{ id: 'group-1', name: 'Fakebook Builders', avatarUrl: null, backgroundUrl: null, bio: null, privacy: 0, createdAt: '', memberCount: 8, adminCount: 1 }],
+      endCursor: null,
+      hasNextPage: false,
+    })
+    socialMocks.getAdminGroups.mockResolvedValue({
+      items: [{ id: 'group-2', name: 'Managed Community', avatarUrl: null, backgroundUrl: null, bio: null, privacy: 1, createdAt: '', memberCount: 5, adminCount: 1 }],
+      endCursor: null,
+      hasNextPage: false,
+    })
     searchMocks.searchProfileConnections.mockResolvedValue([friendProfile])
+    const onNavigate = vi.fn()
 
     const { container } = render(<ProfilePage
       profile={{
@@ -634,9 +719,86 @@ describe('ProfilePage messaging', () => {
       canEdit
       viewerId="me"
       onEdit={vi.fn()}
-      onNavigate={vi.fn()}
+      onNavigate={onNavigate}
       onMessage={vi.fn()}
     />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'profileTabAbout' }))
+    expect(screen.getByRole('heading', { name: 'profileTabAbout' }).closest('header')).toHaveClass('self-profile-section-head')
+    expect(screen.getByRole('button', { name: 'edit' })).toHaveClass('self-profile-section-action')
+    expect(screen.queryByText('profileAboutPrivateHint')).not.toBeInTheDocument()
+    const aboutColumns = Array.from(container.querySelectorAll('.profile-about-column'))
+    expect(aboutColumns).toHaveLength(2)
+    expect(Array.from(aboutColumns[0].querySelectorAll('h3')).map((heading) => heading.textContent)).toEqual(['bio', 'profileJoinDate', 'profileContact'])
+    expect(Array.from(aboutColumns[1].querySelectorAll('h3')).map((heading) => heading.textContent)).toEqual(['location', 'birthDate', 'profileGenderTitle'])
+    expect(aboutColumns[1].querySelector('.self-profile-zodiac-icon')).toBeInTheDocument()
+    expect(aboutColumns[1].querySelector('.self-profile-gender-icon')).toBeInTheDocument()
+    expect(container.querySelector('.profile-about-email')).toHaveTextContent('owner@example.com')
+    expect(container.querySelectorAll('.profile-about-detail-edit')).toHaveLength(4)
+    expect(screen.queryByRole('button', { name: 'edit profileJoinDate' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'edit profileContact' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'edit bio' }))
+    const bioEditor = screen.getByRole('textbox', { name: 'bio' })
+    expect(bioEditor).toHaveAttribute('spellcheck', 'false')
+    expect(aboutColumns[0].querySelector('.self-profile-bio-icon')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'save' })).toBeDisabled()
+    fireEvent.change(bioEditor, { target: { value: 'Updated bio' } })
+    expect(screen.getByRole('button', { name: 'save' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'edit' }))
+    expect(container.querySelectorAll('.profile-about-inline-editor')).toHaveLength(4)
+    expect(container.querySelectorAll('.profile-about-inline-editor.editing-all')).toHaveLength(4)
+    expect(container.querySelectorAll('.profile-about-edit-actions.header')).toHaveLength(1)
+    expect(container.querySelectorAll('.profile-about-edit-actions.inline')).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'remove' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }))
+
+    locationMocks.searchLocations.mockResolvedValue([
+      { id: 'city:1', label: 'Da Nang', detail: 'Vietnam', value: 'Da Nang, Vietnam' },
+    ])
+    fireEvent.click(screen.getByRole('button', { name: 'edit location' }))
+    const locationEditor = screen.getByRole('combobox', { name: 'location' }) as HTMLInputElement
+    expect(screen.queryByRole('button', { name: 'remove' })).not.toBeInTheDocument()
+    expect(locationEditor.closest('.profile-about-inline-editor')?.querySelector('.profile-about-commit-actions')).toBeInTheDocument()
+    fireEvent.change(locationEditor, { target: { value: 'Da Nang' } })
+    await waitFor(() => expect(locationMocks.searchLocations).toHaveBeenCalledWith('Da Nang', expect.any(AbortSignal)))
+    const suggestion = await screen.findByRole('option', { name: /Da Nang/ })
+    expect(suggestion).toHaveTextContent('Vietnam')
+    expect(locationEditor).toHaveAttribute('aria-expanded', 'true')
+    expect(locationEditor).toHaveAttribute('aria-controls', suggestion.parentElement?.id)
+    fireEvent.keyDown(locationEditor, { key: 'ArrowDown' })
+    expect(suggestion).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(locationEditor, { key: 'Enter' })
+    expect(locationEditor).toHaveValue('Da Nang, Vietnam')
+    expect(locationEditor).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('option')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'edit birthDate' }))
+    const birthDateEditor = screen.getByLabelText('birthDate') as HTMLInputElement
+    expect(birthDateEditor).toHaveAttribute('type', 'date')
+    expect(birthDateEditor).toHaveAttribute('min')
+    expect(birthDateEditor).toHaveAttribute('max')
+    const showPicker = vi.fn()
+    Object.defineProperty(birthDateEditor, 'showPicker', { configurable: true, value: showPicker })
+    fireEvent.click(screen.getByRole('button', { name: 'chooseBirthDate' }))
+    expect(showPicker).toHaveBeenCalledTimes(1)
+    expect(birthDateEditor).toHaveFocus()
+    fireEvent.change(birthDateEditor, { target: { value: '2999-01-01' } })
+    expect(screen.getByRole('alert')).toHaveTextContent('birthDateAgeError')
+    expect(screen.getByRole('button', { name: 'save' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'edit profileGenderTitle' }))
+    const genderTrigger = screen.getByRole('button', { name: 'profileGenderTitle' })
+    expect(genderTrigger).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(genderTrigger)
+    expect(genderTrigger).toHaveAttribute('aria-expanded', 'true')
+    expect(genderTrigger.closest('.profile-about-select-field')).toHaveClass('open')
+    fireEvent.click(screen.getByRole('option', { name: 'genderFemale' }))
+    expect(genderTrigger).toHaveAttribute('aria-expanded', 'false')
+    expect(genderTrigger).toHaveTextContent('genderFemale')
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'profileTabPhotos' }))
     expect(await screen.findByText('profileMediaAll')).toBeInTheDocument()
@@ -660,15 +822,43 @@ describe('ProfilePage messaging', () => {
     expect(await screen.findByText('profileAllFriends')).toBeInTheDocument()
     expect(screen.getByText('following')).toBeInTheDocument()
     expect(screen.getByText('profileFollowers')).toBeInTheDocument()
+    expect(await screen.findByText('Friend One')).toBeInTheDocument()
+    expect(container.querySelector('.self-profile-connections-grid .avatar')).toHaveStyle({ width: '72px', height: '72px' })
     const search = screen.getByPlaceholderText('search')
     fireEvent.change(search, { target: { value: 'F' } })
     await waitFor(() => expect(searchMocks.searchProfileConnections).toHaveBeenCalledWith('friends', 'F', 1, 100))
     expect(screen.getByText('mutualFriendsCount')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'friendRequests' }))
+    expect(onNavigate).toHaveBeenLastCalledWith('/friends/incoming')
+    fireEvent.click(screen.getByRole('button', { name: 'profileFindFriends' }))
+    expect(onNavigate).toHaveBeenLastCalledWith('/friends/suggestions')
 
     fireEvent.click(screen.getByRole('button', { name: 'profileTabReels' }))
     expect(await screen.findByText('profileYourReels')).toBeInTheDocument()
     expect(screen.getByText('profileSavedReels')).toBeInTheDocument()
     expect(await screen.findByText('12')).toBeInTheDocument()
+    const createReelButton = screen.getByRole('button', { name: 'profileCreateReel' })
+    expect(createReelButton).toHaveClass('self-profile-section-action')
+    fireEvent.click(createReelButton)
+    expect(await screen.findByTestId('profile-create-reel-modal')).toBeInTheDocument()
+    expect(onNavigate).not.toHaveBeenCalledWith('/reels')
+    fireEvent.click(screen.getByRole('button', { name: 'finish-profile-reel' }))
+    await waitFor(() => expect(container.querySelector('video[src="/created-reel.mp4"]')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'profileTabGroups' }))
+    expect(await screen.findByText('Fakebook Builders')).toBeInTheDocument()
+    expect(container.querySelector('.self-profile-group-results-grid .avatar')).toHaveStyle({ width: '72px', height: '72px' })
+    expect(container.querySelector('.self-profile-group-results-grid')).toHaveClass('self-profile-connections-grid')
+    const profileGroupMeta = container.querySelector('.self-profile-group-meta')!
+    expect(Array.from(profileGroupMeta.children).map((item) => item.textContent)).toEqual(['groupPublicVisibility', '·', 'membersCount'])
+    expect(screen.getByPlaceholderText('search')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'profileJoinedGroupsTab' })).toHaveClass('active')
+    fireEvent.click(screen.getByRole('button', { name: 'profileManagedGroupsTab' }))
+    expect(await screen.findByText('Managed Community')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'profileGroupInvitations' }))
+    expect(onNavigate).toHaveBeenLastCalledWith('/groups')
+    fireEvent.click(screen.getByRole('button', { name: 'profileFindGroups' }))
+    expect(onNavigate).toHaveBeenLastCalledWith('/groups')
   })
 
   it('runs friend, following and follower actions from the profile connection cards', async () => {
@@ -707,8 +897,12 @@ describe('ProfilePage messaging', () => {
     fireEvent.click(screen.getByRole('button', { name: 'profileTabFriends' }))
     expect(await screen.findByText('Friend One')).toBeInTheDocument()
     const friendOne = screen.getByText('Friend One').closest('article')!
+    expect(screen.getByText('Friend One')).toHaveClass('self-profile-result-name-text')
     fireEvent.click(within(friendOne).getByRole('button', { name: 'more' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /removeFriend/ }))
+    const removeFriendItem = screen.getByRole('menuitem', { name: /removeFriend/ })
+    expect(removeFriendItem.parentElement).toHaveClass('self-profile-cover-menu', 'self-profile-connection-menu-popover')
+    expect(removeFriendItem.querySelector('.friend-person-action-glyph.is-remove')).toBeInTheDocument()
+    fireEvent.click(removeFriendItem)
     await waitFor(() => expect(socialMocks.unfriend).toHaveBeenCalledWith('me', 'friend-1'))
     await waitFor(() => expect(screen.queryByText('Friend One')).not.toBeInTheDocument())
 
@@ -728,14 +922,20 @@ describe('ProfilePage messaging', () => {
     expect(await screen.findByText('Follower One')).toBeInTheDocument()
     const followerOne = screen.getByText('Follower One').closest('article')!
     fireEvent.click(within(followerOne).getByRole('button', { name: 'more' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /addFriend/ }))
+    const addFriendItem = screen.getByRole('menuitem', { name: /addFriend/ })
+    expect(addFriendItem.querySelector('.friend-person-action-glyph.is-add')).toBeInTheDocument()
+    fireEvent.click(addFriendItem)
     await waitFor(() => expect(socialMocks.sendFriendRequest).toHaveBeenCalledWith('me', 'follower-1'))
     fireEvent.click(within(followerOne).getByRole('button', { name: 'more' }))
-    expect(screen.getByRole('menuitem', { name: /requestSent/ })).toBeDisabled()
+    const requestSentItem = screen.getByRole('menuitem', { name: /requestSent/ })
+    expect(requestSentItem).toBeDisabled()
+    expect(requestSentItem.querySelector('.friend-person-action-glyph.is-request-sent')).toBeInTheDocument()
 
     const followerTwo = screen.getByText('Follower Two').closest('article')!
     fireEvent.click(within(followerTwo).getByRole('button', { name: 'more' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /block/ }))
+    const blockItem = screen.getByRole('menuitem', { name: /block/ })
+    expect(blockItem.querySelector('.friend-person-action-glyph.is-block')).toBeInTheDocument()
+    fireEvent.click(blockItem)
     await waitFor(() => expect(socialMocks.blockUser).toHaveBeenCalledWith('me', 'follower-2'))
     await waitFor(() => expect(screen.queryByText('Follower Two')).not.toBeInTheDocument())
   })
@@ -918,6 +1118,11 @@ describe('ProfilePage messaging', () => {
           media: [{ id: 'video-july', type: 1, url: '/july.mp4' }],
         },
         {
+          __typename: 'GroupPostDetail', id: 'group-july', type: 3, content: 'Bài chỉ thuộc nhóm', privacy: 1,
+          create: '2026-07-14T12:00:00Z', author: { id: 'me', name: 'Owner Name', avatar: '/owner.jpg', isVerified: false },
+          group: { id: 'group-1', name: 'Private group', avatar: '', canJoin: false }, media: [],
+        },
+        {
           __typename: 'ReelDetail', id: 'reel-july', type: 2, content: 'Reel tháng bảy', privacy: 1,
           create: '2026-07-12T12:00:00Z', author: { id: 'me', name: 'Owner Name', avatar: '/owner.jpg', isVerified: false },
           media: [{ id: 'reel-video', type: 1, url: '/reel.mp4' }], aspectRatio: 0.5625, focalPointX: 0, focalPointY: 0,
@@ -955,6 +1160,7 @@ describe('ProfilePage messaging', () => {
     const plainCard = container.querySelector<HTMLElement>('[data-post-id="text-june"]')!
     const backgroundCard = container.querySelector<HTMLElement>('[data-post-id="background-june"]')!
     expect(feedCard).toBeInTheDocument()
+    expect(container.querySelector('[data-post-id="group-july"]')).not.toBeInTheDocument()
     expect(reelCard).toHaveClass('is-reel')
     expect(feedCard.querySelector('.profile-post-grid-footer .avatar')).toBeInTheDocument()
     expect(feedCard.querySelector('.profile-post-grid-meta svg')).toBeInTheDocument()

@@ -324,7 +324,7 @@ export function GroupConversationManager({
                 {memberMenuId === member.id && <AnchoredMenuPortal anchor={memberMenuAnchor} className="group-manager-member-menu group-manager-member-menu-popover" onRequestClose={() => { setMemberMenuId(null); setMemberMenuAnchor(null) }}>
                   <button type="button" role="menuitem" onClick={() => { setMemberMenuId(null); setMemberMenuAnchor(null); onOpenProfile(member.id) }}><Icon name="user" size={17} />Xem trang cá nhân</button>
                   {isAdmin && member.id !== me.id && member.role !== 'ADMIN' && <button type="button" role="menuitem" onClick={() => void changeRole(member, 'ADMIN')}><AdminCrown />Đặt làm quản trị viên</button>}
-                  {isAdmin && member.id !== me.id && member.role === 'ADMIN' && <button type="button" role="menuitem" onClick={() => void changeRole(member, 'MEMBER')}><Icon name="user" size={17} />Gỡ quyền quản trị viên</button>}
+                  {isAdmin && member.id !== me.id && member.role === 'ADMIN' && <button type="button" role="menuitem" onClick={() => void changeRole(member, 'MEMBER')}><Icon name="userMinus" size={17} />Gỡ quyền quản trị viên</button>}
                   {isAdmin && member.id !== me.id && <button type="button" role="menuitem" className="danger" onClick={() => void removeMember(member)}><Icon name="userMinus" size={17} />Xoá khỏi nhóm</button>}
                 </AnchoredMenuPortal>}
               </div>

@@ -1,5 +1,7 @@
+import type { CSSProperties } from 'react'
 import type { SharedStorySource } from '../api/gatewayTypes'
 import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
+import { useImageAmbientColor } from '../lib/useImageAmbientColor'
 import { Avatar } from './Avatar'
 import { VerifiedBadge } from './VerifiedBadge'
 
@@ -8,10 +10,10 @@ export function SharedStoryMiniPreview({ source, className = '' }: { source: Sha
   const background = getPostBackgroundPreset(decoded.backgroundId)
   const media = source.media
   const authorName = source.author?.name || 'Fakebook'
+  const ambientColor = useImageAmbientColor(media?.type === 0 ? media.url : null, 'rgb(145 148 154)')
 
   return <span className={`shared-story-miniature${className ? ` ${className}` : ''}`}>
-    <span className="shared-story-miniature-ambient" aria-hidden="true">
-      {media?.type === 0 && <img src={media.url} alt="" />}
+    <span className="shared-story-miniature-ambient" style={{ '--story-ambient-color': ambientColor } as CSSProperties} aria-hidden="true">
       {background && <i style={{ background: background.background }} />}
     </span>
     <span className="shared-story-mini-post">

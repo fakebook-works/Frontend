@@ -8,12 +8,14 @@ export function PostOptionsMenu({
   post,
   viewerId,
   owned,
+  canDelete = owned,
   onDelete,
   onPostHidden,
 }: {
   post: GatewayPost
   viewerId?: string
   owned: boolean
+  canDelete?: boolean
   onDelete?: () => void
   onPostHidden?: () => void
 }) {
@@ -96,9 +98,19 @@ export function PostOptionsMenu({
         {loading && <div className="post-options-loading"><span className="spinner" /></div>}
         {!loading && <button type="button" role="menuitem" disabled={disabled} onClick={() => void runAction('save', () => saved ? socialApi.unsaveContent(viewerId, post.id) : socialApi.saveContent(viewerId, post.id), () => setSaved((value) => !value))}><Icon name="bookmark" size={20} /><span><strong>{saved ? t('unsavePost') : t('savePost')}</strong></span></button>}
         {!loading && post.__typename !== 'GroupPostDetail' && relationship?.isFollowing && <button type="button" role="menuitem" disabled={disabled} onClick={() => void runAction('unfollow', () => socialApi.unfollowUser(viewerId, post.author.id), () => setRelationship((value) => value ? { ...value, isFollowing: false } : value))}><Icon name="userMinus" size={20} /><span><strong>{t('unfollow')}</strong></span></button>}
-        {!loading && post.__typename !== 'GroupPostDetail' && relationship?.friendship === 'friend' && <button type="button" role="menuitem" disabled={disabled} onClick={() => void runAction('unfriend', () => socialApi.unfriend(viewerId, post.author.id), () => setRelationship((value) => value ? { ...value, friendship: 'none' } : value))}><Icon name="friends" size={20} /><span><strong>{t('removeFriend')}</strong></span></button>}
+        {!loading && post.__typename !== 'GroupPostDetail' && relationship?.friendship === 'friend' && <button type="button" role="menuitem" disabled={disabled} onClick={() => void runAction('unfriend', () => socialApi.unfriend(viewerId, post.author.id), () => setRelationship((value) => value ? { ...value, friendship: 'none' } : value))}><Icon name="userMinus" size={20} /><span><strong>{t('removeFriend')}</strong></span></button>}
         {!loading && post.__typename !== 'GroupPostDetail' && !relationship?.isBlocked && <button type="button" role="menuitem" disabled={disabled} onClick={() => void runAction('block', () => socialApi.blockUser(viewerId, post.author.id), () => { setOpen(false); onPostHidden?.() })}><Icon name="block" size={20} /><span><strong>{t('block')}</strong></span></button>}
         {!loading && post.__typename === 'GroupPostDetail' && membership?.isMember && !membership.isAdmin && <button type="button" role="menuitem" disabled={disabled} onClick={() => void runAction('leave', () => socialApi.leaveGroup(viewerId, post.group.id), () => { setMembership((value) => value ? { ...value, isMember: false } : value); setOpen(false) })}><Icon name="logout" size={20} /><span><strong>{t('leaveGroup')}</strong></span></button>}
+        {!loading && (canDelete || (post.__typename === 'GroupPostDetail' && membership?.isAdmin)) && <button type="button" role="menuitem" className="danger-text" disabled={disabled} onClick={() => {
+          if (onDelete) {
+            setOpen(false)
+            onDelete()
+            return
+          }
+          if (window.confirm(t('deletePostConfirm'))) {
+            void runAction('delete', () => socialApi.deleteContent(post.id), () => { setOpen(false); onPostHidden?.() })
+          }
+        }}><Icon name="trash" size={20} /><span><strong>{t('deletePost')}</strong></span></button>}
       </> : null}
       {error && <p className="post-options-error" role="alert">{error}</p>}
     </div>}

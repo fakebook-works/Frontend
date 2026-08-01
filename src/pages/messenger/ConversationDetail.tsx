@@ -29,7 +29,7 @@ export function ConversationDetail({ me, conversation, presence, onOpenProfile, 
 
       <div className="messenger-detail-actions">
         <button type="button" onClick={() => conversation.type === 'GROUP' ? onOpenGroup?.() : otherParticipant && onOpenProfile(otherParticipant.id)}>
-          <Icon name={conversation.type === 'GROUP' ? 'groups' : 'friends'} size={16} />
+          <Icon name={conversation.type === 'GROUP' ? 'groups' : 'user'} size={16} />
           <span>{conversation.type === 'GROUP' ? 'Quản lý nhóm' : t('profile')}</span>
         </button>
       </div>

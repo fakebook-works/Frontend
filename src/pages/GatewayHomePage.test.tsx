@@ -4,7 +4,8 @@ import { Activity } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GatewayPost } from '../api/gatewayTypes'
-import { GatewayHomePage, PostComposer } from './GatewayHomePage'
+import { notifyGroupLeft } from '../lib/groupMembershipEvents'
+import { GatewayHomePage, GatewayPostCard, PostComposer } from './GatewayHomePage'
 
 const apiMocks = vi.hoisted(() => ({
   recommendedFeed: vi.fn(),
@@ -174,6 +175,53 @@ describe('GatewayHomePage', () => {
     expect(container.querySelector('.group-shortcuts .home-visited-group-copy')).toBeInTheDocument()
   })
 
+  it('removes a successfully left group from the preserved Home shortcuts and refreshes the source', async () => {
+    apiMocks.visitedGroups
+      .mockResolvedValueOnce({
+        items: [
+          { id: '81', name: 'Left group', avatar: '/left.png', visitedAt: '2026-07-31T10:00:00Z' },
+          { id: '82', name: 'Kept group', avatar: '/kept.png', visitedAt: '2026-07-31T11:00:00Z' },
+        ],
+        endCursor: null,
+        hasNextPage: false,
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: '82', name: 'Kept group', avatar: '/kept.png', visitedAt: '2026-07-31T11:00:00Z' }],
+        endCursor: null,
+        hasNextPage: false,
+      })
+
+    render(<GatewayHomePage />)
+    expect(await screen.findByText('Left group')).toBeInTheDocument()
+
+    act(() => notifyGroupLeft('81'))
+
+    await waitFor(() => expect(screen.queryByText('Left group')).not.toBeInTheDocument())
+    expect(screen.getByText('Kept group')).toBeInTheDocument()
+    await waitFor(() => expect(apiMocks.visitedGroups).toHaveBeenCalledTimes(2))
+  })
+
+  it('ignores an older visited-group response that finishes after a group is left', async () => {
+    let resolveStale!: (value: { items: Array<{ id: string; name: string; avatar: string; visitedAt: string }>; endCursor: null; hasNextPage: false }) => void
+    const staleRequest = new Promise<{ items: Array<{ id: string; name: string; avatar: string; visitedAt: string }>; endCursor: null; hasNextPage: false }>((resolve) => { resolveStale = resolve })
+    apiMocks.visitedGroups
+      .mockReturnValueOnce(staleRequest)
+      .mockResolvedValueOnce({ items: [], endCursor: null, hasNextPage: false })
+
+    render(<GatewayHomePage />)
+    await waitFor(() => expect(apiMocks.visitedGroups).toHaveBeenCalledTimes(1))
+
+    act(() => notifyGroupLeft('81'))
+    await waitFor(() => expect(apiMocks.visitedGroups).toHaveBeenCalledTimes(2))
+    await act(async () => resolveStale({
+      items: [{ id: '81', name: 'Stale left group', avatar: '/left.png', visitedAt: '2026-07-31T10:00:00Z' }],
+      endCursor: null,
+      hasNextPage: false,
+    }))
+
+    expect(screen.queryByText('Stale left group')).not.toBeInTheDocument()
+  })
+
   it('reloads Home data and resets its scroll regions when refreshToken changes', async () => {
     const { container, rerender } = render(<GatewayHomePage refreshToken={0} />)
     await screen.findByText('noRecommendedPosts')
@@ -237,7 +285,8 @@ describe('GatewayHomePage', () => {
   })
 
   it('keeps the profile composer size contract and opens its Reel composer in place', async () => {
-    const { container } = render(<PostComposer variant="profile" userId="9007199254740993123" displayName="Profile Owner" avatarUrl={null} friends={[]} onCreated={vi.fn()} />)
+    const onCreated = vi.fn()
+    const { container, rerender } = render(<PostComposer variant="profile" userId="9007199254740993123" displayName="Profile Owner" avatarUrl={null} friends={[]} onCreated={onCreated} />)
     const composer = container.querySelector('.profile-composer-card')!
 
     expect(composer.querySelector('.home-composer-row .avatar')).toHaveStyle({ width: '40px', height: '40px' })
@@ -248,6 +297,12 @@ describe('GatewayHomePage', () => {
     expect(composer.querySelector('.profile-composer-actions .media .profile-composer-action-label')).toHaveTextContent('photoVideo')
     expect(composer.querySelector('.profile-composer-actions .reel .profile-composer-action-label')).toHaveTextContent('profileTabReels')
     fireEvent.click(within(composer as HTMLElement).getByRole('button', { name: 'profileTabReels' }))
+    const dialog = await screen.findByRole('dialog', { name: 'createReel' })
+    expect(dialog).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'close' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'createReel' })).not.toBeInTheDocument())
+
+    rerender(<PostComposer variant="profile" triggerOnly externalReelOpenRequest={1} userId="9007199254740993123" displayName="Profile Owner" avatarUrl={null} friends={[]} onCreated={onCreated} />)
     expect(await screen.findByRole('dialog', { name: 'createReel' })).toBeInTheDocument()
   })
 
@@ -353,8 +408,12 @@ describe('GatewayHomePage', () => {
     expect(privacyButton.querySelector('.home-post-public-icon')).toBeInTheDocument()
     expect(privacyButton.querySelector('.home-post-privacy-caret path')).toHaveAttribute('d', 'M7.2 9.2h9.6c.75 0 1.15.88.64 1.44l-4.72 5.18c-.38.42-1.06.42-1.44 0l-4.72-5.18C6.05 10.08 6.45 9.2 7.2 9.2Z')
     fireEvent.click(privacyButton)
-    expect(within(composerDialog).getByRole('option', { name: 'privacyFriendsFollowers' }).querySelector('.privacy-1 path')).toHaveAttribute('d', 'M16.5 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-7.5 1a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 1.5c-3 0-7 1.6-7 4.7V21h14v-2.8c0-3.1-4-4.7-7-4.7zm7.5.2c.5.8.8 1.7.8 2.5V21H23v-2.5c0-2.4-3.1-3.9-6-4.3-.4.1-.8.2-1 .7z')
-    expect(within(composerDialog).getByRole('option', { name: 'privacyFriends' }).querySelector('.privacy-2 path')).toHaveAttribute('d', 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5z')
+    const friendsFollowersIcon = within(composerDialog).getByRole('option', { name: 'privacyFriendsFollowers' }).querySelector('.privacy-1')
+    expect(friendsFollowersIcon).toHaveClass('friend-people-glyph', 'is-filled')
+    expect(friendsFollowersIcon?.querySelectorAll(':scope > g')).toHaveLength(3)
+    const friendsIcon = within(composerDialog).getByRole('option', { name: 'privacyFriends' }).querySelector('.privacy-2')
+    expect(friendsIcon).toHaveClass('friend-person-glyph')
+    expect(friendsIcon?.querySelector(':scope > g')).toHaveAttribute('transform', 'translate(12 13)')
     fireEvent.click(within(composerDialog).getByRole('option', { name: 'privacyOnlyMe' }))
     expect(privacyButton).toHaveTextContent('privacyOnlyMe')
     fireEvent.click(privacyButton)
@@ -982,7 +1041,8 @@ describe('GatewayHomePage', () => {
     const feedCard = (await screen.findByText('Public author post')).closest('article')!
     expect(within(feedCard).getByRole('button', { name: 'Tagged Friend' })).toBeInTheDocument()
     expect(within(feedCard).queryByRole('button', { name: 'privacyFriends' })).not.toBeInTheDocument()
-    expect(feedCard.querySelector('.post-privacy-hover .privacy-2 path')).toHaveAttribute('d', 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5z')
+    expect(feedCard.querySelector('.post-privacy-hover .privacy-2')).toHaveClass('friend-person-glyph')
+    expect(feedCard.querySelector('.post-privacy-hover .privacy-2 > g')).toHaveAttribute('transform', 'translate(12 13)')
     fireEvent.mouseEnter(feedCard.querySelector('.post-time-hover')!)
     expect(await screen.findByRole('tooltip')).toHaveTextContent('2026')
     fireEvent.mouseLeave(feedCard.querySelector('.post-time-hover')!)
@@ -1029,12 +1089,68 @@ describe('GatewayHomePage', () => {
     const card = (await screen.findByText('Private group content')).closest('article')!
     const privateGroupIcon = card.querySelector('.post-privacy-hover .group-private-privacy-icon')
     expect(privateGroupIcon).toBeInTheDocument()
-    expect(privateGroupIcon?.querySelector('circle')).toHaveAttribute('fill', '#b0b3b8')
-    expect(privateGroupIcon?.querySelector('.group-private-privacy-glyph')).toHaveAttribute('fill', '#2b2d30')
+    expect(privateGroupIcon?.tagName).toBe('SPAN')
+    expect(privateGroupIcon?.querySelectorAll('.group-private-privacy-glyph > g > circle')).toHaveLength(3)
+    expect(privateGroupIcon?.querySelectorAll('.group-private-privacy-glyph > g > path')).toHaveLength(3)
+    expect(privateGroupIcon?.querySelector('.group-private-privacy-glyph > g')).toHaveAttribute('fill', 'var(--group-private-privacy-glyph-color)')
+    expect(privateGroupIcon?.querySelector('.group-private-privacy-glyph > g')).toHaveAttribute('stroke', 'var(--group-private-privacy-surface)')
+    expect(privateGroupIcon?.querySelector('.group-private-privacy-glyph > g')).toHaveAttribute('stroke-width', '0.52')
+    expect(privateGroupIcon?.querySelector('.group-private-privacy-glyph > g')).toHaveAttribute('transform', 'translate(-0.35 -0.9)')
     expect(card.querySelector('.post-privacy-hover .privacy-1')).not.toBeInTheDocument()
     fireEvent.mouseEnter(card.querySelector('.post-privacy-hover')!)
     expect(await screen.findByRole('tooltip')).toHaveTextContent('privateGroup')
     expect(container.querySelector('.group-post-avatar-stack')).toBeInTheDocument()
+  })
+
+  it('uses only the author identity for a post inside its owning group and exposes delete to its administrator', async () => {
+    const groupPost: GatewayPost = {
+      __typename: 'GroupPostDetail',
+      id: 'group-profile-post',
+      type: 3,
+      content: 'Group profile content',
+      privacy: 1,
+      create: '2026-07-31T08:00:00Z',
+      author: { id: 'group-author', name: 'Group author', avatar: '/author.jpg', isVerified: false },
+      group: { id: 'owning-group', name: 'Owning group', avatar: '/group.jpg', canJoin: false },
+      media: [],
+    }
+
+    const { container } = render(<GatewayPostCard
+      post={groupPost}
+      locale="vi-VN"
+      viewerId="group-admin"
+      groupContextId="owning-group"
+      viewerCanModerateGroupPosts
+    />)
+
+    expect(screen.getAllByRole('button', { name: 'Group author' })).toHaveLength(2)
+    expect(container.querySelector('.group-post-avatar-stack')).not.toBeInTheDocument()
+    expect(container.querySelector('.post-group-link')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'joinGroup' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'postOptions' }))
+    expect(await screen.findByRole('menuitem', { name: /deletePost/ })).toBeInTheDocument()
+  })
+
+  it('offers group-post deletion to the current group administrator outside the group profile too', async () => {
+    socialMocks.getGroupMembershipState.mockResolvedValue({ isMember: false, isAdmin: true, joinRequestPending: false, canViewPosts: true })
+    const groupPost: GatewayPost = {
+      __typename: 'GroupPostDetail',
+      id: 'moderated-group-post',
+      type: 3,
+      content: 'Moderated content',
+      privacy: 0,
+      create: '2026-07-31T08:00:00Z',
+      author: { id: 'another-author', name: 'Another author', avatar: '', isVerified: false },
+      group: { id: 'moderated-group', name: 'Moderated group', avatar: '', canJoin: false },
+      media: [],
+    }
+
+    render(<GatewayPostCard post={groupPost} locale="vi-VN" viewerId="group-admin" />)
+    fireEvent.click(screen.getByRole('button', { name: 'postOptions' }))
+
+    expect(await screen.findByRole('menuitem', { name: /deletePost/ })).toBeInTheDocument()
+    expect(socialMocks.getGroupMembershipState).toHaveBeenCalledWith('group-admin', 'moderated-group')
   })
 
   it('lets the feed post owner change privacy directly from the metadata icon', async () => {

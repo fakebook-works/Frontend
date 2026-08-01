@@ -8,7 +8,7 @@ import { socialApi, type SocialProfile } from '../api/social'
 import type { GatewayPost } from '../api/gatewayTypes'
 import type { UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
-import { FriendPeopleGlyph } from '../components/FriendPeopleGlyph'
+import { FriendPeopleGlyph, FriendPersonActionGlyph, type FriendPersonAction } from '../components/FriendPeopleGlyph'
 import { Icon, ReelIcon, type IconName } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
@@ -40,7 +40,8 @@ export function AuthenticatedApp() {
   const isHomeRoute = location.pathname === '/' || location.pathname === '/home'
   const isFriendsRoute = location.pathname.startsWith('/friends')
   const isReelsRoute = location.pathname.startsWith('/reels')
-  const isGroupsRoute = location.pathname.startsWith('/groups')
+  const isGroupsRoute = location.pathname === '/groups'
+  const isGroupsPath = location.pathname.startsWith('/groups')
   const activePrimaryDestination = primaryDestinationForPath(location.pathname)
   const [homeRefreshToken, setHomeRefreshToken] = useState(0)
   const [reelsRefreshToken, setReelsRefreshToken] = useState(0)
@@ -442,7 +443,7 @@ export function AuthenticatedApp() {
     {location.pathname === '/premium/payment' && <SettingsPage initialSection="premium" />}
     {location.pathname.startsWith('/content/') && <ContentPage contentId={pathSegment(location.pathname, 1)!} viewerId={user.userId} onNavigate={go} onBack={() => go('/home')} />}
     {!isKnownPath(location.pathname) && <main className="unknown-page"><div className="card state-card"><h1>{t('pageNotFound')}</h1><p>{t('pageNotFoundDesc')}</p><button className="btn-primary" onClick={() => go('/home')}>{t('backToHome')}</button></div></main>}
-    <MessengerDock ref={messengerDockRef} me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} panelOpen={messengerPanelOpen} hidden={location.pathname === '/messenger'} showComposeRail={isHomeRoute || location.pathname.startsWith('/friends') || isGroupsRoute || Boolean(profileId)} onPanelClose={() => setMessengerPanelOpen(false)} onOpenAll={(conversationId) => go(conversationId ? `/messenger?conversation=${encodeURIComponent(conversationId)}` : '/messenger')} onOpenProfile={(id) => go(`/profile/${id}`)} />
+    <MessengerDock ref={messengerDockRef} me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} panelOpen={messengerPanelOpen} hidden={location.pathname === '/messenger'} showComposeRail={isHomeRoute || location.pathname.startsWith('/friends') || isGroupsPath || Boolean(profileId)} onPanelClose={() => setMessengerPanelOpen(false)} onOpenAll={(conversationId) => go(conversationId ? `/messenger?conversation=${encodeURIComponent(conversationId)}` : '/messenger')} onOpenProfile={(id) => go(`/profile/${id}`)} />
   </div>
 }
 
@@ -529,14 +530,16 @@ function NotificationPopover({ items, unreadCount, loading, onOpen, onMarkAll, o
 
 function NotificationKindIcon({ actionType }: { actionType: string }) {
   let icon: IconName = 'bell'
+  let friendAction: FriendPersonAction | null = null
   let tone = 'activity'
   if (actionType === 'LIKE') { icon = 'like'; tone = 'like' }
   else if (actionType === 'COMMENT') { icon = 'comment'; tone = 'comment' }
-  else if (actionType === 'FRIEND_REQUEST' || actionType === 'FRIEND_ACCEPT') { icon = 'friends'; tone = 'friend' }
+  else if (actionType === 'FRIEND_REQUEST') { friendAction = 'add'; tone = 'friend' }
+  else if (actionType === 'FRIEND_ACCEPT') { friendAction = 'check'; tone = 'friend' }
   else if (actionType.startsWith('GROUP_')) { icon = 'groups'; tone = 'group' }
   else if (actionType === 'SHARE') { icon = 'share'; tone = 'share' }
   else if (actionType === 'TAG' || actionType === 'MENTION') { icon = 'tag'; tone = 'tag' }
-  return <span className={`notification-kind-icon ${tone}`} aria-hidden="true"><Icon name={icon} size={14} /></span>
+  return <span className={`notification-kind-icon ${tone}`} aria-hidden="true">{friendAction ? <FriendPersonActionGlyph action={friendAction} size={14} /> : <Icon name={icon} size={14} />}</span>
 }
 
 function AppsMenu({ onNavigate }: { onNavigate: (path: string) => void }) {

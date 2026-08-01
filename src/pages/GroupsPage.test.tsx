@@ -258,6 +258,11 @@ describe('GroupsPage', () => {
     expect(screen.getAllByText('groupPostsPerDay')).toHaveLength(2)
     expect(screen.getByText('groupFriendMembers')).toBeInTheDocument()
     expect(screen.getByText('groupFriendMemberSingle')).toBeInTheDocument()
+    const suggestionMeta = container.querySelector('.groups-suggestion-card:first-child .groups-suggestion-meta')!
+    expect(Array.from(suggestionMeta.children).map((item) => item.textContent)).toEqual([
+      'groupPublicVisibility', '·', 'membersCount', '·', 'groupPostsPerDay',
+    ])
+    expect(suggestionMeta.querySelectorAll('.groups-meta-separator')).toHaveLength(2)
     expect(container.querySelectorAll('.groups-suggestion-card:first-child .groups-suggestion-friend-avatars .avatar')).toHaveLength(3)
     expect(socialMocks.getGroupSuggestions).toHaveBeenCalledWith(24)
     fireEvent.click(screen.getAllByRole('button', { name: 'joinGroupLong' })[1])
@@ -298,6 +303,9 @@ describe('GroupsPage', () => {
       expect(screen.getByText('gần 4 giờ trước')).toBeInTheDocument()
       expect(container.querySelectorAll('.groups-membership-card-directory')).toHaveLength(2)
       expect(container.querySelector('.groups-membership-card-directory .avatar')).toHaveStyle({ width: '72px', height: '72px' })
+      const directoryMeta = container.querySelector('.groups-membership-card-directory .groups-directory-group-meta')!
+      expect(Array.from(directoryMeta.children).map((item) => item.textContent)).toEqual(['groupPublicVisibility', '·', 'membersCount'])
+      expect(directoryMeta.querySelector('.groups-meta-separator')).toBeInTheDocument()
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
       expect((scrollIntoView.mock.contexts[scrollIntoView.mock.contexts.length - 1] as HTMLElement).dataset.section).toBe('joined')
     } finally {

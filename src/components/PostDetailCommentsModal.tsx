@@ -624,11 +624,11 @@ function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, on
       <button type="button" className="post-author-avatar" onClick={openPrimary}>{isGroup ? <GroupPostAvatar groupName={post.group.name} groupAvatar={post.group.avatar || null} userName={post.author.name} userAvatar={post.author.avatar || null} size={40} /> : <Avatar name={post.author.name} src={post.author.avatar || null} size={40} />}</button>
       <div className="post-head-copy thread-post-head-copy">
         <div className="post-head-primary">
-          {isGroup ? <button type="button" className="post-group-link" onClick={openPrimary}><strong>{post.group.name}</strong></button> : <button type="button" className="post-author-name" onClick={openPrimary}><strong>{post.author.name}<VerifiedBadge verified={post.author.isVerified} /></strong></button>}
+          {isGroup ? <button type="button" className="post-group-link" onClick={openPrimary}><strong><span className="thread-post-primary-name">{post.group.name}</span></strong></button> : <button type="button" className="post-author-name" onClick={openPrimary}><strong><span className="thread-post-primary-name">{post.author.name}</span><VerifiedBadge verified={post.author.isVerified} /></strong></button>}
           <ThreadTaggedUsers users={taggedUsers} onNavigate={onNavigate} />
         </div>
         <span className="post-head-meta">
-          {isGroup && <><button type="button" className="post-meta-author" onClick={() => onNavigate?.(`/profile/${post.author.id}`)}>{post.author.name}<VerifiedBadge verified={post.author.isVerified} size={12} /></button><i>·</i></>}
+          {isGroup && <><button type="button" className="post-meta-author" onClick={() => onNavigate?.(`/profile/${post.author.id}`)}><span className="thread-post-meta-author-name">{post.author.name}</span><VerifiedBadge verified={post.author.isVerified} size={12} /></button><i>·</i></>}
           <HoverTooltip label={timestamp.detail} className="post-meta-hover post-time-hover"><time dateTime={post.create}>{timestamp.display}</time></HoverTooltip>
           <i>·</i>
           <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={privacy} size={13} group={isGroup} /></span></HoverTooltip>

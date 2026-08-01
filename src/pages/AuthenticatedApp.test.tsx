@@ -97,6 +97,18 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(screen.getByRole('button', { name: 'newMessage' })).toBeInTheDocument()
   })
 
+  it('treats a group profile as a detail page with the regular search and no active Groups tab', () => {
+    window.history.replaceState({}, '', '/groups/61')
+    const { container } = render(<AuthenticatedApp />)
+    const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
+
+    expect(screen.getByText('group-profile-page')).toBeInTheDocument()
+    expect(container.querySelector('.authenticated-app')).not.toHaveClass('groups-route')
+    expect(navigation.querySelector('button[aria-label="groups"]')).not.toHaveClass('active')
+    expect(container.querySelector('.shell-search')).not.toHaveStyle({ width: '36px', height: '36px' })
+    expect(container.querySelector('.mini-chat-region')).toHaveClass('home-compose-rail')
+  })
+
   it('does not reserve the photo-viewer chat rail on Reels until its comments are open', () => {
     window.history.replaceState({}, '', '/reels')
     const { container } = render(<AuthenticatedApp />)

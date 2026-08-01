@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   readonly VITE_DEV_UPLOAD_TARGET?: string
   readonly VITE_DEV_ALLOWED_HOST?: string
   readonly VITE_IP_GEOLOCATION_URL?: string
+  readonly VITE_GEOCODING_API_URL?: string
 }
 
 interface ImportMeta {
