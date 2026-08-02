@@ -16,7 +16,7 @@ ARG VITE_IP_GEOLOCATION_URL
 
 RUN npm run build
 
-FROM nginx:1.30.4-alpine-slim AS final
+FROM nginx:1.30.4-alpine-slim
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
