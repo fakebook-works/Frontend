@@ -11,12 +11,13 @@ import { PostMediaGallery } from './PostMediaGallery'
 import { PostPrivacyIcon, type PostPrivacy } from './PostPrivacyIcon'
 import { VerifiedBadge } from './VerifiedBadge'
 
-export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource, onOpenImage }: {
+export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource, onOpenImage, onOpenReel }: {
   source: SharedPostSource
   locale: string
   onNavigate?: (path: string) => void
   onOpenSource?: (sourceId: string) => void
   onOpenImage?: (source: SharedPostSource, media: SharedPostSource['media'][number], index: number, initialPlaybackTime?: number) => void
+  onOpenReel?: (source: SharedPostSource) => void
 }) {
   const { t } = useI18n()
   const sharedGroup = source.group ?? null
@@ -93,6 +94,13 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource,
         }
       } : undefined}><MentionContent content={decodedContent.text} mentions={source.mentions} onNavigate={onNavigate} /></div>}
     </div>
-    <PostMediaGallery media={source.media} controls onOpenImage={onOpenImage ? (media, index, initialPlaybackTime) => onOpenImage(source, media, index, initialPlaybackTime) : undefined} />
+    <PostMediaGallery
+      media={source.media}
+      controls
+      preferredAspectRatio={source.type === 4 ? source.aspectRatio : null}
+      focalPointX={source.type === 4 ? source.focalPointX : null}
+      focalPointY={source.type === 4 ? source.focalPointY : null}
+      onOpenImage={source.type === 4 && onOpenReel ? () => onOpenReel(source) : onOpenImage ? (media, index, initialPlaybackTime) => onOpenImage(source, media, index, initialPlaybackTime) : undefined}
+    />
   </section>
 }

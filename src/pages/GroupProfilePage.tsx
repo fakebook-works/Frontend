@@ -40,6 +40,8 @@ type GroupAboutEditTarget = 'description' | 'privacy' | 'all'
 interface GroupMediaViewerState {
   contentId: string
   media: { id: string; type: number; url: string }
+  initialPlaybackTime?: number
+  initialPost?: GatewayPost
 }
 
 const EMPTY_MEMBERSHIP: GroupMembershipState = {
@@ -350,7 +352,7 @@ function GroupRequestCard({ profile, busy, onNavigate, onReview }: { profile: Us
   </article>
 }
 
-export function GroupProfilePage({ groupId, userId, onBack, onNavigate }: { groupId: string; userId: string; onBack: () => void; onNavigate: (path: string) => void }) {
+export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenReel }: { groupId: string; userId: string; onBack: () => void; onNavigate: (path: string) => void; onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void }) {
   const { t, locale } = useI18n()
   const [group, setGroup] = useState<SocialGroup | null>(null)
   const [viewer, setViewer] = useState<SocialProfile | null>(null)
@@ -863,7 +865,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate }: { grou
         <section ref={groupPostColumnRef} className="profile-post-list group-profile-post-column">
           {participant && viewer && <PostComposer variant="group" userId={viewer.id} displayName={viewer.displayName} avatarUrl={viewer.avatarUrl} isVerified={viewer.isVerified} friends={eligibleTagPeople} groupId={group.id} groupName={group.name} groupAvatarUrl={group.avatarUrl} groupPrivacy={group.privacy} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
           <GroupPostViewTools filter={postFilter} view={postView} manageMode={manageMode} onFilterChange={setPostFilter} onViewChange={setPostView} onManageToggle={() => setManageMode((value) => !value)} />
-          {!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupFeedEmpty')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : filteredPosts.length === 0 ? <div className="card state-card"><h2>{t('profileNoPosts')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : postView === 'grid' ? <div className="self-profile-post-months">{groupPostMonthGroups.map((month) => <section className="card self-profile-post-month" key={month.id}><h3>{month.label}</h3><div className="self-profile-post-grid">{month.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} groupPrivacy onOpenDetail={() => setGroupDetailPostId(post.id)} onOpenMedia={(item: ProfileGridMediaTarget) => setPhotoViewer({ contentId: item.contentId, media: { id: item.mediaId, type: item.mediaType, url: item.mediaUrl } })} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} groupContextId={group.id} viewerCanModerateGroupPosts={membership.isAdmin} />)}
+          {!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupFeedEmpty')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : filteredPosts.length === 0 ? <div className="card state-card"><h2>{t('profileNoPosts')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : postView === 'grid' ? <div className="self-profile-post-months">{groupPostMonthGroups.map((month) => <section className="card self-profile-post-month" key={month.id}><h3>{month.label}</h3><div className="self-profile-post-grid">{month.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} groupPrivacy onOpenDetail={() => setGroupDetailPostId(post.id)} onOpenMedia={(item: ProfileGridMediaTarget) => setPhotoViewer({ contentId: item.contentId, media: { id: item.mediaId, type: item.mediaType, url: item.mediaUrl } })} onOpenReel={post.__typename === 'ReelDetail' && onOpenReel ? () => onOpenReel(post) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} onOpenReel={onOpenReel} groupContextId={group.id} viewerCanModerateGroupPosts={membership.isAdmin} />)}
           {postView === 'list' && postsHaveMore && <button type="button" className="btn-soft group-profile-load-more" disabled={postsLoading || !postCursor} onClick={() => void loadPosts(postCursor, true)}>{postsLoading ? t('loadingMore') : t('seeMore')}</button>}
         </section>
         <aside ref={groupInfoColumnRef} className="self-profile-left-column group-profile-info-column"><GroupAboutCard group={group} locale={locale} admin={membership.isAdmin} compact onUpdated={setGroup} /><GroupPeoplePreview people={visiblePeople} count={groupMemberCount} onNavigate={onNavigate} onOpen={() => setTab('people')} /><GroupMediaPreview media={media} hasMore={mediaHaveMore} onOpenTab={() => setTab('media')} onOpenMedia={(item) => setPhotoViewer(item)} /></aside>
@@ -886,14 +888,14 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate }: { grou
       </section></section></div>}
     </main>
 
-    {groupDetailPostId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={userId} contentId={groupDetailPostId} onClose={() => setGroupDetailPostId(null)} onNavigate={onNavigate} onOpenImage={(detailPost, item) => {
+    {groupDetailPostId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={userId} contentId={groupDetailPostId} onClose={() => setGroupDetailPostId(null)} onNavigate={onNavigate} onOpenImage={(detailPost, item, _index, initialPlaybackTime) => {
       if (detailPost.__typename === 'ReelDetail') return
-      setPhotoViewer({ contentId: detailPost.id, media: item })
-    }} /></Suspense>}
+      setPhotoViewer({ contentId: detailPost.id, media: item, initialPlaybackTime, initialPost: detailPost })
+    }} onOpenReel={onOpenReel} /></Suspense>}
     {editOpen && <GroupEditModal group={group} onClose={() => setEditOpen(false)} onUpdated={setGroup} />}
     {inviteOpen && <GroupInviteModal groupId={group.id} viewerId={userId} admin={membership.isAdmin} excludedIds={new Set(allPeople.map((person) => person.id))} onClose={() => setInviteOpen(false)} />}
     {existingPicker && <ExistingGroupPhotoPicker photos={imageCandidates} kind={existingPicker} onClose={() => setExistingPicker(null)} onSelect={(photo) => void chooseExisting(photo, existingPicker)} />}
-    {photoViewer && <Suspense fallback={<div className="modal-backdrop"><span className="spinner" /></div>}><PostPhotoViewer viewerId={userId} contentId={photoViewer.contentId} initialMediaId={photoViewer.media.id} initialMediaUrl={photoViewer.media.url} onClose={() => setPhotoViewer(null)} onNavigate={onNavigate} /></Suspense>}
+    {photoViewer && <Suspense fallback={<div className="modal-backdrop"><span className="spinner" /></div>}><PostPhotoViewer viewerId={userId} contentId={photoViewer.contentId} initialMediaId={photoViewer.media.id} initialMediaUrl={photoViewer.media.url} initialPlaybackTime={photoViewer.initialPlaybackTime} initialPost={photoViewer.initialPost} onClose={() => setPhotoViewer(null)} onNavigate={onNavigate} /></Suspense>}
     {shareGroupOpen && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ShareModal viewerId={userId} sourceId={group.id} canReshare allowStory={false} initialPreview={{ id: group.id, isAvailable: true, type: 1, content: null, privacy: group.privacy, create: group.createdAt, author: null, media: [], group: { id: group.id, name: group.name, avatar: group.avatarUrl || '', background: group.backgroundUrl || '', privacy: group.privacy, memberCount: group.memberCount ?? 0, viewerIsMember: participant, joinRequestPending: membership.joinRequestPending } } satisfies SharedPostSource} onClose={() => setShareGroupOpen(false)} onShared={() => undefined} onNavigate={onNavigate} /></Suspense>}
   </>
 }

@@ -34,6 +34,7 @@ import {
   type PostBackgroundId,
 } from '../lib/postContent'
 import { readDefaultPostPrivacy } from '../lib/privacy'
+import { sharedPostSourceToGatewayReel } from '../lib/reelEntry'
 import { formatPostTimestamp } from '../lib/postTime'
 import { decodeStoryContent } from '../lib/storyContent'
 import { forgetOwnUnseenStory, reconcileOwnUnseenStories, rememberOwnUnseenStory } from '../lib/ownStoryUnseen'
@@ -560,6 +561,7 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
       onMessage={onMessage}
       onStoryCreated={applyCreatedStory}
       onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setDetailPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })}
+      onOpenReel={onOpenReel ?? ((reel) => onNavigate?.(`/reels?source=for-you&reel=${encodeURIComponent(reel.id)}`))}
     /></Suspense>}
     {user && detailPhotoViewer && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><PostPhotoViewer viewerId={user.userId} contentId={detailPhotoViewer.contentId} initialMediaId={detailPhotoViewer.mediaId} initialMediaUrl={detailPhotoViewer.mediaUrl} initialPlaybackTime={detailPhotoViewer.initialPlaybackTime} initialPost={detailPhotoViewer.initialPost} onClose={() => setDetailPhotoViewer(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={applyCreatedStory} /></Suspense>}
   </>
@@ -1244,6 +1246,10 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel
   const inOwningGroupContext = current.__typename === 'GroupPostDetail' && current.group.id === groupContextId
   const isFeedLike = current.__typename !== 'GroupPostDetail'
   const openAuthor = () => onNavigate?.(authorPath?.(current.author.id) ?? `/profile/${current.author.id}`)
+  const openReelViewer = (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => {
+    if (onOpenReel) onOpenReel(reel)
+    else onNavigate?.(`/reels?source=for-you&reel=${encodeURIComponent(reel.id)}`)
+  }
   const canFollow = isFeedLike && !owned && (Boolean(current.author.canFollow) || followingFromCard)
   const canJoin = current.__typename === 'GroupPostDetail' && !inOwningGroupContext && (Boolean(current.group.canJoin) || joinRequestedFromCard)
   const postPrivacy: PostPrivacy = current.privacy === 1 || current.privacy === 2 || current.privacy === 3 ? current.privacy : 0
@@ -1344,12 +1350,16 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel
       </header>
       {(relationshipError || privacyError) && <p className="form-error post-relationship-error">{relationshipError || privacyError}</p>}
       {decodedContent.text && <p className={postBackground ? 'gateway-post-content has-background' : 'gateway-post-content'} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={current.mentions} onNavigate={onNavigate} /></p>}
-      <PostMediaGallery media={current.media} preferredAspectRatio={current.__typename === 'ReelDetail' ? current.aspectRatio : null} focalPointX={current.__typename === 'ReelDetail' ? current.focalPointX : null} focalPointY={current.__typename === 'ReelDetail' ? current.focalPointY : null} onOpenImage={viewerId && current.__typename === 'ReelDetail' && onOpenReel ? () => onOpenReel(current) : viewerId && current.__typename !== 'ReelDetail' ? (media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: current.id, mediaId: media.id, mediaUrl: media.url, initialPost: current, initialPlaybackTime }) : undefined} />
-      {current.sharedSource && <SharedPostSourceCard source={current.sharedSource} locale={locale} onNavigate={onNavigate} onOpenSource={current.sharedSource.type === 1 && current.sharedSource.group ? undefined : (sourceId) => setSharedDetailId(sourceId)} onOpenImage={viewerId && current.sharedSource.type !== 4 ? (source, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: source.id, mediaId: media.id, mediaUrl: media.url, initialPlaybackTime }) : undefined} />}
-      {viewerId && <Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={current.id} post={current} canShare canReshare={canReshare} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} /></Suspense>}
+      <PostMediaGallery media={current.media} preferredAspectRatio={current.__typename === 'ReelDetail' ? current.aspectRatio : null} focalPointX={current.__typename === 'ReelDetail' ? current.focalPointX : null} focalPointY={current.__typename === 'ReelDetail' ? current.focalPointY : null} onOpenImage={viewerId && current.__typename === 'ReelDetail' ? () => openReelViewer(current) : viewerId && current.__typename !== 'ReelDetail' ? (media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: current.id, mediaId: media.id, mediaUrl: media.url, initialPost: current, initialPlaybackTime }) : undefined} />
+      {current.sharedSource && <SharedPostSourceCard source={current.sharedSource} locale={locale} onNavigate={onNavigate} onOpenSource={current.sharedSource.type === 1 && current.sharedSource.group ? undefined : (sourceId) => setSharedDetailId(sourceId)} onOpenImage={viewerId && current.sharedSource.type !== 4 ? (source, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: source.id, mediaId: media.id, mediaUrl: media.url, initialPlaybackTime }) : undefined} onOpenReel={viewerId && current.sharedSource.type === 4 ? (source) => {
+        const reel = sharedPostSourceToGatewayReel(source)
+        if (reel) openReelViewer(reel)
+        else onNavigate?.(`/reels?source=for-you&reel=${encodeURIComponent(source.id)}`)
+      } : undefined} />}
+      {viewerId && <Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={current.id} post={current} canShare canReshare={canReshare} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} onOpenReel={openReelViewer} /></Suspense>}
       {deleting && <DeletePostModal postId={current.id} onClose={() => setDeleting(false)} onDeleted={() => setRemoved(true)} />}
     </article>
-    {viewerId && sharedDetailId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={sharedDetailId} onClose={() => setSharedDetailId(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} /></Suspense>}
+    {viewerId && sharedDetailId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={sharedDetailId} onClose={() => setSharedDetailId(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} onOpenReel={openReelViewer} /></Suspense>}
     {viewerId && photoViewer && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={photoViewer.contentId} initialMediaId={photoViewer.mediaId} initialMediaUrl={photoViewer.mediaUrl} initialPlaybackTime={photoViewer.initialPlaybackTime} initialPost={photoViewer.initialPost} onClose={() => setPhotoViewer(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
   </>
 }

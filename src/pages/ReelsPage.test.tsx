@@ -355,19 +355,24 @@ describe('ReelsPage media discussion layout', () => {
     Object.defineProperty(stage, 'scrollTop', { configurable: true, writable: true, value: 0 })
     scrollTo.mockImplementation(({ top }: { top: number }) => { stage.scrollTop = top })
     Object.defineProperty(stage, 'scrollTo', { configurable: true, value: scrollTo })
+    let now = 1
+    const performanceNow = vi.spyOn(performance, 'now').mockImplementation(() => now)
+    try {
+      fireEvent.wheel(stage, { deltaY: 120 })
+      for (let index = 0; index < 4; index += 1) {
+        now += 100
+        fireEvent.wheel(stage, { deltaY: 60 })
+      }
+      expect(scrollTo).toHaveBeenCalledTimes(1)
 
-    fireEvent.wheel(stage, { deltaY: 120 })
-    for (let index = 0; index < 4; index += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 100))
-      fireEvent.wheel(stage, { deltaY: 60 })
+      now += 160
+      fireEvent.wheel(stage, { deltaY: 120 })
+
+      expect(scrollTo).toHaveBeenCalledTimes(2)
+      expect(scrollTo).toHaveBeenLastCalledWith({ top: 1280, behavior: 'smooth' })
+    } finally {
+      performanceNow.mockRestore()
     }
-    expect(scrollTo).toHaveBeenCalledTimes(1)
-
-    await new Promise((resolve) => window.setTimeout(resolve, 160))
-    fireEvent.wheel(stage, { deltaY: 120 })
-
-    expect(scrollTo).toHaveBeenCalledTimes(2)
-    expect(scrollTo).toHaveBeenLastCalledWith({ top: 1280, behavior: 'smooth' })
   })
 
   it('keeps one comments sidebar mounted while moving to the next Reel', async () => {

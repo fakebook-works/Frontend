@@ -170,7 +170,7 @@ const POST_FIELDS = `
     author { id name avatar isVerified canFollow }
     media { id type url }
     sharedSource {
-      id isAvailable type content privacy create requiresGroupMembership
+      id isAvailable type content privacy create aspectRatio focalPointX focalPointY requiresGroupMembership
       mentions { userId name available }
       author { id name avatar isVerified }
       media { id type url }
@@ -191,7 +191,7 @@ const POST_FIELDS = `
     group { id name avatar canJoin }
     media { id type url }
     sharedSource {
-      id isAvailable type content privacy create requiresGroupMembership
+      id isAvailable type content privacy create aspectRatio focalPointX focalPointY requiresGroupMembership
       mentions { userId name available }
       author { id name avatar isVerified }
       media { id type url }
@@ -208,7 +208,7 @@ const GROUP_POST_FIELDS = `
   group { id name avatar canJoin }
   media { id type url }
   sharedSource {
-    id isAvailable type content privacy create requiresGroupMembership
+    id isAvailable type content privacy create aspectRatio focalPointX focalPointY requiresGroupMembership
     mentions { userId name available }
     author { id name avatar isVerified }
     media { id type url }
@@ -325,6 +325,9 @@ function postFromGraphQl(post: GatewayPost): GatewayPost {
       ...post.sharedSource,
       id: String(post.sharedSource.id),
       type: post.sharedSource.type == null ? null : Number(post.sharedSource.type),
+      aspectRatio: post.sharedSource.aspectRatio == null ? null : Number(post.sharedSource.aspectRatio),
+      focalPointX: post.sharedSource.focalPointX == null ? null : Number(post.sharedSource.focalPointX),
+      focalPointY: post.sharedSource.focalPointY == null ? null : Number(post.sharedSource.focalPointY),
       author: post.sharedSource.author ? { ...post.sharedSource.author, id: String(post.sharedSource.author.id) } : null,
       media: post.sharedSource.media.map((media) => ({ ...media, id: String(media.id), type: Number(media.type) })),
       mentions: normalizeMentionUsers(post.sharedSource.mentions),
@@ -435,6 +438,18 @@ export async function getGroupFriendMembers(groupId: string, limit = 12): Promis
     { limit: size },
   )
   return (data.groupFriendMembers ?? []).map(summaryFromGraphQl)
+}
+
+export async function getGroupFriendMemberPreviews(groupIds: string[], limit = 12): Promise<Record<string, UserSummary[]>> {
+  const ids = [...new Set(groupIds)].slice(0, 50)
+  if (ids.length === 0) return {}
+  const size = Math.max(1, Math.min(12, Math.trunc(limit)))
+  const selections = ids.map((id, index) => `friends${index}: groupFriendMembers(groupId: ${graphQlLongLiteral(id)}, limit: $limit) { id name avatar }`).join('\n')
+  const data = await gatewayGraphQl<Record<string, Array<Record<string, unknown>>>>(
+    `query GroupFriendMemberPreviews($limit: Int!) { ${selections} }`,
+    { limit: size },
+  )
+  return Object.fromEntries(ids.map((id, index) => [id, (data[`friends${index}`] ?? []).map(summaryFromGraphQl)]))
 }
 
 export async function getProfilePosts(userId: string, limit = 12, cursor: string | null = null): Promise<{ items: GatewayPost[]; endCursor: string | null; hasNextPage: boolean }> {
@@ -772,6 +787,20 @@ export async function getGroupMembershipState(userId: string, groupId: string): 
     }`,
   )
   return data.groupViewerState ?? { isMember: false, isAdmin: false, joinRequestPending: false, canViewPosts: false }
+}
+
+export async function getGroupMembershipStates(userId: string, groupIds: string[]): Promise<Record<string, GroupMembershipState>> {
+  graphQlLongLiteral(userId)
+  const ids = [...new Set(groupIds)].slice(0, 50)
+  if (ids.length === 0) return {}
+  const selections = ids.map((id, index) => `membership${index}: groupViewerState(groupId: ${graphQlLongLiteral(id)}) {
+    isMember isAdmin joinRequestPending canViewPosts
+  }`).join('\n')
+  const data = await gatewayGraphQl<Record<string, GroupMembershipState | null>>(`query GroupMembershipStates { ${selections} }`)
+  return Object.fromEntries(ids.map((id, index) => [
+    id,
+    data[`membership${index}`] ?? { isMember: false, isAdmin: false, joinRequestPending: false, canViewPosts: false },
+  ]))
 }
 
 export async function getGroupJoinRequests(groupId: string, limit = 50): Promise<UserSummary[]> {
@@ -1432,6 +1461,7 @@ export const socialApi = {
   getGroups,
   getGroupSuggestions,
   getGroupFriendMembers,
+  getGroupFriendMemberPreviews,
   getProfilePosts,
   getProfileReels,
   getUserPhotos,
@@ -1451,6 +1481,7 @@ export const socialApi = {
   getAdminGroups,
   getPendingGroupJoins,
   getGroupMembershipState,
+  getGroupMembershipStates,
   getGroupJoinRequests,
   getGroupMembers,
   getGroupAdmins,

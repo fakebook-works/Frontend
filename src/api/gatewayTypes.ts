@@ -32,6 +32,10 @@ export interface SharedPostSource {
   content: string | null
   privacy?: number | null
   create?: string | null
+  /** Presentation crop inherited from an available Reel source. */
+  aspectRatio?: number | null
+  focalPointX?: number | null
+  focalPointY?: number | null
   author: Omit<GatewayAuthor, 'canFollow'> | null
   media: GatewayMedia[]
   mentions?: GatewayMention[]

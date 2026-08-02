@@ -8,12 +8,15 @@ import { FriendsPage } from './FriendsPage'
 
 const socialMocks = vi.hoisted(() => ({
   getFriendSuggestions: vi.fn(),
+  getFriendProfilesWithMutualCounts: vi.fn(),
   getRelationProfiles: vi.fn(),
+  getProfile: vi.fn(),
   sendFriendRequest: vi.fn(),
   acceptFriendRequest: vi.fn(),
   rejectFriendRequest: vi.fn(),
   cancelFriendRequest: vi.fn(),
   unfriend: vi.fn(),
+  blockUser: vi.fn(),
   unblockUser: vi.fn(),
 }))
 const translate = vi.hoisted(() => (key: string, values?: Record<string, unknown>) => values?.count == null ? key : `${key}:${values.count}`)
@@ -21,6 +24,9 @@ const translate = vi.hoisted(() => (key: string, values?: Record<string, unknown
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../i18n', () => ({
   useI18n: () => ({ t: translate }),
+}))
+vi.mock('./ProfilePage', () => ({
+  ProfilePage: ({ profile, embedded }: { profile: SocialProfile; embedded?: boolean }) => <div data-testid="embedded-profile" data-embedded={String(Boolean(embedded))}>{profile.displayName}</div>,
 }))
 
 const candidate: SocialProfile = {
@@ -37,11 +43,14 @@ describe('FriendsPage redesign', () => {
       mutualFriends: [{ id: '2', username: 'mutual', displayName: 'Mutual Friend', avatarUrl: '/mutual.jpg', isVerified: false }],
     }])
     socialMocks.getRelationProfiles.mockReset().mockResolvedValue([candidate])
+    socialMocks.getFriendProfilesWithMutualCounts.mockReset().mockResolvedValue([{ profile: candidate, mutualFriendCount: 1 }])
+    socialMocks.getProfile.mockReset().mockResolvedValue(candidate)
     socialMocks.sendFriendRequest.mockReset().mockResolvedValue(true)
     socialMocks.acceptFriendRequest.mockReset().mockResolvedValue(true)
     socialMocks.rejectFriendRequest.mockReset().mockResolvedValue(true)
     socialMocks.cancelFriendRequest.mockReset().mockResolvedValue(true)
     socialMocks.unfriend.mockReset().mockResolvedValue(true)
+    socialMocks.blockUser.mockReset().mockResolvedValue(true)
     socialMocks.unblockUser.mockReset().mockResolvedValue(true)
   })
 
@@ -76,7 +85,7 @@ describe('FriendsPage redesign', () => {
     expect(container.querySelector('.friend-profile-popover')).toHaveTextContent('Mutual Friend')
 
     const card = container.querySelector('.friend-discovery-card')!
-    fireEvent.click(card.querySelector<HTMLButtonElement>('.friend-card-actions .primary')!)
+    fireEvent.click(card.querySelector<HTMLButtonElement>('.friend-card-actions .friend-action-primary')!)
     await waitFor(() => expect(socialMocks.sendFriendRequest).toHaveBeenCalledWith('1', '3'))
     await waitFor(() => expect(container.querySelector('.friend-discovery-card')).not.toBeInTheDocument())
 
@@ -88,15 +97,17 @@ describe('FriendsPage redesign', () => {
     const { container } = render(<FriendsPage userId="1" section="suggestions" onNavigate={vi.fn()} />)
 
     await waitFor(() => expect(socialMocks.getFriendSuggestions).toHaveBeenCalledWith('1', 36))
-    expect(container.querySelector('.friends-page-sidebar nav > button.active')).toHaveTextContent('friendSuggestionsNav')
-    expect(container.querySelector('.friend-card-actions .primary')).toHaveTextContent('addFriend')
+    expect(container.querySelector('.friend-directory-header')).toHaveTextContent('friendSuggestionsNav')
+    expect(container.querySelector('.friend-directory-actions .friend-action-primary')).toHaveTextContent('addFriend')
+    expect(await screen.findByTestId('embedded-profile')).toHaveTextContent('Candidate User')
+    expect(screen.getByTestId('embedded-profile')).toHaveAttribute('data-embedded', 'true')
   })
 
   it('loads received requests and confirms them from their card', async () => {
     const { container } = render(<FriendsPage userId="1" section="incoming" onNavigate={vi.fn()} />)
 
     await waitFor(() => expect(socialMocks.getRelationProfiles).toHaveBeenCalledWith('1', 2, 100))
-    fireEvent.click(container.querySelector<HTMLButtonElement>('.friend-card-actions .primary')!)
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.friend-card-actions .friend-action-primary')!)
     await waitFor(() => expect(socialMocks.acceptFriendRequest).toHaveBeenCalledWith('3', '1'))
     await waitFor(() => expect(container.querySelector('.friend-discovery-card')).not.toBeInTheDocument())
   })
@@ -129,12 +140,21 @@ describe('FriendsPage redesign', () => {
   ] as const)('loads and performs the %s section action', async (section, associationType, action) => {
     const { container } = render(<FriendsPage userId="1" section={section} onNavigate={vi.fn()} />)
 
-    await waitFor(() => expect(socialMocks.getRelationProfiles).toHaveBeenCalledWith('1', associationType, 100))
-    const actionButton = await waitFor(() => {
-      const button = container.querySelector<HTMLButtonElement>('.friend-card-actions button')
-      expect(button).not.toBeNull()
-      return button!
-    })
+    if (section === 'friends') {
+      await waitFor(() => expect(socialMocks.getFriendProfilesWithMutualCounts).toHaveBeenCalledWith('1', 100))
+    } else {
+      await waitFor(() => expect(socialMocks.getRelationProfiles).toHaveBeenCalledWith('1', associationType, 100))
+    }
+    const actionButton = section === 'friends'
+      ? await (async () => {
+        fireEvent.click(await screen.findByRole('button', { name: 'more' }))
+        return screen.findByRole('menuitem', { name: 'removeFriend' })
+      })()
+      : await waitFor(() => {
+        const button = container.querySelector<HTMLButtonElement>('.friend-card-actions button')
+        expect(button).not.toBeNull()
+        return button!
+      })
     fireEvent.click(actionButton)
 
     if (action === 'cancel') {
@@ -144,6 +164,29 @@ describe('FriendsPage redesign', () => {
     } else {
       await waitFor(() => expect(socialMocks.unblockUser).toHaveBeenCalledWith('1', '3'))
     }
-    await waitFor(() => expect(container.querySelector('.friend-discovery-card')).not.toBeInTheDocument())
+    await waitFor(() => expect(container.querySelector(section === 'friends' ? '.friend-directory-row' : '.friend-discovery-card')).not.toBeInTheDocument())
+  })
+
+  it('filters all friends in place and exposes messaging, unfriend and block actions from the row menu', async () => {
+    const second = { ...candidate, id: '4', displayName: 'Second Friend' }
+    socialMocks.getFriendProfilesWithMutualCounts.mockResolvedValue([
+      { profile: candidate, mutualFriendCount: 1 },
+      { profile: second, mutualFriendCount: 0 },
+    ])
+    const onMessage = vi.fn().mockResolvedValue(undefined)
+    const { container } = render(<FriendsPage userId="1" section="friends" onNavigate={vi.fn()} onMessage={onMessage} />)
+
+    const search = await screen.findByRole('textbox', { name: 'searchWithinFriends:2' })
+    fireEvent.focus(search)
+    expect(container.querySelector('.friend-directory-search-shell')).toHaveClass('is-open')
+    fireEvent.change(search, { target: { value: 'Second' } })
+    await waitFor(() => expect(container.querySelectorAll('.friend-directory-row')).toHaveLength(1))
+    expect(container.querySelector('.friend-directory-row')).toHaveTextContent('Second Friend')
+    expect(container.querySelector('.friend-directory-row')).toHaveTextContent('mutualFriendsCount:0')
+
+    fireEvent.click(screen.getByRole('button', { name: 'more' }))
+    expect(await screen.findByRole('menuitem', { name: 'messageUser' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'removeFriend' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'block' })).toBeInTheDocument()
   })
 })

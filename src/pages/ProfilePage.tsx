@@ -64,6 +64,7 @@ interface ProfileMediaViewerState {
   contentId: string
   mediaId: string
   mediaUrl: string
+  initialPlaybackTime?: number
   initialPost?: GatewayPost
   entries: PostPhotoViewerMediaEntry[]
   unavailableAuthor?: GatewayPost['author']
@@ -484,7 +485,7 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
   </section>
 }
 
-export function ProfilePage({ profile, loading, error, canEdit, viewerId, initialTab, onEdit, onNavigate, onOpenReel, onMessage }: { profile: SocialProfile | null; loading: boolean; error: string | null; canEdit: boolean; viewerId: string; initialTab?: ProfileTab; onEdit: () => void; onNavigate: (path: string) => void; onOpenReel?: (ownerId: string, reelId: string, reel?: SocialContent) => void; onMessage: (profileId: string) => Promise<void> }) {
+export function ProfilePage({ profile, loading, error, canEdit, viewerId, initialTab, embedded = false, onEdit, onNavigate, onOpenReel, onMessage }: { profile: SocialProfile | null; loading: boolean; error: string | null; canEdit: boolean; viewerId: string; initialTab?: ProfileTab; embedded?: boolean; onEdit: () => void; onNavigate: (path: string) => void; onOpenReel?: (ownerId: string, reelId: string, reel?: SocialContent) => void; onMessage: (profileId: string) => Promise<void> }) {
   const { t, locale } = useI18n()
   const [posts, setPosts] = useState<GatewayPost[]>([])
   const [postsLoading, setPostsLoading] = useState(false)
@@ -563,13 +564,14 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
   ), [coverImageSize, coverOffset, coverViewportSize, coverZoom])
 
   useEffect(() => {
+    if (embedded) return
     document.documentElement.classList.add('profile-page-scroll')
     document.body.classList.add('profile-page-scroll')
     return () => {
       document.documentElement.classList.remove('profile-page-scroll')
       document.body.classList.remove('profile-page-scroll')
     }
-  }, [])
+  }, [embedded])
 
   useLayoutEffect(() => {
     if (loading || !profile) return
@@ -1462,7 +1464,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
         : t('genderPreferNot')
 
   return <>
-    <main ref={profilePageRef} className={`profile-destination self-profile-page${canEdit ? '' : ' visitor-profile-page'}`}>
+    <main ref={profilePageRef} className={`profile-destination self-profile-page${canEdit ? '' : ' visitor-profile-page'}${embedded ? ' embedded-profile-page' : ''}`}>
       <section className="profile-cover-card self-profile-cover-card">
         <div className="self-profile-cover-ambient" style={coverAmbientStyle} aria-hidden="true" />
         <div className="self-profile-header-shell">
@@ -1642,17 +1644,18 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
         return { ...current, stories, latestCreate: stories[0].create, unseenCount, hasUnseen: unseenCount > 0 }
       })
     } : undefined} /></Suspense>}
-    {profileDetailPostId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={profileDetailPostId} onClose={() => setProfileDetailPostId(null)} onNavigate={onNavigate} onMessage={onMessage} onOpenImage={(detailPost, media) => {
+    {profileDetailPostId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={profileDetailPostId} onClose={() => setProfileDetailPostId(null)} onNavigate={onNavigate} onMessage={onMessage} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => {
       if (detailPost.__typename === 'ReelDetail') return
       setProfileMediaViewer({
         contentId: detailPost.id,
         mediaId: media.id,
         mediaUrl: media.url,
+        initialPlaybackTime,
         initialPost: detailPost,
         entries: buildProfileMediaEntries([detailPost]),
       })
-    }} /></Suspense>}
-    {profileMediaViewer && <Suspense fallback={<div className="post-photo-viewer"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={profileMediaViewer.contentId} initialMediaId={profileMediaViewer.mediaId} initialMediaUrl={profileMediaViewer.mediaUrl} initialPost={profileMediaViewer.initialPost} mediaEntries={profileMediaViewer.entries} unavailableAuthor={profileMediaViewer.unavailableAuthor} onClose={() => setProfileMediaViewer(null)} onNavigate={onNavigate} onMessage={onMessage} /></Suspense>}
+    }} onOpenReel={(reel) => openReelViewer(reel.author.id, reel.id, gatewayReelToSocialContent(reel))} /></Suspense>}
+    {profileMediaViewer && <Suspense fallback={<div className="post-photo-viewer"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={profileMediaViewer.contentId} initialMediaId={profileMediaViewer.mediaId} initialMediaUrl={profileMediaViewer.mediaUrl} initialPlaybackTime={profileMediaViewer.initialPlaybackTime} initialPost={profileMediaViewer.initialPost} mediaEntries={profileMediaViewer.entries} unavailableAuthor={profileMediaViewer.unavailableAuthor} onClose={() => setProfileMediaViewer(null)} onNavigate={onNavigate} onMessage={onMessage} /></Suspense>}
     {canEdit && coverPickerOpen && <ProfileImagePhotoPicker kind="cover" images={coverCandidates} loading={coverCandidatesLoading} error={coverPickerError} onClose={() => { coverPickerRequestRef.current += 1; setCoverCandidatesLoading(false); setCoverPickerOpen(false) }} onSelect={(photo) => void chooseExistingCover(photo)} />}
     {canEdit && avatarPickerOpen && <ProfileImagePhotoPicker kind="avatar" images={avatarCandidates} loading={avatarCandidatesLoading} error={avatarPickerError} onClose={() => { avatarPickerRequestRef.current += 1; setAvatarCandidatesLoading(false); setAvatarPickerOpen(false) }} onSelect={(photo) => void chooseExistingAvatar(photo)} />}
   </>

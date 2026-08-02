@@ -69,7 +69,7 @@
 .group-profile-share-button,
 .group-profile-management-status { --group-action-surface: var(--circle); }
 .group-profile-share-button,
-.group-profile-management-status { color: #fff; }
+.group-profile-management-status { color: var(--text); }
 .group-profile-header-actions > .btn-primary { --group-action-surface: color-mix(in srgb, var(--blue) 95%, #000 5%); }
 .group-profile-header-actions > .btn-primary:hover:not(:disabled) { --group-action-surface: color-mix(in srgb, var(--blue-hover) 95%, #000 5%); }
 .group-profile-header-actions > .btn-soft:hover:not(:disabled),

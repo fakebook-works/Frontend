@@ -294,6 +294,24 @@ describe('SocialGraph Gateway adapter', () => {
     ])
   })
 
+  it('batches group friend previews without sending a viewer id from the browser', async () => {
+    gatewayGraphQl.mockResolvedValue({
+      friends0: [{ id: '2', name: 'First friend', avatar: '/friend-1.png', isVerified: false }],
+      friends1: [{ id: '3', name: 'Second friend', avatar: '/friend-2.png', isVerified: true }],
+    })
+
+    const previews = await socialApi.getGroupFriendMemberPreviews(['41', '42', '41'], 99)
+
+    const [query, variables] = gatewayGraphQl.mock.calls[0]
+    expect(query).toContain('friends0: groupFriendMembers(groupId: 41, limit: $limit)')
+    expect(query).toContain('friends1: groupFriendMembers(groupId: 42, limit: $limit)')
+    expect(query).not.toContain('isVerified')
+    expect(query).not.toContain('viewerId')
+    expect(variables).toEqual({ limit: 12 })
+    expect(previews['41'][0]).toMatchObject({ id: '2', displayName: 'First friend' })
+    expect(previews['42'][0]).toMatchObject({ id: '3', displayName: 'Second friend' })
+  })
+
   it('hydrates group join requests directly from the administrator-scoped page', async () => {
     gatewayGraphQl.mockResolvedValue({ groupJoinRequests: {
       items: [{ id: '7', name: 'Pending member', avatar: '/pending.png', isVerified: true }],
@@ -356,6 +374,22 @@ describe('SocialGraph Gateway adapter', () => {
     expect(state).toEqual({ isMember: false, isAdmin: false, joinRequestPending: true, canViewPosts: false })
     expect(gatewayGraphQl.mock.calls[0][0]).toContain('groupViewerState(groupId: 20)')
     expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('userId: 1')
+  })
+
+  it('batches trusted viewer group states and keeps Snowflake ids as literals', async () => {
+    gatewayGraphQl.mockResolvedValue({
+      membership0: { isMember: true, isAdmin: false, joinRequestPending: false, canViewPosts: true },
+      membership1: null,
+    })
+
+    const states = await socialApi.getGroupMembershipStates('1', ['9007199254740993123', '22', '22'])
+
+    const query = gatewayGraphQl.mock.calls[0][0] as string
+    expect(query).toContain('membership0: groupViewerState(groupId: 9007199254740993123)')
+    expect(query).toContain('membership1: groupViewerState(groupId: 22)')
+    expect(query).not.toContain('userId: 1')
+    expect(states['9007199254740993123'].isMember).toBe(true)
+    expect(states['22']).toEqual({ isMember: false, isAdmin: false, joinRequestPending: false, canViewPosts: false })
   })
 
   it('loads engagement counts and the viewer reaction state for interactive content cards', async () => {

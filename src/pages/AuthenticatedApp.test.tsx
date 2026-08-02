@@ -98,6 +98,17 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(screen.getByRole('button', { name: 'newMessage' })).toBeInTheDocument()
   })
 
+  it('uses the Home chat-window and pinned compose rail on Search results', () => {
+    window.history.replaceState({}, '', '/search?q=fakebook&tab=groups')
+    const { container } = render(<AuthenticatedApp />)
+
+    expect(container.querySelector('.authenticated-app')).toHaveClass('search-results-route')
+    expect(container.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail', 'home-compose-rail')
+    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('media-viewer-compose-rail')
+    expect(container.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'default')
+    expect(screen.getByRole('button', { name: 'newMessage' })).toBeInTheDocument()
+  })
+
   it('treats a group profile as a detail page with the regular search and no active Groups tab', () => {
     window.history.replaceState({}, '', '/groups/61')
     const { container } = render(<AuthenticatedApp />)

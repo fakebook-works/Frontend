@@ -251,6 +251,9 @@ function normalizeGatewayPost(post: GatewayPost): GatewayPost {
       ...post.sharedSource,
       id: String(post.sharedSource.id),
       type: post.sharedSource.type == null ? null : Number(post.sharedSource.type),
+      aspectRatio: post.sharedSource.aspectRatio == null ? null : Number(post.sharedSource.aspectRatio),
+      focalPointX: post.sharedSource.focalPointX == null ? null : Number(post.sharedSource.focalPointX),
+      focalPointY: post.sharedSource.focalPointY == null ? null : Number(post.sharedSource.focalPointY),
       author: post.sharedSource.author ? { ...post.sharedSource.author, id: String(post.sharedSource.author.id) } : null,
       media: post.sharedSource.media.map(normalizeMedia),
       mentions: normalizeMentions(post.sharedSource.mentions),
@@ -574,7 +577,7 @@ const HOME_POST_FIELDS = `
     author { id name avatar isVerified canFollow }
     media { id type url }
     sharedSource {
-      id isAvailable type content privacy create
+      id isAvailable type content privacy create aspectRatio focalPointX focalPointY
       requiresGroupMembership
       mentions { userId name available }
       author { id name avatar isVerified }
@@ -596,7 +599,7 @@ const HOME_POST_FIELDS = `
     group { id name avatar canJoin }
     media { id type url }
     sharedSource {
-      id isAvailable type content privacy create requiresGroupMembership
+      id isAvailable type content privacy create aspectRatio focalPointX focalPointY requiresGroupMembership
       mentions { userId name available }
       author { id name avatar isVerified }
       media { id type url }

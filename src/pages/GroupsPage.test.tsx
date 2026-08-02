@@ -16,6 +16,7 @@ const socialMocks = vi.hoisted(() => ({
   getGroups: vi.fn(),
   getGroupSuggestions: vi.fn(),
   requestJoinGroup: vi.fn(),
+  cancelJoinGroupRequest: vi.fn(),
   createGroup: vi.fn(),
   inviteGroupUser: vi.fn(),
   getRelationProfiles: vi.fn(),
@@ -99,6 +100,7 @@ describe('GroupsPage', () => {
     socialMocks.getGroups.mockReset().mockResolvedValue([])
     socialMocks.getGroupSuggestions.mockReset().mockResolvedValue([publicSuggestion, privateSuggestion])
     socialMocks.requestJoinGroup.mockReset().mockResolvedValue(true)
+    socialMocks.cancelJoinGroupRequest.mockReset().mockResolvedValue(true)
     socialMocks.createGroup.mockReset().mockResolvedValue({ ...publicGroup, id: '999', name: 'Nhóm mới' })
     socialMocks.inviteGroupUser.mockReset().mockResolvedValue(true)
     socialMocks.getRelationProfiles.mockReset().mockResolvedValue([])
@@ -248,7 +250,7 @@ describe('GroupsPage', () => {
     expect(screen.getByText('Second result')).toBeInTheDocument()
   })
 
-  it('loads public and private groups joined by friends and requests to join from Discover', async () => {
+  it('keeps a public-group request in Discover, excludes it from joined groups, and lets the user cancel it', async () => {
     const { container } = render(<GroupsPage userId="100" onNavigate={vi.fn()} />)
     await screen.findByText('Bài viết nhóm được đề xuất')
 
@@ -265,9 +267,30 @@ describe('GroupsPage', () => {
     expect(suggestionMeta.querySelectorAll('.groups-meta-separator')).toHaveLength(2)
     expect(container.querySelectorAll('.groups-suggestion-card:first-child .groups-suggestion-friend-avatars .avatar')).toHaveLength(3)
     expect(socialMocks.getGroupSuggestions).toHaveBeenCalledWith(24)
-    fireEvent.click(screen.getAllByRole('button', { name: 'joinGroupLong' })[1])
+    fireEvent.click(screen.getAllByRole('button', { name: 'joinGroupLong' })[0])
 
-    await waitFor(() => expect(socialMocks.requestJoinGroup).toHaveBeenCalledWith('100', privateGroup.id))
+    await waitFor(() => expect(socialMocks.requestJoinGroup).toHaveBeenCalledWith('100', publicGroup.id))
+    expect(screen.getByText(publicGroup.name)).toBeInTheDocument()
+    expect(container.querySelector('.groups-sidebar')).not.toHaveTextContent(publicGroup.name)
+
+    const requested = await screen.findByRole('button', { name: 'joinRequested' })
+    expect(requested).toHaveAttribute('title', 'cancelJoinRequest')
+    fireEvent.click(requested)
+
+    await waitFor(() => expect(socialMocks.cancelJoinGroupRequest).toHaveBeenCalledWith('100', publicGroup.id))
+    expect(screen.getAllByRole('button', { name: 'joinGroupLong' })).toHaveLength(2)
+  })
+
+  it('restores pending requests in Discover after reload without treating them as joined groups', async () => {
+    socialMocks.getPendingGroupJoins.mockResolvedValue({ items: [privateGroup], endCursor: null, hasNextPage: false })
+    socialMocks.getGroupSuggestions.mockResolvedValue([publicSuggestion])
+    const { container } = render(<GroupsPage userId="100" onNavigate={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'groupDiscover' }))
+
+    expect(await screen.findByText(privateGroup.name)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'joinRequested' })).toBeInTheDocument()
+    expect(container.querySelector('.groups-sidebar')).not.toHaveTextContent(privateGroup.name)
   })
 
   it('splits managed and joined directories, formats partial hours, and routes sidebar actions to the matching section', async () => {

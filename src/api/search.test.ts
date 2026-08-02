@@ -56,7 +56,7 @@ describe('Search Gateway adapter', () => {
     expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 'group', size: 8 })
   })
 
-  it('searches groups and visible group posts through one parameterized Gateway document', async () => {
+  it('searches groups and visible group posts through independent parameterized Gateway documents', async () => {
     const keyword = 'x") { __typename }'
     gatewayGraphQl.mockResolvedValue({
       searchGroups: {
@@ -74,15 +74,20 @@ describe('Search Gateway adapter', () => {
     })
 
     const result = await searchApi.searchGroupScope(keyword, 1, 20)
-    const [document, variables] = gatewayGraphQl.mock.calls[0]
+    const documents = gatewayGraphQl.mock.calls.map(([document]) => document as string)
+    const variables = gatewayGraphQl.mock.calls.map(([, value]) => value)
 
     expect(result.groups.map((group) => group.id)).toEqual(['20'])
     expect(result.posts.map((post) => post.id)).toEqual(['30'])
-    expect(document).toContain('searchGroups')
-    expect(document).toContain('searchGroupPosts')
-    expect(document).not.toContain('searchFeedPosts')
-    expect(document).not.toContain(keyword)
-    expect(variables).toEqual({ keyword, page: 1, size: 20 })
+    expect(documents).toHaveLength(2)
+    expect(documents.some((document) => document.includes('searchGroups'))).toBe(true)
+    expect(documents.some((document) => document.includes('searchGroupPosts'))).toBe(true)
+    expect(documents.every((document) => !document.includes('searchFeedPosts'))).toBe(true)
+    expect(documents.every((document) => !document.includes(keyword))).toBe(true)
+    expect(variables).toEqual([
+      { keyword, page: 1, size: 20 },
+      { keyword, page: 1, size: 20 },
+    ])
   })
 
   it('ignores denied or stale nullable post lookups instead of throwing', async () => {
@@ -92,6 +97,57 @@ describe('Search Gateway adapter', () => {
     })
 
     await expect(searchApi.search('hidden', 'posts')).resolves.toMatchObject({ posts: [], hasNextPage: false })
+  })
+
+  it('keeps visible feed posts when the independent group-post search fails', async () => {
+    gatewayGraphQl.mockImplementation((document: string) => {
+      if (document.includes('SearchFeedPosts')) {
+        return Promise.resolve({ searchFeedPosts: { items: [{ post: {
+          __typename: 'FeedPostDetail', id: '31', type: 1, content: 'Visible feed post', privacy: 0, create: '',
+          author: { id: '10', name: 'User', avatar: '', isVerified: false, canFollow: false }, media: [],
+        } }], pageInfo: { hasNextPage: true } } })
+      }
+      return Promise.reject(new Error('Group post branch unavailable'))
+    })
+
+    await expect(searchApi.search('visible', 'posts')).resolves.toMatchObject({
+      posts: [{ id: '31', searchReferenceId: '31' }],
+      hasNextPage: true,
+    })
+    expect(gatewayGraphQl).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps visible group posts when the independent feed-post search fails', async () => {
+    gatewayGraphQl.mockImplementation((document: string) => {
+      if (document.includes('SearchGroupPosts')) {
+        return Promise.resolve({ searchGroupPosts: { items: [{ post: {
+          __typename: 'GroupPostDetail', id: '32', type: 3, content: 'Visible group post', privacy: 0, create: '',
+          author: { id: '10', name: 'User', avatar: '', isVerified: false, canFollow: false },
+          group: { id: '20', name: 'Group', avatar: '', canJoin: false }, media: [],
+        } }], pageInfo: { hasNextPage: false } } })
+      }
+      return Promise.reject(new Error('Feed post branch unavailable'))
+    })
+
+    await expect(searchApi.search('visible', 'posts')).resolves.toMatchObject({
+      posts: [{ id: '32', searchReferenceId: '32' }],
+      hasNextPage: false,
+    })
+  })
+
+  it('fails post search when every independent branch fails', async () => {
+    gatewayGraphQl.mockRejectedValue(new Error('Search unavailable'))
+
+    await expect(searchApi.search('failure', 'posts')).rejects.toThrow('Search unavailable')
+  })
+
+  it('never hides an authentication or authorization failure behind partial post results', async () => {
+    const forbidden = Object.assign(new Error('Forbidden'), { status: 403, code: 'FORBIDDEN' })
+    gatewayGraphQl.mockImplementation((document: string) => document.includes('SearchFeedPosts')
+      ? Promise.resolve({ searchFeedPosts: { items: [], pageInfo: { hasNextPage: false } } })
+      : Promise.reject(forbidden))
+
+    await expect(searchApi.search('private', 'posts')).rejects.toBe(forbidden)
   })
 
   it('runs full search from a one-character keyword', async () => {

@@ -12,6 +12,7 @@ import { clipboardImageFiles } from '../lib/clipboardMedia'
 import { applyMentionSelection, deleteMentionAtSelection, reconcileMentionEntities, serializeMentionContent, type MentionEntity } from '../lib/mentions'
 import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
 import { formatPostTimestamp } from '../lib/postTime'
+import { sharedPostSourceToGatewayReel } from '../lib/reelEntry'
 import { clearPrefetchedCommentPage, loadCommentPage, readCachedCommentPage } from '../lib/commentPagePrefetch'
 import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
 import { Avatar } from './Avatar'
@@ -32,6 +33,7 @@ import { VerifiedBadge } from './VerifiedBadge'
 
 const COMMENT_EMOJIS = ['😀', '😍', '😂', '🥰', '😎', '🤔', '😢', '😡', '👍', '🎉', '❤️', '🔥']
 const COMMENT_VISIBLE_LINES = 8
+type GatewayReelPost = Extract<GatewayPost, { __typename: 'ReelDetail' }>
 
 function resizeCommentTextarea(textarea: HTMLTextAreaElement) {
   const style = window.getComputedStyle(textarea)
@@ -110,12 +112,13 @@ export interface PostDetailCommentsModalProps {
   onClose: () => void
   onNavigate?: (path: string) => void
   onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void
+  onOpenReel?: (post: GatewayReelPost) => void
   onCommentCreated: () => void
   onPostChanged?: (post: GatewayPost) => void
   variant?: 'modal' | 'photo-sidebar'
 }
 
-export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, likeBusy, canShare, shareDisabled = false, onToggleLike, onShare, onClose, onNavigate, onOpenImage, onCommentCreated, onPostChanged, variant = 'modal' }: PostDetailCommentsModalProps) {
+export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, likeBusy, canShare, shareDisabled = false, onToggleLike, onShare, onClose, onNavigate, onOpenImage, onOpenReel, onCommentCreated, onPostChanged, variant = 'modal' }: PostDetailCommentsModalProps) {
   const { t, locale } = useI18n()
   useBodyInteractionLock(variant !== 'photo-sidebar', ['content-detail-open'])
   const initialCommentPageRef = useRef(readCachedCommentPage(viewerId, targetId, COMMENT_PAGE_LIMIT))
@@ -596,7 +599,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   const showEmptyComments = !loading && comments.length === 0
 
   const discussionScroll = <div className="content-thread-scroll">
-    {post && <ThreadPostPreview post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenImage={onOpenImage} onHidden={onClose} onPostChanged={onPostChanged} hideMedia={variant === 'photo-sidebar'} />}
+    {post && <ThreadPostPreview post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenImage={onOpenImage} onOpenReel={onOpenReel} onHidden={onClose} onPostChanged={onPostChanged} hideMedia={variant === 'photo-sidebar'} />}
     {post && <div className={`content-actions-wrap thread-post-engagement${showEngagementSummary ? '' : ' no-summary'}${post.sharedSource ? ' has-shared-source' : ''}`}>
       {showEngagementSummary && <div className="content-engagement-summary">
         {showLikeCount && <span className="content-like-summary"><Icon name="like" size={15} />{engagement.likeCount}</span>}
@@ -675,7 +678,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   </>
 }
 
-function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, onHidden, onPostChanged, hideMedia = false }: { post: GatewayPost; locale: string; viewerId: string; onNavigate?: (path: string) => void; onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void; onHidden: () => void; onPostChanged?: (post: GatewayPost) => void; hideMedia?: boolean }) {
+function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, onOpenReel, onHidden, onPostChanged, hideMedia = false }: { post: GatewayPost; locale: string; viewerId: string; onNavigate?: (path: string) => void; onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void; onOpenReel?: (post: GatewayReelPost) => void; onHidden: () => void; onPostChanged?: (post: GatewayPost) => void; hideMedia?: boolean }) {
   const { t } = useI18n()
   const [privacyBusy, setPrivacyBusy] = useState(false)
   const [privacyError, setPrivacyError] = useState<string | null>(null)
@@ -734,8 +737,12 @@ function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, on
     </header>
     {privacyError && <p className="form-error post-relationship-error">{privacyError}</p>}
     {decodedContent.text && <p className={`gateway-post-content${postBackground ? ' has-background' : ''}`} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={post.mentions} onNavigate={onNavigate} /></p>}
-    {!hideMedia && <PostMediaGallery media={post.media} preferredAspectRatio={post.__typename === 'ReelDetail' ? post.aspectRatio : null} focalPointX={post.__typename === 'ReelDetail' ? post.focalPointX : null} focalPointY={post.__typename === 'ReelDetail' ? post.focalPointY : null} onOpenImage={onOpenImage && post.__typename !== 'ReelDetail' ? (media, index, initialPlaybackTime) => onOpenImage(post, media, index, initialPlaybackTime) : undefined} />}
-    {!hideMedia && post.sharedSource && <SharedPostSourceCard source={post.sharedSource} locale={locale} onNavigate={onNavigate} onOpenImage={onOpenImage ? (source, media, index, initialPlaybackTime) => onOpenImage(sharedSourceAsPost(source, post), media, index, initialPlaybackTime) : undefined} />}
+    {!hideMedia && <PostMediaGallery media={post.media} preferredAspectRatio={post.__typename === 'ReelDetail' ? post.aspectRatio : null} focalPointX={post.__typename === 'ReelDetail' ? post.focalPointX : null} focalPointY={post.__typename === 'ReelDetail' ? post.focalPointY : null} onOpenImage={post.__typename === 'ReelDetail' ? onOpenReel ? () => onOpenReel(post) : undefined : onOpenImage ? (media, index, initialPlaybackTime) => onOpenImage(post, media, index, initialPlaybackTime) : undefined} />}
+    {!hideMedia && post.sharedSource && <SharedPostSourceCard source={post.sharedSource} locale={locale} onNavigate={onNavigate} onOpenImage={onOpenImage && post.sharedSource.type !== 4 ? (source, media, index, initialPlaybackTime) => onOpenImage(sharedSourceAsPost(source, post), media, index, initialPlaybackTime) : undefined} onOpenReel={post.sharedSource.type === 4 ? (source) => {
+      const reel = sharedPostSourceToGatewayReel(source)
+      if (reel && onOpenReel) onOpenReel(reel)
+      else onNavigate?.(`/reels?source=for-you&reel=${encodeURIComponent(source.id)}`)
+    } : undefined} />}
   </article>
 }
 

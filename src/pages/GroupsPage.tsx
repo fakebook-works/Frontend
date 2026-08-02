@@ -266,8 +266,25 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
   ).values()], [collections.joined, collections.managed])
   const managedIds = useMemo(() => new Set(collections.managed.map((group) => group.id)), [collections.managed])
   const sidebarJoined = useMemo(() => collections.joined.filter((group) => !managedIds.has(group.id)), [collections.joined, managedIds])
-  const membershipIds = useMemo(() => new Set([...allJoinedGroups, ...collections.pending].map((group) => group.id)), [allJoinedGroups, collections.pending])
-  const visibleSuggestions = suggestedGroups.filter((suggestion) => !dismissedSuggestions.has(suggestion.group.id) && !membershipIds.has(suggestion.group.id))
+  const membershipIds = useMemo(() => new Set(allJoinedGroups.map((group) => group.id)), [allJoinedGroups])
+  const pendingIds = useMemo(() => new Set(collections.pending.map((group) => group.id)), [collections.pending])
+  const discoverSuggestions = useMemo(() => {
+    const suggestionsById = new Map(suggestedGroups.map((suggestion) => [suggestion.group.id, suggestion]))
+    // The recommendation query intentionally excludes pending requests. Keep those groups in
+    // Discover locally so the user can see and cancel the request after a reload as well.
+    for (const group of collections.pending) {
+      if (!suggestionsById.has(group.id)) {
+        suggestionsById.set(group.id, {
+          group,
+          friendMemberCount: 0,
+          friendMembers: [],
+          yesterdayPostCount: 0,
+        })
+      }
+    }
+    return [...suggestionsById.values()]
+  }, [collections.pending, suggestedGroups])
+  const visibleSuggestions = discoverSuggestions.filter((suggestion) => !dismissedSuggestions.has(suggestion.group.id) && !membershipIds.has(suggestion.group.id))
   const searching = submittedQuery.length > 0
 
   const runGroupSearch = useCallback(() => {
@@ -300,24 +317,28 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
   }, [])
 
   async function joinSuggestedGroup(group: SocialGroup) {
+    const isPending = pendingIds.has(group.id)
     setJoiningGroupId(group.id)
     setGroupsError(null)
     try {
-      if (!await socialApi.requestJoinGroup(userId, group.id)) throw new Error('Join rejected')
-      if (group.privacy === 0) {
+      if (isPending) {
+        if (!await socialApi.cancelJoinGroupRequest(userId, group.id)) throw new Error('Cancel rejected')
         setCollections((current) => ({
           ...current,
-          joined: [group, ...current.joined.filter((item) => item.id !== group.id)],
+          pending: current.pending.filter((item) => item.id !== group.id),
         }))
-        setSuggestedGroups((current) => current.filter((item) => item.group.id !== group.id))
+        setSuggestedGroups((current) => current.some((item) => item.group.id === group.id)
+          ? current
+          : [{ group, friendMemberCount: 0, friendMembers: [], yesterdayPostCount: 0 }, ...current])
       } else {
+        if (!await socialApi.requestJoinGroup(userId, group.id)) throw new Error('Join rejected')
         setCollections((current) => ({
           ...current,
           pending: [group, ...current.pending.filter((item) => item.id !== group.id)],
         }))
       }
     } catch {
-      setGroupsError(t('joinGroupError'))
+      setGroupsError(t(isPending ? 'groupRequestActionError' : 'joinGroupError'))
     } finally {
       setJoiningGroupId(null)
     }
@@ -374,7 +395,7 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
         </div>
       </> : section === 'discover' ? <>
         <header className="groups-section-heading groups-hub-title-row"><h1 className="groups-hub-heading-text">{t('moreGroupSuggestions')}</h1></header>
-        {suggestionsLoading && visibleSuggestions.length === 0 ? <GroupsContentSkeleton cards /> : suggestionsError && visibleSuggestions.length === 0 ? <GroupEmptyState title={t('unableToLoad')} detail={suggestionsError} action={t('tryAgain')} onAction={() => void loadGroupSuggestions()} /> : visibleSuggestions.length === 0 ? <GroupEmptyState title={t('noGroupSuggestions')} detail={t('noGroupSuggestionsDesc')} /> : <GroupSuggestionGrid groups={visibleSuggestions} busyId={joiningGroupId} onNavigate={onNavigate} onJoin={(group) => void joinSuggestedGroup(group)} onDismiss={(groupId) => setDismissedSuggestions((current) => new Set(current).add(groupId))} />}
+        {suggestionsLoading && visibleSuggestions.length === 0 ? <GroupsContentSkeleton cards /> : suggestionsError && visibleSuggestions.length === 0 ? <GroupEmptyState title={t('unableToLoad')} detail={suggestionsError} action={t('tryAgain')} onAction={() => void loadGroupSuggestions()} /> : visibleSuggestions.length === 0 ? <GroupEmptyState title={t('noGroupSuggestions')} detail={t('noGroupSuggestionsDesc')} /> : <GroupSuggestionGrid groups={visibleSuggestions} pendingIds={pendingIds} busyId={joiningGroupId} onNavigate={onNavigate} onJoin={(group) => void joinSuggestedGroup(group)} onDismiss={(groupId) => setDismissedSuggestions((current) => new Set(current).add(groupId))} />}
       </> : <div className="groups-your-directory">
         {(groupsLoading || collections.managed.length > 0) && <section ref={managedGroupsSectionRef} className="groups-directory-section" data-section="managed">
           <header className="groups-section-heading groups-directory-heading groups-hub-title-row"><h1 className="groups-hub-heading-text">{t('managedGroupsCount', { count: collections.managed.length })}</h1></header>
@@ -475,12 +496,13 @@ function GroupMembershipGrid({ groups, locale, onNavigate, directory = false }: 
   })}</div>
 }
 
-function GroupSuggestionGrid({ groups, busyId, onNavigate, onJoin, onDismiss }: { groups: GroupSuggestion[]; busyId: string | null; onNavigate: (path: string) => void; onJoin: (group: SocialGroup) => void; onDismiss: (groupId: string) => void }) {
+function GroupSuggestionGrid({ groups, pendingIds, busyId, onNavigate, onJoin, onDismiss }: { groups: GroupSuggestion[]; pendingIds: ReadonlySet<string>; busyId: string | null; onNavigate: (path: string) => void; onJoin: (group: SocialGroup) => void; onDismiss: (groupId: string) => void }) {
   const { t } = useI18n()
   return <div className="groups-suggestion-grid">{groups.map((suggestion) => {
     const group = suggestion.group
     const firstFriend = suggestion.friendMembers[0]
     const remainingFriends = Math.max(0, suggestion.friendMemberCount - 1)
+    const isPending = pendingIds.has(group.id)
     return <article className="groups-suggestion-card" key={group.id}>
       <button type="button" className="groups-suggestion-cover" aria-label={group.name} onClick={() => onNavigate(`/groups/${group.id}`)} style={group.backgroundUrl || group.avatarUrl ? { backgroundImage: `url(${group.backgroundUrl || group.avatarUrl})` } : undefined} />
       <button type="button" className="groups-suggestion-dismiss" aria-label={t('dismiss')} onClick={() => onDismiss(group.id)}><Icon name="close" size={17} /></button>
@@ -499,7 +521,7 @@ function GroupSuggestionGrid({ groups, busyId, onNavigate, onJoin, onDismiss }: 
             ? t('groupFriendMembers', { name: firstFriend.displayName, count: remainingFriends })
             : t('groupFriendMemberSingle', { name: firstFriend.displayName })}</span>
         </div>}
-        <button type="button" className="groups-join-button" disabled={busyId === group.id} onClick={() => onJoin(group)}>{busyId === group.id ? t('working') : t('joinGroupLong')}</button>
+        <button type="button" className={isPending ? 'groups-join-button is-pending' : 'groups-join-button'} title={isPending ? t('cancelJoinRequest') : undefined} disabled={busyId === group.id} onClick={() => onJoin(group)}>{busyId === group.id ? t('working') : isPending ? t('joinRequested') : t('joinGroupLong')}</button>
       </div>
     </article>
   })}</div>

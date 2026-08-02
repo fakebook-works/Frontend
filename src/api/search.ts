@@ -36,6 +36,11 @@ interface PageInfo {
   hasNextPage: boolean
 }
 
+interface SearchPostPage {
+  items: Array<{ post: GatewayPost | null } | null>
+  pageInfo: PageInfo
+}
+
 interface SearchReelGraphQl {
   id: string
   type: number
@@ -44,6 +49,9 @@ interface SearchReelGraphQl {
   create: string
   authorId: string
   media: Array<{ id: string; type: number; url: string }>
+  aspectRatio?: number | null
+  focalPointX?: number | null
+  focalPointY?: number | null
 }
 
 interface SearchUserGraphQl {
@@ -124,7 +132,7 @@ const FEED_POST_FIELDS = `
   author { id name avatar isVerified canFollow }
   media { id type url }
   sharedSource {
-    id isAvailable type content privacy create requiresGroupMembership
+    id isAvailable type content privacy create aspectRatio focalPointX focalPointY requiresGroupMembership
     mentions { userId name available }
     author { id name avatar isVerified }
     media { id type url }
@@ -140,7 +148,7 @@ const GROUP_POST_FIELDS = `
   group { id name avatar canJoin }
   media { id type url }
   sharedSource {
-    id isAvailable type content privacy create requiresGroupMembership
+    id isAvailable type content privacy create aspectRatio focalPointX focalPointY requiresGroupMembership
     mentions { userId name available }
     author { id name avatar isVerified }
     media { id type url }
@@ -154,6 +162,9 @@ function normalizeSharedSource(source: SharedPostSource | null | undefined): Sha
     ...source,
     id: String(source.id),
     type: source.type == null ? null : Number(source.type),
+    aspectRatio: source.aspectRatio == null ? null : Number(source.aspectRatio),
+    focalPointX: source.focalPointX == null ? null : Number(source.focalPointX),
+    focalPointY: source.focalPointY == null ? null : Number(source.focalPointY),
     author: source.author ? { ...source.author, id: String(source.author.id) } : null,
     media: (source.media ?? []).map((media) => ({ ...media, id: String(media.id), type: Number(media.type) })),
     mentions: source.mentions?.map((mention) => ({ ...mention, userId: String(mention.userId) })) ?? [],
@@ -174,6 +185,30 @@ function normalizePost(post: GatewayPost): GatewayPost {
   return post.__typename === 'GroupPostDetail'
     ? { ...common, __typename: 'GroupPostDetail', group: { ...post.group, id: String(post.group.id) } }
     : { ...common, __typename: 'FeedPostDetail' }
+}
+
+function isAccessControlError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const value = error as { status?: unknown; code?: unknown }
+  return value.status === 401
+    || value.status === 403
+    || value.code === 'UNAUTHENTICATED'
+    || value.code === 'FORBIDDEN'
+}
+
+function resolveIndependentSearchBranches<A, B>(
+  results: readonly [PromiseSettledResult<A>, PromiseSettledResult<B>],
+): [A | null, B | null] {
+  const accessError = results.find((result) => result.status === 'rejected' && isAccessControlError(result.reason))
+  if (accessError?.status === 'rejected') throw accessError.reason
+
+  const hasSuccessfulBranch = results.some((result) => result.status === 'fulfilled')
+  if (!hasSuccessfulBranch) {
+    const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+    throw failure?.reason ?? new Error('Search request failed.')
+  }
+
+  return results.map((result) => result.status === 'fulfilled' ? result.value : null) as [A | null, B | null]
 }
 
 export async function fastSearch(keyword: string): Promise<QuickSearchItem[]> {
@@ -234,34 +269,38 @@ export async function searchGroupScope(keyword: string, page = 1, pageSize = 20)
   const empty: GroupScopedSearchResult = { page: safePage, hasNextPage: false, groups: [], posts: [] }
   if (normalized.length < 1) return empty
 
-  const data = await gatewayGraphQl<{
-    searchGroups: { items: Array<{ group: SearchGroupGraphQl } | null>; pageInfo: PageInfo }
-    searchGroupPosts: { items: Array<{ post: GatewayPost | null } | null>; pageInfo: PageInfo }
-  }>(
-    `query SearchGroupScope($keyword: String!, $page: Int!, $size: Int!) {
+  const [groupResult, postResult] = resolveIndependentSearchBranches(await Promise.allSettled([
+    gatewayGraphQl<{ searchGroups: { items: Array<{ group: SearchGroupGraphQl } | null>; pageInfo: PageInfo } }>(
+      `query SearchGroupScopeGroups($keyword: String!, $page: Int!, $size: Int!) {
       searchGroups(keyword: $keyword, pageNumber: $page, pageSize: $size) {
         items { group { ${SEARCH_GROUP_FIELDS} } }
         pageInfo { hasNextPage }
       }
-      searchGroupPosts(keyword: $keyword, pageNumber: $page, pageSize: $size) {
+    }`,
+      { keyword: normalized, page: safePage, size },
+    ),
+    gatewayGraphQl<{ searchGroupPosts: SearchPostPage }>(
+      `query SearchGroupScopePosts($keyword: String!, $page: Int!, $size: Int!) {
+        searchGroupPosts(keyword: $keyword, pageNumber: $page, pageSize: $size) {
         items { post { ${GROUP_POST_FIELDS} } }
         pageInfo { hasNextPage }
       }
     }`,
-    { keyword: normalized, page: safePage, size },
-  )
-  const groups = data.searchGroups.items.flatMap((item): SearchGroup[] => {
+      { keyword: normalized, page: safePage, size },
+    ),
+  ] as const))
+  const groups = (groupResult?.searchGroups.items ?? []).flatMap((item): SearchGroup[] => {
     if (!item) return []
     const group = groupFromSearch(item.group)
     return [{ ...group, searchReferenceId: group.id }]
   })
-  const posts = data.searchGroupPosts.items.flatMap((item): SearchPost[] => {
+  const posts = (postResult?.searchGroupPosts.items ?? []).flatMap((item): SearchPost[] => {
     if (!item?.post || item.post.__typename !== 'GroupPostDetail') return []
     return [{ ...normalizePost(item.post), searchReferenceId: String(item.post.id) }]
   })
   return {
     page: safePage,
-    hasNextPage: data.searchGroups.pageInfo.hasNextPage || data.searchGroupPosts.pageInfo.hasNextPage,
+    hasNextPage: Boolean(groupResult?.searchGroups.pageInfo.hasNextPage || postResult?.searchGroupPosts.pageInfo.hasNextPage),
     groups,
     posts,
   }
@@ -306,7 +345,7 @@ export async function search(keyword: string, tab: SearchTab, page = 1, pageSize
     const data = await gatewayGraphQl<{ searchReels: { items: Array<{ reel: SearchReelGraphQl; author: SearchAuthorGraphQl } | null>; pageInfo: PageInfo } }>(
       `query SearchReels($keyword: String!, $page: Int!, $size: Int!) {
         searchReels(keyword: $keyword, pageNumber: $page, pageSize: $size) {
-          items { reel { id type content privacy create authorId media { id type url } } author { id name avatar isVerified } }
+          items { reel { id type content privacy create authorId media { id type url } aspectRatio focalPointX focalPointY } author { id name avatar isVerified } }
           pageInfo { hasNextPage }
         }
       }`,
@@ -320,6 +359,9 @@ export async function search(keyword: string, tab: SearchTab, page = 1, pageSize
       createdAt: item.reel.create,
       authorId: String(item.reel.authorId),
       media: item.reel.media.map((media) => ({ ...media, id: String(media.id), type: Number(media.type) })),
+      aspectRatio: item.reel.aspectRatio == null ? null : Number(item.reel.aspectRatio),
+      focalPointX: item.reel.focalPointX == null ? null : Number(item.reel.focalPointX),
+      focalPointY: item.reel.focalPointY == null ? null : Number(item.reel.focalPointY),
       searchReferenceId: String(item.reel.id),
       author: {
         id: String(item.author.id),
@@ -332,20 +374,28 @@ export async function search(keyword: string, tab: SearchTab, page = 1, pageSize
     return { ...empty, hasNextPage: data.searchReels.pageInfo.hasNextPage, reels }
   }
 
-  const data = await gatewayGraphQl<{
-    searchFeedPosts: { items: Array<{ post: GatewayPost | null } | null>; pageInfo: PageInfo }
-    searchGroupPosts: { items: Array<{ post: GatewayPost | null } | null>; pageInfo: PageInfo }
-  }>(
-    `query SearchPosts($keyword: String!, $page: Int!, $size: Int!) {
+  const size = Math.max(1, Math.ceil(pageSize / 2))
+  const [feedResult, groupResult] = resolveIndependentSearchBranches(await Promise.allSettled([
+    gatewayGraphQl<{ searchFeedPosts: SearchPostPage }>(
+      `query SearchFeedPosts($keyword: String!, $page: Int!, $size: Int!) {
       searchFeedPosts(keyword: $keyword, pageNumber: $page, pageSize: $size) { items { post { ${FEED_POST_FIELDS} } } pageInfo { hasNextPage } }
-      searchGroupPosts(keyword: $keyword, pageNumber: $page, pageSize: $size) { items { post { ${GROUP_POST_FIELDS} } } pageInfo { hasNextPage } }
     }`,
-    { keyword: normalized, page, size: Math.max(1, Math.ceil(pageSize / 2)) },
-  )
-  const posts = [...data.searchFeedPosts.items, ...data.searchGroupPosts.items].flatMap((item): SearchPost[] => item?.post ? [{ ...normalizePost(item.post), searchReferenceId: String(item.post.id) }] : [])
+      { keyword: normalized, page, size },
+    ),
+    gatewayGraphQl<{ searchGroupPosts: SearchPostPage }>(
+      `query SearchGroupPosts($keyword: String!, $page: Int!, $size: Int!) {
+        searchGroupPosts(keyword: $keyword, pageNumber: $page, pageSize: $size) { items { post { ${GROUP_POST_FIELDS} } } pageInfo { hasNextPage } }
+      }`,
+      { keyword: normalized, page, size },
+    ),
+  ] as const))
+  const posts = [
+    ...(feedResult?.searchFeedPosts.items ?? []),
+    ...(groupResult?.searchGroupPosts.items ?? []),
+  ].flatMap((item): SearchPost[] => item?.post ? [{ ...normalizePost(item.post), searchReferenceId: String(item.post.id) }] : [])
   return {
     ...empty,
-    hasNextPage: data.searchFeedPosts.pageInfo.hasNextPage || data.searchGroupPosts.pageInfo.hasNextPage,
+    hasNextPage: Boolean(feedResult?.searchFeedPosts.pageInfo.hasNextPage || groupResult?.searchGroupPosts.pageInfo.hasNextPage),
     posts,
   }
 }

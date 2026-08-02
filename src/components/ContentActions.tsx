@@ -26,6 +26,8 @@ const EMPTY_ENGAGEMENT: ContentEngagement = {
   viewerHasWatched: false,
 }
 
+type GatewayReelPost = Extract<GatewayPost, { __typename: 'ReelDetail' }>
+
 const SHARE_EMOJIS = ['😀', '😍', '😂', '🥰', '😎', '🤔', '😢', '😡', '👍', '🎉', '❤️', '🔥']
 
 function compactReelMetric(value: number, locale: string) {
@@ -79,9 +81,10 @@ interface ContentActionsProps {
   onMessage?: (profileId: string) => Promise<void>
   onStoryCreated?: (story: SharedStory) => void
   onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void
+  onOpenReel?: (post: GatewayReelPost) => void
 }
 
-export function ContentActions({ viewerId, contentId, post, variant = 'post', canShare = true, canReshare = canShare, commentsPresentation = 'modal', commentsOpen: controlledCommentsOpen, renderActions = true, renderComments = true, engagementEnabled = true, reelPlaybackRate, onReelPlaybackRateChange, onCommentsOpenChange, onNavigate, onMessage, onStoryCreated, onOpenImage }: ContentActionsProps) {
+export function ContentActions({ viewerId, contentId, post, variant = 'post', canShare = true, canReshare = canShare, commentsPresentation = 'modal', commentsOpen: controlledCommentsOpen, renderActions = true, renderComments = true, engagementEnabled = true, reelPlaybackRate, onReelPlaybackRateChange, onCommentsOpenChange, onNavigate, onMessage, onStoryCreated, onOpenImage, onOpenReel }: ContentActionsProps) {
   const { t, locale } = useI18n()
   const [engagement, setEngagement] = useState<ContentEngagement>({ ...EMPTY_ENGAGEMENT, targetId: contentId })
   const [loading, setLoading] = useState(true)
@@ -261,12 +264,12 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
         </div>}
       </div>}
     </aside>)}
-    {renderComments && commentsOpen && (commentsPresentation === 'sidebar' ? <aside className="reels-comments-sidebar" aria-label={t('comments')}><PostDetailCommentsModal key={`${viewerId}:${contentId}`} variant="photo-sidebar" viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} shareDisabled={!sharingAllowed} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} /></aside> : <PostDetailCommentsModal key={`${viewerId}:${contentId}`} viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} shareDisabled={!sharingAllowed} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} />)}
+    {renderComments && commentsOpen && (commentsPresentation === 'sidebar' ? <aside className="reels-comments-sidebar" aria-label={t('comments')}><PostDetailCommentsModal key={`${viewerId}:${contentId}`} variant="photo-sidebar" viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} shareDisabled={!sharingAllowed} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onOpenReel={onOpenReel ? (detailPost) => { setCommentsOpen(false); onOpenReel(detailPost) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} /></aside> : <PostDetailCommentsModal key={`${viewerId}:${contentId}`} viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} shareDisabled={!sharingAllowed} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onOpenReel={onOpenReel ? (detailPost) => { setCommentsOpen(false); onOpenReel(detailPost) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} />)}
     {sharingAllowed && shareOpen && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare initialPreview={post?.sharedSource?.isAvailable ? post.sharedSource : null} allowStory={post?.__typename !== 'GroupPostDetail' && post?.sharedSource?.type !== 1 && post?.sharedSource?.type !== 3} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
   </>
 }
 
-export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate, onMessage, onStoryCreated, onOpenImage }: {
+export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate, onMessage, onStoryCreated, onOpenImage, onOpenReel }: {
   viewerId: string
   contentId: string
   onClose: () => void
@@ -274,6 +277,7 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
   onMessage?: (profileId: string) => Promise<void>
   onStoryCreated?: (story: SharedStory) => void
   onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void
+  onOpenReel?: (post: GatewayReelPost) => void
 }) {
   const [post, setPost] = useState<GatewayPost | null>(null)
   const [engagement, setEngagement] = useState<ContentEngagement>({ ...EMPTY_ENGAGEMENT, targetId: contentId })
@@ -349,6 +353,11 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
     onNavigate={onNavigate}
     onPostChanged={setPost}
     onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { onClose(); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined}
+    onOpenReel={(detailPost) => {
+      onClose()
+      if (onOpenReel) onOpenReel(detailPost)
+      else onNavigate?.(`/reels?source=for-you&reel=${encodeURIComponent(detailPost.id)}`)
+    }}
     onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))}
   />
 }
