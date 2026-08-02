@@ -47,10 +47,11 @@ vi.mock('../i18n', () => ({
   useI18n: () => ({ locale: 'en', setLocale: vi.fn(), t: (key: string) => key }),
 }))
 
-vi.mock('./GatewayHomePage', () => ({ GatewayHomePage: ({ refreshToken = 0 }: { refreshToken?: number }) => <div data-testid="home-page" data-refresh-token={refreshToken}>home-page</div>, GatewayPostCard: () => <div>post-card</div> }))
+vi.mock('./GatewayHomePage', () => ({ GatewayHomePage: ({ refreshToken = 0, onOpenReel }: { refreshToken?: number; onOpenReel?: (reel: { __typename: 'ReelDetail'; id: string; type: number; content: string; privacy: number; create: string; author: { id: string; name: string; avatar: string; isVerified: boolean }; media: never[] }) => void }) => <div data-testid="home-page" data-refresh-token={refreshToken}>home-page<button type="button" onClick={() => onOpenReel?.({ __typename: 'ReelDetail', id: 'home-reel', type: 2, content: 'Home reel', privacy: 0, create: '2026-08-02T00:00:00Z', author: { id: '1', name: 'Test', avatar: '', isVerified: false }, media: [] })}>open-home-reel</button></div>, GatewayPostCard: () => <div>post-card</div> }))
 vi.mock('./FriendsPage', () => ({ FriendsPage: () => <div>friends-page</div> }))
+vi.mock('./ProfilePage', () => ({ ProfilePage: ({ onOpenReel }: { onOpenReel?: (ownerId: string, reelId: string, reel: { id: string; type: number; content: string; privacy: number; createdAt: string; authorId: string; media: never[] }) => void }) => <div data-testid="profile-page" data-active-tab="posts">profile-page<button type="button" onClick={() => onOpenReel?.('2', 'profile-reel', { id: 'profile-reel', type: 2, content: 'Profile reel', privacy: 0, createdAt: '2026-08-02T00:00:00Z', authorId: '2', media: [] })}>open-profile-reel</button></div> }))
 vi.mock('./GroupsPage', () => ({ GroupsPage: () => <div>groups-page</div>, GroupProfilePage: () => <div>group-profile-page</div> }))
-vi.mock('./ReelsPage', () => ({ ReelsPage: () => <div>reels-page</div> }))
+vi.mock('./ReelsPage', () => ({ ReelsPage: ({ entryReelId, entryReel, onEntryClose }: { entryReelId?: string | null; entryReel?: { id: string } | null; onEntryClose?: () => void }) => <div data-testid={entryReelId ? 'reel-overlay' : 'reels-page'} data-reel-id={entryReelId ?? undefined} data-has-seed={entryReel?.id === entryReelId ? 'true' : 'false'}>reels-page{entryReelId && <button type="button" onClick={onEntryClose}>close-reel-overlay</button>}</div> }))
 vi.mock('./SavedPage', () => ({ SavedPage: () => <div>saved-page</div> }))
 vi.mock('./SettingsPage', () => ({ SettingsPage: ({ initialSection }: { initialSection: string }) => <div>settings-{initialSection}</div> }))
 
@@ -109,13 +110,45 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(container.querySelector('.mini-chat-region')).toHaveClass('home-compose-rail')
   })
 
-  it('does not reserve the photo-viewer chat rail on Reels until its comments are open', () => {
+  it.each([
+    { path: '/profile/2', page: 'profile-page' },
+    { path: '/groups/61', page: 'group-profile-page' },
+  ])('lands at the cover when navigating to the $path detail profile', ({ path, page }) => {
+    render(<AuthenticatedApp />)
+    const scrollRoot = document.scrollingElement ?? document.documentElement
+    scrollRoot.scrollTop = 840
+
+    window.history.pushState({}, '', path)
+    fireEvent.popState(window)
+
+    expect(screen.getByText(page)).toBeInTheDocument()
+    expect(scrollRoot.scrollTop).toBe(0)
+  })
+
+  it('keeps the saved Home position while entering a user profile at its cover', () => {
+    render(<AuthenticatedApp />)
+    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
+    scrollRoot.scrollTop = 675
+    fireEvent.scroll(window)
+
+    fireEvent.click(screen.getByRole('button', { name: 'test' }))
+    fireEvent.click(screen.getByRole('button', { name: 'seeYourProfile' }))
+    expect(screen.getByText('profile-page')).toBeInTheDocument()
+    expect(scrollRoot.scrollTop).toBe(0)
+
+    fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="home"]')!)
+    expect(scrollRoot.scrollTop).toBe(675)
+  })
+
+  it('uses the photo-viewer chat layout on Reels without reserving an empty rail', () => {
     window.history.replaceState({}, '', '/reels')
     const { container } = render(<AuthenticatedApp />)
 
-    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('has-bubble-rail', 'media-viewer-compose-rail')
+    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('has-bubble-rail')
+    expect(container.querySelector('.mini-chat-region')).toHaveClass('media-viewer-compose-rail')
     expect(container.querySelector('.mini-chat-region')).not.toHaveClass('home-compose-rail')
-    expect(container.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'default')
+    expect(container.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'media-viewer')
     expect(screen.queryByRole('button', { name: 'newMessage' })).not.toBeInTheDocument()
     expect(container.querySelector('.app-shell-nav button.active .reel-icon-divider')).toHaveAttribute('stroke', 'var(--card)')
   })
@@ -176,6 +209,54 @@ describe('AuthenticatedApp routing and navigation', () => {
     fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="friends"]')!)
     expect(screen.getByText('friends-page')).toBe(friendsPage)
     expect(scrollRoot.scrollTop).toBe(175)
+  })
+
+  it('opens and closes a Home Reel as an overlay without navigating or losing the feed position', () => {
+    render(<AuthenticatedApp />)
+    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const homePage = screen.getByTestId('home-page')
+    scrollRoot.scrollTop = 640
+    fireEvent.scroll(window)
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-home-reel' }))
+
+    expect(screen.getByTestId('reel-overlay')).toHaveAttribute('data-reel-id', 'home-reel')
+    expect(screen.getByTestId('reel-overlay')).toHaveAttribute('data-has-seed', 'true')
+    expect(window.location.pathname).toBe('/')
+    expect(screen.getByTestId('home-page')).toBe(homePage)
+    expect(scrollRoot.scrollTop).toBe(640)
+
+    fireEvent.click(screen.getByRole('button', { name: 'close-reel-overlay' }))
+    expect(screen.queryByTestId('reel-overlay')).not.toBeInTheDocument()
+    expect(screen.getByTestId('home-page')).toBe(homePage)
+    expect(scrollRoot.scrollTop).toBe(640)
+  })
+
+  it('closes a Reel from Profile All without changing the tab or scroll position', () => {
+    window.history.replaceState({}, '', '/profile/2')
+    render(<AuthenticatedApp />)
+    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const profilePage = screen.getByTestId('profile-page')
+    scrollRoot.scrollTop = 510
+    fireEvent.scroll(window)
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-profile-reel' }))
+
+    expect(screen.getByTestId('reel-overlay')).toHaveAttribute('data-reel-id', 'profile-reel')
+    expect(screen.getByTestId('reel-overlay')).toHaveAttribute('data-has-seed', 'true')
+    expect(window.location.pathname).toBe('/profile/2')
+    expect(window.location.search).toBe('')
+    expect(screen.getByTestId('profile-page')).toBe(profilePage)
+    expect(profilePage).toHaveAttribute('data-active-tab', 'posts')
+    expect(scrollRoot.scrollTop).toBe(510)
+
+    fireEvent.click(screen.getByRole('button', { name: 'close-reel-overlay' }))
+    expect(screen.queryByTestId('reel-overlay')).not.toBeInTheDocument()
+    expect(window.location.pathname).toBe('/profile/2')
+    expect(window.location.search).toBe('')
+    expect(screen.getByTestId('profile-page')).toBe(profilePage)
+    expect(profilePage).toHaveAttribute('data-active-tab', 'posts')
+    expect(scrollRoot.scrollTop).toBe(510)
   })
 
   it.each([

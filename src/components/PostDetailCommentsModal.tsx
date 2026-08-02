@@ -12,6 +12,8 @@ import { clipboardImageFiles } from '../lib/clipboardMedia'
 import { applyMentionSelection, deleteMentionAtSelection, reconcileMentionEntities, serializeMentionContent, type MentionEntity } from '../lib/mentions'
 import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
 import { formatPostTimestamp } from '../lib/postTime'
+import { clearPrefetchedCommentPage, loadCommentPage, readCachedCommentPage } from '../lib/commentPagePrefetch'
+import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
 import { Avatar } from './Avatar'
 import { GroupPostAvatar } from './GroupPostAvatar'
 import { HoverTooltip } from './HoverTooltip'
@@ -93,6 +95,8 @@ interface CommentLikerState {
   loading: boolean
 }
 
+const COMMENT_PAGE_LIMIT = 30
+
 export interface PostDetailCommentsModalProps {
   viewerId: string
   targetId: string
@@ -113,15 +117,17 @@ export interface PostDetailCommentsModalProps {
 
 export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, likeBusy, canShare, shareDisabled = false, onToggleLike, onShare, onClose, onNavigate, onOpenImage, onCommentCreated, onPostChanged, variant = 'modal' }: PostDetailCommentsModalProps) {
   const { t, locale } = useI18n()
-  const [comments, setComments] = useState<SocialComment[]>([])
+  useBodyInteractionLock(variant !== 'photo-sidebar', ['content-detail-open'])
+  const initialCommentPageRef = useRef(readCachedCommentPage(viewerId, targetId, COMMENT_PAGE_LIMIT))
+  const [comments, setComments] = useState<SocialComment[]>(() => initialCommentPageRef.current?.items ?? [])
   const [replyPages, setReplyPages] = useState<Record<string, ReplyPageState>>({})
-  const [cursor, setCursor] = useState<string | null>(null)
-  const [hasMore, setHasMore] = useState(false)
+  const [cursor, setCursor] = useState<string | null>(() => initialCommentPageRef.current?.endCursor ?? null)
+  const [hasMore, setHasMore] = useState(() => initialCommentPageRef.current?.hasNextPage ?? false)
   const [content, setContent] = useState('')
   const [replyTarget, setReplyTarget] = useState<SocialComment | null>(null)
   const [commentImage, setCommentImage] = useState<{ file: File; previewUrl: string } | null>(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => initialCommentPageRef.current === null)
   const [busy, setBusy] = useState(false)
   const [busyCommentId, setBusyCommentId] = useState<string | null>(null)
   const [busyFollowAuthorId, setBusyFollowAuthorId] = useState<string | null>(null)
@@ -133,6 +139,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   const [mentionEntities, setMentionEntities] = useState<MentionEntity[]>([])
   const [mentionCaret, setMentionCaret] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const commentLoadSequenceRef = useRef(0)
   const loadingLikerIdsRef = useRef(new Set<string>())
   const loadedLikerIdsRef = useRef(new Set<string>())
 
@@ -184,6 +191,17 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
       textareaRef.current?.focus()
       textareaRef.current?.setSelectionRange(result.caret, result.caret)
     }, 0)
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    deleteMentionWithKey(event)
+    if (event.defaultPrevented || event.nativeEvent.isComposing) return
+    // Enter is the send shortcut. Shift+Enter deliberately keeps the
+    // browser's multiline behavior and is the only way to insert a newline.
+    if (event.key !== 'Enter' || event.shiftKey) return
+    event.preventDefault()
+    if (busy || (!content.trim() && !commentImage)) return
+    event.currentTarget.form?.requestSubmit()
   }
 
   function insertEmoji(emoji: string) {
@@ -244,10 +262,23 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   }
 
   const load = useCallback(async (nextCursor: string | null = null, append = false) => {
+    const sequence = ++commentLoadSequenceRef.current
+    const cachedPage = !append && nextCursor === null
+      ? readCachedCommentPage(viewerId, targetId, COMMENT_PAGE_LIMIT)
+      : null
+    if (cachedPage) {
+      setComments(cachedPage.items)
+      setCursor(cachedPage.endCursor)
+      setHasMore(cachedPage.hasNextPage)
+      setError(null)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
-      const page = await socialApi.getComments(targetId, 30, nextCursor)
+      const page = await loadCommentPage(viewerId, targetId, COMMENT_PAGE_LIMIT, nextCursor)
+      if (sequence !== commentLoadSequenceRef.current) return
       setComments((current) => {
         if (!append) return page.items
         const itemById = new Map(current.map((item) => [item.id, item]))
@@ -257,11 +288,11 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
       setCursor(page.endCursor)
       setHasMore(page.hasNextPage)
     } catch {
-      setError(t('commentsLoadError'))
+      if (sequence === commentLoadSequenceRef.current) setError(t('commentsLoadError'))
     } finally {
-      setLoading(false)
+      if (sequence === commentLoadSequenceRef.current) setLoading(false)
     }
-  }, [t, targetId])
+  }, [t, targetId, viewerId])
 
   async function loadReplies(parentId: string, append = false) {
     const existing = replyPages[parentId]
@@ -334,17 +365,32 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
     setMentionCaret(0)
   }
 
-  useEffect(() => { void load() }, [load])
   useEffect(() => {
-    if (variant === 'photo-sidebar') return
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    document.body.classList.add('content-detail-open')
-    return () => {
-      document.body.style.overflow = previousOverflow
-      document.body.classList.remove('content-detail-open')
-    }
-  }, [variant])
+    const cachedPage = readCachedCommentPage(viewerId, targetId, COMMENT_PAGE_LIMIT)
+    setComments(cachedPage?.items ?? [])
+    setReplyPages({})
+    setCursor(cachedPage?.endCursor ?? null)
+    setHasMore(cachedPage?.hasNextPage ?? false)
+    setLoading(cachedPage === null)
+    setContent('')
+    setReplyTarget(null)
+    setCommentImage((current) => {
+      if (current) URL.revokeObjectURL(current.previewUrl)
+      return null
+    })
+    setEmojiOpen(false)
+    setError(null)
+    setCommentLikers({})
+    setVisibleLikersCommentId(null)
+    setMentionEntities([])
+    setMentionCaret(0)
+    loadingLikerIdsRef.current.clear()
+    loadedLikerIdsRef.current.clear()
+  }, [targetId, viewerId])
+  useEffect(() => {
+    void load()
+    return () => { commentLoadSequenceRef.current += 1 }
+  }, [load])
   useEffect(() => () => {
     if (commentImage) URL.revokeObjectURL(commentImage.previewUrl)
   }, [commentImage])
@@ -376,6 +422,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
         serializeMentionContent(content, mentionEntities).trim(),
         uploaded ? { type: 0, url: uploaded.url } : null,
       )
+      clearPrefetchedCommentPage(targetId, viewerId)
       persisted = true
       onCommentCreated()
       if (replyTarget) {
@@ -590,7 +637,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
           if (!isDirectImageUrl(pasted) || commentImage) return
           event.preventDefault()
           void remoteImageFileFromUrl(pasted).then((file) => selectCommentImage(file)).catch(() => changeContent(`${content}${content ? ' ' : ''}${pasted}`, content.length + pasted.length + (content ? 1 : 0)))
-        }} onKeyDown={deleteMentionWithKey} onSelect={(event) => setMentionCaret(event.currentTarget.selectionStart ?? content.length)} placeholder={replyTarget ? t('writeReply') : t('commentAs', { name: viewer?.displayName || t('fakebookUser') })} /><MentionSuggestions text={content} people={friends} textareaRef={textareaRef} caretIndex={mentionCaret} onSelected={selectMention} placement="above" limit={5} className="comment-mention-suggestions" fitToNames /></div>
+        }} onKeyDown={handleComposerKeyDown} onSelect={(event) => setMentionCaret(event.currentTarget.selectionStart ?? content.length)} placeholder={replyTarget ? t('writeReply') : t('commentAs', { name: viewer?.displayName || t('fakebookUser') })} /><MentionSuggestions text={content} people={friends} textareaRef={textareaRef} caretIndex={mentionCaret} onSelected={selectMention} placement="above" limit={5} className="comment-mention-suggestions" fitToNames /></div>
         {commentImage && <div className="comment-image-preview"><img src={commentImage.previewUrl} alt="" /><button type="button" aria-label={t('removeMedia')} onClick={() => setCommentImage(null)}><Icon name="close" size={14} /></button></div>}
         <div className="comment-compose-tools">
           <div className="comment-compose-tool-list">

@@ -38,12 +38,13 @@ export function ProfilePostGridIcon() {
   return <svg className="profile-post-grid-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><rect x="4" y="4" width="6.5" height="6.5" rx="1" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1" /></svg>
 }
 
-export function ProfilePostGridCard({ post, locale, groupPrivacy = false, onOpenDetail, onOpenMedia }: {
+export function ProfilePostGridCard({ post, locale, groupPrivacy = false, onOpenDetail, onOpenMedia, onOpenReel }: {
   post: GatewayPost
   locale: string
   groupPrivacy?: boolean
   onOpenDetail: () => void
   onOpenMedia: (item: ProfileGridMediaTarget) => void
+  onOpenReel?: () => void
 }) {
   const decoded = decodePostContent(post.content)
   const source = profileGridMediaSource(post)
@@ -52,7 +53,10 @@ export function ProfilePostGridCard({ post, locale, groupPrivacy = false, onOpen
   const timestamp = formatPostTimestamp(post.create, locale)
   const privacy = normalizePostPrivacy(post.privacy)
   const openMedia = (media: GatewayPost['media'][number]) => {
-    if (post.__typename === 'ReelDetail') return
+    if (post.__typename === 'ReelDetail') {
+      onOpenReel?.()
+      return
+    }
     onOpenMedia({ contentId: source.contentId, mediaId: media.id, mediaUrl: media.url, mediaType: media.type })
   }
 

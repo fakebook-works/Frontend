@@ -1,5 +1,6 @@
 import './App.css'
 import { useAuth } from './lib/auth'
+import { ModalInteractionGuard } from './lib/bodyInteractionLock'
 import { AuthenticatedApp } from './pages/AuthenticatedApp'
 import { LoginPage } from './pages/LoginPage'
 
@@ -15,7 +16,7 @@ function App() {
     )
   }
 
-  return user ? <AuthenticatedApp /> : <LoginPage />
+  return <><ModalInteractionGuard />{user ? <AuthenticatedApp /> : <LoginPage />}</>
 }
 
 export default App

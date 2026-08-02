@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GatewayPost, SharedStory } from '../api/gatewayTypes'
+import { clearAllPrefetchedCommentPagesForTests } from '../lib/commentPagePrefetch'
 import { ContentActions, ContentDetailOverlay } from './ContentActions'
 
 const socialMocks = vi.hoisted(() => ({
@@ -51,6 +52,7 @@ const post: GatewayPost = {
 
 describe('ContentActions refreshed overlays', () => {
   beforeEach(() => {
+    clearAllPrefetchedCommentPagesForTests()
     window.sessionStorage.clear()
     socialMocks.getContentEngagement.mockReset().mockResolvedValue({ targetId: '90', likeCount: 2, commentCount: 1, shareCount: 0, viewCount: 0, viewerHasLiked: false, viewerHasSaved: false, viewerHasWatched: false })
     socialMocks.likeContent.mockReset().mockResolvedValue(true)
@@ -102,6 +104,17 @@ describe('ContentActions refreshed overlays', () => {
     expect(container.querySelector('.thread-post-engagement > nav')).toHaveClass('gateway-post-actions')
     expect(container.querySelector('.content-engagement-summary .content-share-summary')).not.toBeInTheDocument()
     expect(container.querySelector('.thread-post-engagement .content-share-summary')).not.toBeInTheDocument()
+  })
+
+  it('submits a comment with Enter while Shift+Enter remains multiline', async () => {
+    render(<ContentActions viewerId="1" contentId="90" post={post} />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+    const textarea = await screen.findByPlaceholderText('commentAs') as HTMLTextAreaElement
+    fireEvent.change(textarea, { target: { value: 'hello' } })
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })
+    expect(socialMocks.createComment).not.toHaveBeenCalled()
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    await waitFor(() => expect(socialMocks.createComment).toHaveBeenCalledWith('1', '90', 'hello', null))
   })
 
   it('opens the shared photo viewer when an image is selected inside post detail', async () => {
@@ -468,6 +481,41 @@ describe('ContentActions refreshed overlays', () => {
     await waitFor(() => expect(container.querySelector('.content-view-summary')).toHaveTextContent('46 views'))
     const metrics = [...container.querySelectorAll('.content-engagement-summary > span')]
     expect(metrics[metrics.length - 1]).toHaveClass('content-view-summary')
+  })
+
+  it('keeps zero-valued Reel action slots stable while hiding their numbers', async () => {
+    const reel: GatewayPost = {
+      __typename: 'ReelDetail', id: '92', type: 3, content: 'Empty Reel metrics', privacy: 0,
+      create: '2026-07-20T01:00:00Z', author: { id: '2', name: 'Reel Author', avatar: '', isVerified: false, canFollow: false },
+      media: [{ id: 'rm2', type: 1, url: 'https://uploads.example.com/reel-empty.mp4' }],
+    }
+    socialMocks.getContentEngagement.mockResolvedValue({ targetId: '92', likeCount: 0, commentCount: 0, shareCount: 0, viewCount: 0, viewerHasLiked: false, viewerHasSaved: false, viewerHasWatched: false })
+    const { container } = render(<ContentActions viewerId="1" contentId="92" post={reel} variant="reel" />)
+
+    await waitFor(() => expect(container.querySelectorAll('.reel-actions > button span')).toHaveLength(3))
+    expect([...container.querySelectorAll('.reel-actions > button span')].map((node) => node.textContent)).toEqual(['0', '0', '0'])
+    expect(container.querySelectorAll('.reel-action-count.is-empty')).toHaveLength(3)
+    expect(container.querySelector('.reel-save-action')).not.toHaveTextContent('save')
+  })
+
+  it('offers Reel interest, link and playback-speed options without changing the action rail', async () => {
+    const reel: GatewayPost = {
+      __typename: 'ReelDetail', id: 'reel-options-93', type: 3, content: 'Options', privacy: 0,
+      create: '2026-07-20T01:00:00Z', author: { id: '2', name: 'Reel Author', avatar: '', isVerified: false },
+      media: [{ id: 'rm3', type: 1, url: 'https://uploads.example.com/reel-options.mp4' }],
+    }
+    const onRateChange = vi.fn()
+    const { container } = render(<ContentActions viewerId="1" contentId={reel.id} post={reel} variant="reel" reelPlaybackRate={1} onReelPlaybackRateChange={onRateChange} />)
+
+    await waitFor(() => expect(container.querySelector('.reel-more-action')).not.toBeDisabled())
+    fireEvent.click(screen.getByRole('button', { name: 'more' }))
+    expect(screen.getByRole('menuitem', { name: 'interested' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'notInterested' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'copyLink' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: /videoPlaybackSpeed/ }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '1.5x' }))
+    expect(onRateChange).toHaveBeenCalledWith(1.5)
+    expect(container.querySelector('.reel-options-menu')).not.toBeInTheDocument()
   })
 
   it('renders Reel comments in the reusable photo-viewer sidebar without opening a modal', async () => {

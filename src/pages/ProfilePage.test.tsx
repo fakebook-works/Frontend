@@ -899,6 +899,8 @@ describe('ProfilePage messaging', () => {
     expect(await screen.findByText('profileYourReels')).toBeInTheDocument()
     expect(screen.getByText('profileSavedReels')).toBeInTheDocument()
     expect(await screen.findByText('12')).toBeInTheDocument()
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.self-profile-reels-grid > button')!)
+    expect(onNavigate).toHaveBeenCalledWith('/reels?source=profile&owner=me&reel=reel-1')
     const createReelButton = screen.getByRole('button', { name: 'profileCreateReel' })
     expect(createReelButton).toHaveClass('self-profile-section-action')
     fireEvent.click(createReelButton)
@@ -1243,7 +1245,7 @@ describe('ProfilePage messaging', () => {
 
     fireEvent.click(reelCard.querySelector<HTMLButtonElement>('.profile-post-grid-media-item')!)
     expect(screen.queryByTestId('profile-content-detail')).not.toBeInTheDocument()
-    expect(onNavigate).not.toHaveBeenCalled()
+    expect(onNavigate).toHaveBeenCalledWith('/reels?source=profile&owner=me&reel=reel-july')
 
     fireEvent.click(feedVideoButton)
     expect(await screen.findByTestId('profile-photo-viewer')).toHaveAttribute('data-content-id', 'feed-july')
@@ -1254,7 +1256,7 @@ describe('ProfilePage messaging', () => {
 
     fireEvent.click(plainCard.querySelector<HTMLButtonElement>('.profile-post-grid-text')!)
     expect(await screen.findByTestId('profile-content-detail')).toHaveAttribute('data-content-id', 'text-june')
-    expect(onNavigate).not.toHaveBeenCalled()
+    expect(onNavigate).toHaveBeenCalledTimes(1)
   })
 
   it('scrolls both owner-profile columns together and clamps the shorter column at its end', async () => {

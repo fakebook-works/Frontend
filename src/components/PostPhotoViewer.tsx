@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import type { GatewayMedia, GatewayPost, SharedStory } from '../api/gatewayTypes'
 import { socialApi, type ContentEngagement } from '../api/social'
 import { useI18n } from '../i18n'
+import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
 import { Avatar } from './Avatar'
 import { HoverTooltip } from './HoverTooltip'
 import { Icon } from './Icon'
@@ -133,6 +134,7 @@ function UnavailablePhotoDiscussion({ viewerId, author, onNavigate }: { viewerId
 }
 
 export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMediaUrl, initialPlaybackTime = 0, initialPost, mediaEntries, unavailableAuthor, onClose, onNavigate, onMessage, onStoryCreated }: PostPhotoViewerProps) {
+  useBodyInteractionLock(true, ['content-detail-open', 'post-photo-viewer-open'])
   const { t } = useI18n()
   const usableInitialPost = initialPost?.__typename === 'ReelDetail' ? null : initialPost ?? null
   const [post, setPost] = useState<GatewayPost | null>(usableInitialPost)
@@ -214,16 +216,6 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
     setDragging(false)
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    document.body.classList.add('content-detail-open', 'post-photo-viewer-open')
-    return () => {
-      document.body.style.overflow = previousOverflow
-      document.body.classList.remove('content-detail-open', 'post-photo-viewer-open')
-    }
-  }, [])
 
   useEffect(() => {
     document.body.classList.toggle('post-photo-viewer-fullscreen', fullscreen)

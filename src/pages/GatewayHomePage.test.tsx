@@ -328,12 +328,13 @@ describe('GatewayHomePage', () => {
   })
 
   it('renders a recommended reel through the same home post card', async () => {
+    const onNavigate = vi.fn()
     apiMocks.recommendedFeed.mockResolvedValue([{ postId: 'reel-71', post: {
       __typename: 'ReelDetail', id: 'reel-71', type: 4, content: 'Recommended reel', privacy: 0,
       create: '2026-07-20T08:00:00Z', author: { id: '7', name: 'Reel Author', avatar: '', isVerified: false, canFollow: true },
       mentions: [], media: [{ id: 'media-71', type: 1, url: 'https://uploads.example.com/reels/reel-71.mp4' }],
     } }])
-    const { container } = render(<GatewayHomePage />)
+    const { container } = render(<GatewayHomePage onNavigate={onNavigate} />)
 
     const content = await screen.findByText('Recommended reel')
     const card = content.closest('article.gateway-post')
@@ -341,6 +342,8 @@ describe('GatewayHomePage', () => {
     expect(card).toHaveTextContent('Reel Author')
     expect(card?.querySelector('.post-author-avatar .avatar')).toHaveStyle({ width: '40px', height: '40px', fontSize: '17px' })
     expect(card?.querySelector('video')).toHaveAttribute('src', 'https://uploads.example.com/reels/reel-71.mp4')
+    fireEvent.click(card!.querySelector('video')!)
+    expect(onNavigate).toHaveBeenCalledWith('/reels?source=for-you&reel=reel-71')
     expect(container.querySelectorAll('.feed-section > article.gateway-post')).toHaveLength(1)
     expect(await within(card as HTMLElement).findByTestId('content-actions')).toBeInTheDocument()
   })

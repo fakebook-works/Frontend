@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { notificationApi, type AppNotification } from '../api/notifications'
 import { messengerApi } from '../api/messenger'
 import { searchApi, type QuickSearchItem, type SearchTab } from '../api/search'
-import { socialApi, type SocialProfile } from '../api/social'
+import { socialApi, type SocialContent, type SocialProfile } from '../api/social'
 import type { UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { FriendPeopleGlyph, FriendPersonActionGlyph, type FriendPersonAction } from '../components/FriendPeopleGlyph'
@@ -14,6 +14,7 @@ import { useAuth } from '../lib/auth'
 import { groupMemberRoute, pathSegment, useAppLocation } from '../lib/router'
 import { relativeTime } from '../lib/format'
 import { notificationTarget, notificationText } from '../lib/notifications'
+import { gatewayReelToSocialContent, type GatewayReelPost } from '../lib/reelEntry'
 import { unlockSoundEffects } from '../lib/sounds'
 import { FriendsPage } from './FriendsPage'
 import { GatewayHomePage } from './GatewayHomePage'
@@ -29,6 +30,12 @@ import { MessengerDock, MessengerPage, type MessengerDockHandle } from './messen
 
 const SETTINGS = new Set<SettingsSection>(['overview', 'profile', 'security', 'privacy', 'sessions', 'language', 'appearance', 'premium'])
 type PrimaryDestination = 'home' | 'friends' | 'reels' | 'groups'
+type ReelOverlayState = {
+  source: 'for-you' | 'profile'
+  reelId: string
+  ownerId?: string
+  reel?: SocialContent
+}
 const ContentDetailOverlay = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentDetailOverlay })))
 
 export function AuthenticatedApp() {
@@ -42,9 +49,16 @@ export function AuthenticatedApp() {
   const isGroupsRoute = location.pathname === '/groups'
   const isGroupsPath = location.pathname.startsWith('/groups')
   const activePrimaryDestination = primaryDestinationForPath(location.pathname)
+  const profileLandingRoute = profileLandingRouteForPath(location.pathname)
+  const reelEntrySource = isReelsRoute && (location.params.get('source') === 'for-you' || location.params.get('source') === 'profile')
+    ? location.params.get('source') as 'for-you' | 'profile'
+    : null
+  const reelEntryId = isReelsRoute ? location.params.get('reel') : null
+  const reelEntryOwnerId = isReelsRoute ? location.params.get('owner') : null
   const [homeRefreshToken, setHomeRefreshToken] = useState(0)
   const [reelsRefreshToken, setReelsRefreshToken] = useState(0)
   const [groupsRefreshToken, setGroupsRefreshToken] = useState(0)
+  const [reelOverlay, setReelOverlay] = useState<ReelOverlayState | null>(null)
   const [mountedDestinations, setMountedDestinations] = useState<Set<PrimaryDestination>>(() => activePrimaryDestination ? new Set([activePrimaryDestination]) : new Set())
   const [menuOpen, setMenuOpen] = useState(false)
   const [appsMenuOpen, setAppsMenuOpen] = useState(false)
@@ -91,6 +105,15 @@ export function AuthenticatedApp() {
     if (!activePrimaryDestination) return
     setDocumentScrollTop(destinationScrollRef.current[activePrimaryDestination] ?? 0)
   }, [activePrimaryDestination])
+
+  useLayoutEffect(() => {
+    if (!profileLandingRoute) return
+    // User/group profiles are detail destinations, not preserved primary tabs.
+    // Always enter them at their hero cover instead of inheriting the source
+    // page's document offset. Reel/photo overlays do not change the route, so
+    // closing those viewers still keeps the profile's current position.
+    setDocumentScrollTop(0)
+  }, [profileLandingRoute])
 
   useEffect(() => {
     if (!activePrimaryDestination) return
@@ -296,6 +319,7 @@ export function AuthenticatedApp() {
 
   function go(path: string) {
     if (activePrimaryDestination) destinationScrollRef.current[activePrimaryDestination] = documentScrollTop()
+    setReelOverlay(null)
     setMenuOpen(false)
     setAppsMenuOpen(false)
     setMessengerPanelOpen(false)
@@ -303,6 +327,14 @@ export function AuthenticatedApp() {
     setMenuView('root')
     resetQuickSearch()
     navigate(path)
+  }
+
+  function openHomeReel(reel: GatewayReelPost) {
+    setReelOverlay({ source: 'for-you', reelId: reel.id, reel: gatewayReelToSocialContent(reel) })
+  }
+
+  function openProfileReel(ownerId: string, reelId: string, reel?: SocialContent) {
+    setReelOverlay({ source: 'profile', ownerId, reelId, reel })
   }
 
   function goHome() {
@@ -427,14 +459,14 @@ export function AuthenticatedApp() {
 
     {notificationPanelOpen && <NotificationPopover items={notificationItems} unreadCount={unreadNotifications} loading={notificationsLoading} onOpen={(item) => void openNotification(item)} onMarkAll={() => void markAllNotificationsRead()} onClose={() => setNotificationPanelOpen(false)} />}
 
-    {(activePrimaryDestination === 'home' || mountedDestinations.has('home')) && <Activity name="home-destination" mode={activePrimaryDestination === 'home' ? 'visible' : 'hidden'}><GatewayHomePage profile={currentProfile} refreshToken={homeRefreshToken} detailPostId={lastHomeDetailPostIdRef.current} onDetailClose={() => navigate('/home', { replace: true })} onNavigate={go} onMessage={openDirectMessage} onNewConversation={() => messengerDockRef.current?.openComposer()} onConversation={(conversation) => messengerDockRef.current?.openConversation(conversation)} /></Activity>}
+    {(activePrimaryDestination === 'home' || mountedDestinations.has('home')) && <Activity name="home-destination" mode={activePrimaryDestination === 'home' ? 'visible' : 'hidden'}><GatewayHomePage profile={currentProfile} refreshToken={homeRefreshToken} detailPostId={lastHomeDetailPostIdRef.current} onDetailClose={() => navigate('/home', { replace: true })} onNavigate={go} onOpenReel={openHomeReel} onMessage={openDirectMessage} onNewConversation={() => messengerDockRef.current?.openComposer()} onConversation={(conversation) => messengerDockRef.current?.openConversation(conversation)} /></Activity>}
     {location.pathname === '/search' && <SearchPage query={location.params.get('q') ?? ''} tab={searchTab} userId={user.userId} onNavigate={go} />}
     {(activePrimaryDestination === 'friends' || mountedDestinations.has('friends')) && <Activity name="friends-destination" mode={activePrimaryDestination === 'friends' ? 'visible' : 'hidden'}><FriendsPage userId={user.userId} section={lastFriendsSectionRef.current} onNavigate={go} onMessage={openDirectMessage} /></Activity>}
-    {(activePrimaryDestination === 'reels' || mountedDestinations.has('reels')) && <Activity name="reels-destination" mode={activePrimaryDestination === 'reels' ? 'visible' : 'hidden'}><ReelsPage key={`reels-${reelsRefreshToken}`} userId={user.userId} mode={lastReelModeRef.current} onNavigate={go} /></Activity>}
+    {(activePrimaryDestination === 'reels' || mountedDestinations.has('reels')) && <Activity name="reels-destination" mode={activePrimaryDestination === 'reels' ? 'visible' : 'hidden'}><ReelsPage key={`reels-${reelsRefreshToken}`} userId={user.userId} mode={lastReelModeRef.current} active={activePrimaryDestination === 'reels'} entrySource={reelEntrySource} entryReelId={reelEntryId} entryOwnerId={reelEntryOwnerId} onEntryClose={() => reelEntrySource === 'profile' && reelEntryOwnerId ? go(`/profile/${reelEntryOwnerId}?tab=reels`) : go('/home')} onNavigate={go} /></Activity>}
     {(activePrimaryDestination === 'groups' || mountedDestinations.has('groups')) && <Activity name="groups-destination" mode={activePrimaryDestination === 'groups' ? 'visible' : 'hidden'}><GroupsPage key={`groups-${groupsRefreshToken}`} userId={user.userId} profile={currentProfile} onNavigate={go} /></Activity>}
     {groupId && <GroupProfilePage groupId={groupId} userId={user.userId} onBack={() => go('/groups')} onNavigate={go} />}
     {groupRouteId && groupMemberProfileId && <UserInGroupProfilePage groupId={groupRouteId} profileId={groupMemberProfileId} viewerId={user.userId} onBack={() => go(`/groups/${groupRouteId}`)} onNavigate={go} />}
-    {profileId && <ProfilePage profile={viewedProfile} loading={profileLoading} error={profileError} canEdit={profileId === user.userId} viewerId={user.userId} onEdit={() => go('/settings/profile')} onNavigate={go} onMessage={openDirectMessage} />}
+    {profileId && <ProfilePage profile={viewedProfile} loading={profileLoading} error={profileError} canEdit={profileId === user.userId} viewerId={user.userId} initialTab={location.params.get('tab') === 'reels' ? 'reels' : undefined} onEdit={() => go('/settings/profile')} onNavigate={go} onOpenReel={openProfileReel} onMessage={openDirectMessage} />}
     {location.pathname === '/messenger' && <div className="shell-messenger"><MessengerPage me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} initialConversationId={location.params.get('conversation')} onOpenProfile={(id) => go(`/profile/${id}`)} onNavigate={go} /></div>}
     {location.pathname === '/saved' && <SavedPage userId={user.userId} onNavigate={go} />}
     {location.pathname.startsWith('/settings') && <SettingsPage initialSection={settingsSection} />}
@@ -442,7 +474,19 @@ export function AuthenticatedApp() {
     {location.pathname === '/premium/payment' && <SettingsPage initialSection="premium" />}
     {location.pathname.startsWith('/content/') && <ContentPage contentId={pathSegment(location.pathname, 1)!} viewerId={user.userId} onNavigate={go} onBack={() => go('/home')} />}
     {!isKnownPath(location.pathname) && <main className="unknown-page"><div className="card state-card"><h1>{t('pageNotFound')}</h1><p>{t('pageNotFoundDesc')}</p><button className="btn-primary" onClick={() => go('/home')}>{t('backToHome')}</button></div></main>}
-    <MessengerDock ref={messengerDockRef} me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} panelOpen={messengerPanelOpen} hidden={location.pathname === '/messenger'} showComposeRail={isHomeRoute || location.pathname.startsWith('/friends') || isGroupsPath || Boolean(profileId)} onPanelClose={() => setMessengerPanelOpen(false)} onOpenAll={(conversationId) => go(conversationId ? `/messenger?conversation=${encodeURIComponent(conversationId)}` : '/messenger')} onOpenProfile={(id) => go(`/profile/${id}`)} onNavigate={go} />
+    {reelOverlay && <ReelsPage
+      key={`overlay-reel-${reelOverlay.source}-${reelOverlay.ownerId ?? ''}-${reelOverlay.reelId}`}
+      userId={user.userId}
+      mode="for-you"
+      active
+      entrySource={reelOverlay.source}
+      entryReelId={reelOverlay.reelId}
+      entryOwnerId={reelOverlay.ownerId ?? null}
+      entryReel={reelOverlay.reel ?? null}
+      onEntryClose={() => setReelOverlay(null)}
+      onNavigate={(path) => go(path)}
+    />}
+    <MessengerDock ref={messengerDockRef} me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} panelOpen={messengerPanelOpen} hidden={location.pathname === '/messenger'} showComposeRail={isHomeRoute || location.pathname.startsWith('/friends') || isGroupsPath || Boolean(profileId)} layout={isReelsRoute || reelOverlay ? 'media-viewer' : 'default'} onPanelClose={() => setMessengerPanelOpen(false)} onOpenAll={(conversationId) => go(conversationId ? `/messenger?conversation=${encodeURIComponent(conversationId)}` : '/messenger')} onOpenProfile={(id) => go(`/profile/${id}`)} onNavigate={go} />
   </div>
 }
 
@@ -607,6 +651,13 @@ function primaryDestinationForPath(pathname: string): PrimaryDestination | null 
   if (pathname.startsWith('/friends')) return 'friends'
   if (pathname.startsWith('/reels')) return 'reels'
   if (pathname === '/groups') return 'groups'
+  return null
+}
+
+function profileLandingRouteForPath(pathname: string) {
+  const segments = pathname.split('/').filter(Boolean)
+  if (segments.length === 2 && segments[0] === 'profile') return `/profile/${segments[1]}`
+  if (segments.length === 2 && segments[0] === 'groups') return `/groups/${segments[1]}`
   return null
 }
 

@@ -6,6 +6,7 @@ import type { MediaUpload } from '../api/types'
 import { socialApi } from '../api/social'
 import { useI18n } from '../i18n'
 import { clampReelFocalPoint, MAX_REEL_ASPECT_RATIO, MAX_REEL_BYTES, MIN_REEL_ASPECT_RATIO, ratioFromSlider, sliderFromRatio } from '../lib/reelPresentation'
+import { cropReelVideoFile, ReelCropError } from '../lib/reelCrop'
 import { Avatar } from './Avatar'
 import { Icon, ReelIcon } from './Icon'
 import { PostPrivacyIcon, type PostPrivacy } from './PostPrivacyIcon'
@@ -162,7 +163,11 @@ export default function CreateReelModal({ userId, displayName, avatarUrl, isVeri
     let uploaded: MediaUpload | null = null
     let persisted = false
     try {
-      uploaded = await api.uploadMedia(file)
+      // Export the selected frame before uploading.  The backend still receives
+      // the normal authenticated Upload Server request, but it now receives a
+      // real cropped video instead of the original file plus display metadata.
+      const croppedFile = await cropReelVideoFile(file, { aspectRatio, focalPointX, focalPointY })
+      uploaded = await api.uploadMedia(croppedFile)
       const created = await socialApi.createReel(userId, {
         content: content.trim(),
         privacy,
@@ -211,9 +216,11 @@ export default function CreateReelModal({ userId, displayName, avatarUrl, isVeri
           }
         : optimisticPost)
       onClose()
-    } catch {
+    } catch (caught) {
       if (!persisted && uploaded) await Promise.allSettled([api.cancelPendingMedia(uploaded)])
-      setError(t('createReelError'))
+      setError(caught instanceof ReelCropError && caught.code === 'unsupported'
+        ? t('reelCropUnsupported')
+        : t('createReelError'))
     } finally {
       setBusy(false)
     }

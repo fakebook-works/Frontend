@@ -5,6 +5,7 @@ import type { GatewayPost, GatewayStory, SharedPostSource, SharedStorySource, St
 import { socialApi, type ContentEngagement, type ProfileRelationshipState } from '../api/social'
 import type { UserSummary } from '../api/types'
 import { useI18n } from '../i18n'
+import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
 import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
 import { decodeStoryContent } from '../lib/storyContent'
 import { Avatar } from './Avatar'
@@ -101,6 +102,7 @@ export function StoryViewerPage({
   onStoryDeleted?: (storyId: string) => void | Promise<void>
   onRelationshipRemoved?: (authorId: string) => void | Promise<void>
 }) {
+  useBodyInteractionLock(true, ['content-detail-open', 'story-viewer-open'])
   const { t, locale } = useI18n()
   const initialBucketIndex = Math.max(0, buckets.findIndex((item) => item.author.id === initialBucketId))
   const [bucketIndex, setBucketIndex] = useState(initialBucketIndex)
@@ -196,16 +198,6 @@ export function StoryViewerPage({
         sharedPostDetailRequestsRef.current.delete(sourceId)
         if (sharedPostDetailAliveRef.current) setSharedPostDetails(new Map(sharedPostDetailCacheRef.current))
       })
-  }, [])
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    document.body.classList.add('content-detail-open', 'story-viewer-open')
-    return () => {
-      document.body.style.overflow = previousOverflow
-      document.body.classList.remove('content-detail-open', 'story-viewer-open')
-    }
   }, [])
 
   useEffect(() => {

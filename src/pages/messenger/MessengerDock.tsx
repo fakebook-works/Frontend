@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import type { FormEvent, ReactNode, TextareaHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../../api/client'
 import { messengerApi } from '../../api/messenger'
@@ -142,6 +142,47 @@ function MiniChatMessages({
   return <div className={`mini-chat-messages${editFocusId ? ' has-edit-focus' : ''}`} ref={setContainerRef}>{children}</div>
 }
 
+const MINI_COMPOSER_MAX_ROWS = 8
+
+function MiniComposerTextarea({ value, onChange, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  const resize = useCallback((element: HTMLTextAreaElement | null) => {
+    if (!element) return
+    element.style.height = 'auto'
+    if (element.scrollHeight <= 0) {
+      element.style.removeProperty('height')
+      element.style.overflowY = 'hidden'
+      return
+    }
+    const style = window.getComputedStyle(element)
+    const parsedLineHeight = Number.parseFloat(style.lineHeight)
+    const fontSize = Number.parseFloat(style.fontSize) || 14.5
+    const lineHeight = parsedLineHeight > 8
+      ? parsedLineHeight
+      : parsedLineHeight > 0
+        ? parsedLineHeight * fontSize
+        : 19
+    const padding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0)
+    const maxHeight = lineHeight * MINI_COMPOSER_MAX_ROWS + padding
+    const nextHeight = Math.min(element.scrollHeight, maxHeight)
+    element.style.height = `${Math.ceil(nextHeight)}px`
+    element.style.overflowY = element.scrollHeight > maxHeight + .5 ? 'auto' : 'hidden'
+  }, [])
+
+  useLayoutEffect(() => resize(ref.current), [resize, value])
+
+  return <textarea
+    {...props}
+    ref={ref}
+    rows={1}
+    value={value}
+    onChange={(event) => {
+      onChange?.(event)
+      resize(event.currentTarget)
+    }}
+  />
+}
+
 export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>(function MessengerDock({
   me,
   friends,
@@ -185,6 +226,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
   const [editBusy, setEditBusy] = useState(false)
+  const [composeToolsConversationId, setComposeToolsConversationId] = useState<string | null>(null)
   const [expandedEditHistoryIds, setExpandedEditHistoryIds] = useState<Set<string>>(() => new Set())
   const [bubblePreviewAnchor, setBubblePreviewAnchor] = useState<BubblePreviewAnchor | null>(null)
   const seenEventIds = useRef(new Set<string>())
@@ -216,6 +258,27 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   )
   const fullOpenIdKey = fullOpenIds.join(',')
   fullOpenIdsRef.current = fullOpenIds
+
+  useEffect(() => {
+    if (composeToolsConversationId && !fullOpenIds.includes(composeToolsConversationId)) setComposeToolsConversationId(null)
+  }, [composeToolsConversationId, fullOpenIds])
+
+  useEffect(() => {
+    if (!composeToolsConversationId) return
+    const close = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      if (!target?.closest('[data-mini-compose-tools]')) setComposeToolsConversationId(null)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setComposeToolsConversationId(null)
+    }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [composeToolsConversationId])
   const collapsedOpenIds = useMemo(
     () => openIds.filter((id) => !fullOpenIds.includes(id)),
     [fullOpenIds, openIds],
@@ -475,6 +538,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
 
   const updateDraft = useCallback((conversationId: string, value: string) => {
     setDrafts((current) => ({ ...current, [conversationId]: value }))
+    if (value.length === 0) setComposeToolsConversationId((current) => current === conversationId ? null : current)
     const existingTimer = outgoingTypingTimers.current.get(conversationId)
     if (existingTimer !== undefined) window.clearTimeout(existingTimer)
     if (!value.trim()) {
@@ -744,6 +808,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   async function sendPayload(conversation: MessengerConversationDto, body: string, attachments: MediaUpload[]) {
     if ((!body && attachments.length === 0) || sendingId) return
     const replyToMessageId = replyToByConversationId[conversation.id] ?? null
+    setComposeToolsConversationId((current) => current === conversation.id ? null : current)
     stopTyping(conversation.id)
     const optimistic: MessengerMessageDto = {
       id: `local-${crypto.randomUUID()}`,
@@ -828,7 +893,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     setEditDraft(message.body)
     window.requestAnimationFrame(() => {
       miniMessageContainers.current.get(message.conversationId)?.parentElement
-        ?.querySelector<HTMLInputElement>('.mini-compose-input input')?.focus()
+        ?.querySelector<HTMLTextAreaElement>('.mini-compose-input textarea')?.focus()
     })
   }
 
@@ -838,7 +903,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     if (conversationId) {
       window.requestAnimationFrame(() => {
         miniMessageContainers.current.get(conversationId)?.parentElement
-          ?.querySelector<HTMLInputElement>('.mini-compose-input input')?.focus()
+          ?.querySelector<HTMLTextAreaElement>('.mini-compose-input textarea')?.focus()
       })
     }
   }
@@ -1029,6 +1094,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   }
 
   function closeChat(conversationId: string) {
+    setComposeToolsConversationId((current) => current === conversationId ? null : current)
     if (activeVoiceRecording.current?.conversationId === conversationId) stopVoiceRecording(true)
     if ((messagesRef.current[conversationId] ?? []).some((message) => message.id === editingMessageId)) {
       cancelDockMessageEdit()
@@ -1179,7 +1245,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       })}</div>
     </aside>}
 
-    <div className={`mini-chat-region${hasCollapsedRail ? ' has-bubble-rail' : ''}${showPinnedComposeRail ? ' home-compose-rail' : ''}${mediaViewerLayout ? ' media-viewer-compose-rail' : ''}`} data-layout={mediaViewerLayout ? 'media-viewer' : 'default'}><div className="mini-chat-dock-layout">{(openConversations.length > 0 || showNewModal) && <div className="mini-chat-windows" aria-label={t('messages')}>{openConversations.map((conversation) => {
+    <div className={`mini-chat-region${hasCollapsedRail ? ' has-bubble-rail' : ''}${showPinnedComposeRail ? ' home-compose-rail' : ''}${mediaViewerLayout ? ' media-viewer-compose-rail' : ''}${mediaOverlayOpen ? ' media-viewer-comments-rail' : ''}`} data-layout={mediaViewerLayout ? 'media-viewer' : 'default'}><div className="mini-chat-dock-layout">{(openConversations.length > 0 || showNewModal) && <div className="mini-chat-windows" aria-label={t('messages')}>{openConversations.map((conversation) => {
       const name = conversationName(conversation, me)
       const other = conversation.participants.find((person) => person.id !== me.id)
       const isFriend = other
@@ -1194,6 +1260,9 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       const editingMessage = editingMessageId
         ? conversationMessages.find((message) => message.id === editingMessageId) ?? null
         : null
+      const composeValue = editingMessage ? editDraft : draft
+      const composeHasText = composeValue.length > 0
+      const composeToolsOpen = composeToolsConversationId === conversation.id
       const visualBreaks: MessageVisualBreaks = {
         beforeMessageIds: new Set(conversationMessages
           .filter((message) => Boolean(message.editedAt) || message.id === editingMessageId)
@@ -1316,13 +1385,35 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
               <button type="button" className="mini-compose-btn send ready mini-voice-send" aria-label={t('sendMessage')} onClick={() => stopVoiceRecording()}><Icon name="send" size={22} /></button>
             </div>
           ) : (
-            <form className={`mini-chat-compose${attachments.length > 0 ? ' has-attachments' : ''}`} onSubmit={(event) => void send(event, conversation)}>
-              <button type="button" className="mini-compose-btn voice" aria-label={t('recordVoice')} disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingId === conversation.id || recordingId !== null} onClick={() => void toggleVoiceRecording(conversation)}><Icon name="mic" size={21} /></button>
-              <label className={`mini-compose-btn${editingMessage ? ' disabled' : ''}`} aria-label={t('addAttachment')}><Icon name="photo" size={21} /><input className="messenger-file-input" type="file" multiple accept={MESSENGER_ATTACHMENT_ACCEPT} disabled={Boolean(editingMessage) || uploadingId === conversation.id} onChange={(event) => { void attachFiles(conversation.id, event.currentTarget.files); event.currentTarget.value = '' }} /></label>
-              <StickerButton disabled={Boolean(editingMessage) || sendingId === conversation.id} onPick={(sticker) => void sendPayload(conversation, sticker, [])} />
+            <form className={`mini-chat-compose${composeHasText ? ' is-writing' : ''}${attachments.length > 0 ? ' has-attachments' : ''}`} onSubmit={(event) => void send(event, conversation)}>
+              <div className={`mini-compose-tools${composeHasText ? ' compact' : ''}`} data-mini-compose-tools>
+                {composeHasText
+                  ? <div className="mini-compose-more-wrap">
+                      <button type="button" className="mini-compose-btn mini-compose-more-btn" aria-label={t('more')} aria-expanded={composeToolsOpen} onClick={() => setComposeToolsConversationId((current) => current === conversation.id ? null : conversation.id)}><Icon name="plus" size={20} /></button>
+                      {composeToolsOpen && <div className="mini-compose-tools-menu" role="group" aria-label={t('more')}>
+                        <button type="button" className="mini-compose-btn voice" aria-label={t('recordVoice')} disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingId === conversation.id || recordingId !== null} onClick={() => { setComposeToolsConversationId(null); void toggleVoiceRecording(conversation) }}><Icon name="mic" size={21} /></button>
+                        <label className={`mini-compose-btn${editingMessage ? ' disabled' : ''}`} aria-label={t('addAttachment')}><Icon name="photo" size={21} /><input className="messenger-file-input" type="file" multiple accept={MESSENGER_ATTACHMENT_ACCEPT} disabled={Boolean(editingMessage) || uploadingId === conversation.id} onChange={(event) => { setComposeToolsConversationId(null); void attachFiles(conversation.id, event.currentTarget.files); event.currentTarget.value = '' }} /></label>
+                        <StickerButton disabled={Boolean(editingMessage) || sendingId === conversation.id} onPick={(sticker) => { setComposeToolsConversationId(null); void sendPayload(conversation, sticker, []) }} />
+                      </div>}
+                    </div>
+                  : <>
+                      <button type="button" className="mini-compose-btn voice" aria-label={t('recordVoice')} disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingId === conversation.id || recordingId !== null} onClick={() => void toggleVoiceRecording(conversation)}><Icon name="mic" size={21} /></button>
+                      <label className={`mini-compose-btn${editingMessage ? ' disabled' : ''}`} aria-label={t('addAttachment')}><Icon name="photo" size={21} /><input className="messenger-file-input" type="file" multiple accept={MESSENGER_ATTACHMENT_ACCEPT} disabled={Boolean(editingMessage) || uploadingId === conversation.id} onChange={(event) => { void attachFiles(conversation.id, event.currentTarget.files); event.currentTarget.value = '' }} /></label>
+                      <StickerButton disabled={Boolean(editingMessage) || sendingId === conversation.id} onPick={(sticker) => void sendPayload(conversation, sticker, [])} />
+                    </>}
+              </div>
               <div className="mini-compose-body">
                 {attachments.length > 0 && <div className="mini-compose-previews">{attachments.map((attachment) => <div className="mini-compose-preview" key={attachment.url}><MediaAttachmentPreview attachment={attachment} /><button type="button" aria-label={t('removeMedia')} onClick={() => removePendingAttachment(conversation.id, attachment)}><Icon name="close" size={14} /></button></div>)}</div>}
-                <label className="mini-compose-input"><input value={editingMessage ? editDraft : draft} onChange={(event) => editingMessage ? setEditDraft(event.target.value) : updateDraft(conversation.id, event.target.value)} onPaste={(event) => {
+                <label className="mini-compose-input"><MiniComposerTextarea value={composeValue} onChange={(event) => {
+                  if (editingMessage) {
+                    setEditDraft(event.target.value)
+                    if (event.target.value.length === 0) setComposeToolsConversationId((current) => current === conversation.id ? null : current)
+                  } else updateDraft(conversation.id, event.target.value)
+                }} onKeyDown={(event) => {
+                  if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+                  event.preventDefault()
+                  event.currentTarget.form?.requestSubmit()
+                }} onPaste={(event) => {
                   if (editingMessage || attachments.length >= 10) return
                   const pastedImages = clipboardImageFiles(event.clipboardData)
                   if (pastedImages.length > 0) {

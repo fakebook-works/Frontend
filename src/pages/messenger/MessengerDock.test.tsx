@@ -739,6 +739,76 @@ describe('MessengerDock overflow windows', () => {
     await waitFor(() => expect(messengerMocks.setTyping).toHaveBeenCalledWith('conversation-2', true))
   })
 
+  it('collapses the three composer tools into a plus after the first character', async () => {
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    const textarea = within(chat).getByPlaceholderText('Aa')
+
+    expect(within(chat).getByRole('button', { name: 'recordVoice' })).toBeInTheDocument()
+    expect(within(chat).getByLabelText('addAttachment')).toBeInTheDocument()
+    expect(within(chat).getByRole('button', { name: 'stickers' })).toBeInTheDocument()
+    expect(chat.querySelector('.mini-compose-more-btn')).not.toBeInTheDocument()
+
+    fireEvent.change(textarea, { target: { value: 'H' } })
+
+    expect(chat.querySelector('.mini-chat-compose')).toHaveClass('is-writing')
+    const more = chat.querySelector<HTMLButtonElement>('.mini-compose-more-btn')!
+    expect(more).toBeInTheDocument()
+    expect(within(chat).queryByRole('button', { name: 'recordVoice' })).not.toBeInTheDocument()
+
+    fireEvent.click(more)
+    const menu = within(chat).getByRole('group', { name: 'more' })
+    expect(within(menu).getByRole('button', { name: 'recordVoice' })).toBeInTheDocument()
+    expect(within(menu).getByLabelText('addAttachment')).toBeInTheDocument()
+    expect(within(menu).getByRole('button', { name: 'stickers' })).toBeInTheDocument()
+
+    fireEvent.change(textarea, { target: { value: '' } })
+    expect(chat.querySelector('.mini-chat-compose')).not.toHaveClass('is-writing')
+    expect(chat.querySelector('.mini-compose-more-btn')).not.toBeInTheDocument()
+    expect(within(chat).getByRole('button', { name: 'recordVoice' })).toBeInTheDocument()
+  })
+
+  it('grows the message textarea upward to eight lines, then scrolls without a visible bar', async () => {
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    const textarea = within(chat).getByPlaceholderText('Aa') as HTMLTextAreaElement
+    let measuredHeight = 36
+    Object.defineProperty(textarea, 'scrollHeight', { configurable: true, get: () => measuredHeight })
+
+    measuredHeight = 420
+    fireEvent.change(textarea, { target: { value: Array.from({ length: 10 }, (_, index) => `line ${index}`).join('\n') } })
+    expect(Number.parseFloat(textarea.style.height)).toBeGreaterThan(36)
+    expect(Number.parseFloat(textarea.style.height)).toBeLessThan(420)
+    expect(textarea.style.overflowY).toBe('auto')
+
+    measuredHeight = 36
+    fireEvent.change(textarea, { target: { value: 'short' } })
+    expect(textarea.style.height).toBe('36px')
+    expect(textarea.style.overflowY).toBe('hidden')
+  })
+
+  it('sends with Enter while Shift+Enter remains available for a new line', async () => {
+    messengerMocks.sendMessage.mockResolvedValue({
+      id: 'sent-text', conversationId: 'conversation-2', sender: me, body: 'Hello',
+      createdAt: new Date().toISOString(), status: 'sent', attachments: [],
+    })
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    const textarea = within(chat).getByPlaceholderText('Aa')
+    fireEvent.change(textarea, { target: { value: 'Hello' } })
+
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })
+    expect(messengerMocks.sendMessage).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    await waitFor(() => expect(messengerMocks.sendMessage).toHaveBeenCalledWith(
+      'conversation-2', me, expect.objectContaining({ body: 'Hello' }),
+    ))
+  })
+
   it('records, uploads and sends a real voice message from the microphone control', async () => {
     const stopTrack = vi.fn()
     Object.defineProperty(navigator, 'mediaDevices', {

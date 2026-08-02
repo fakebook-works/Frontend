@@ -77,6 +77,7 @@ export interface SocialContent {
   focalPointX?: number | null
   focalPointY?: number | null
   author?: UserSummary | null
+  authorPrivacy?: number | null
   mentions?: GatewayMention[]
 }
 
@@ -301,8 +302,15 @@ function normalizeMentionUsers(value: unknown): GatewayMention[] {
 
 async function hydrateContentAuthors(items: SocialContent[]): Promise<SocialContent[]> {
   const authors = await getProfiles(items.map((item) => item.authorId)).catch(() => [])
-  const byId = new Map(authors.map((profile) => [profile.id, summaryFromProfile(profile)]))
-  return items.map((item) => ({ ...item, author: byId.get(item.authorId) ?? null }))
+  const byId = new Map(authors.map((profile) => [profile.id, profile]))
+  return items.map((item) => {
+    const profile = byId.get(item.authorId)
+    return {
+      ...item,
+      author: profile ? summaryFromProfile(profile) : null,
+      authorPrivacy: profile?.privacy ?? null,
+    }
+  })
 }
 
 function postFromGraphQl(post: GatewayPost): GatewayPost {
@@ -917,8 +925,15 @@ export async function getSavedContent(limit = 30, cursor: string | null = null):
   )
   const reels = data.savedContent.items.flatMap((item) => item.reel ? [contentFromGraphQl(item.reel)] : [])
   const authors = await getProfiles(reels.map((reel) => reel.authorId)).catch(() => [])
-  const byAuthor = new Map(authors.map((profile) => [profile.id, summaryFromProfile(profile)]))
-  const reelById = new Map(reels.map((reel) => [reel.id, { ...reel, author: byAuthor.get(reel.authorId) ?? null }]))
+  const byAuthor = new Map(authors.map((profile) => [profile.id, profile]))
+  const reelById = new Map(reels.map((reel) => {
+    const profile = byAuthor.get(reel.authorId)
+    return [reel.id, {
+      ...reel,
+      author: profile ? summaryFromProfile(profile) : null,
+      authorPrivacy: profile?.privacy ?? null,
+    }] as const
+  }))
   const items = data.savedContent.items.flatMap((item): SavedContentItem[] => {
     if (item.post) return [{ kind: 'post', id: String(item.id), post: postFromGraphQl(item.post) }]
     const reel = reelById.get(String(item.id))

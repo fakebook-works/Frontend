@@ -68,12 +68,13 @@ function removeStoryFromBucket(bucket: StoryBucket, storyId: string): StoryBucke
   return stories.length > 0 ? { ...bucket, latestCreate: stories[0].create, stories } : null
 }
 
-export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId = null, onDetailClose, onNavigate, onMessage, onNewConversation, onConversation }: {
+export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId = null, onDetailClose, onNavigate, onOpenReel, onMessage, onNewConversation, onConversation }: {
   profile?: UserProfile | null
   refreshToken?: number
   detailPostId?: string | null
   onDetailClose?: () => void
   onNavigate?: (path: string) => void
+  onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void
   onMessage?: (profileId: string) => Promise<void>
   onNewConversation?: () => void
   onConversation?: (conversation: MessengerConversationDto) => void
@@ -516,7 +517,7 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
           {feedLoading ? <HomeFeedSkeleton label={t('loadingMore')} /> : !feedError && posts.length === 0 ? (
             <div className="card state-card"><h2>{t('noRecommendedPosts')}</h2><p>{t('noRecommendedPostsDesc')}</p></div>
           ) : (
-            posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={user.userId} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={applyCreatedStory} />)
+          posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={user.userId} onNavigate={onNavigate} onOpenReel={(reel) => onOpenReel ? onOpenReel(reel) : onNavigate?.(`/reels?source=for-you&reel=${encodeURIComponent(reel.id)}`)} onMessage={onMessage} onStoryCreated={applyCreatedStory} />)
           )}
             {!feedLoading && !feedError && posts.length > 0 && (
               <div ref={feedSentinelRef} className="feed-more feed-auto-loader" aria-live="polite">
@@ -1217,7 +1218,7 @@ function TaggedUsersInline({ users, onNavigate }: { users: GatewayTaggedUser[]; 
   </span>
 }
 
-export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage, onStoryCreated, authorPath, groupContextId, viewerCanModerateGroupPosts = false }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string; groupContextId?: string; viewerCanModerateGroupPosts?: boolean }) {
+export function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel, onMessage, onStoryCreated, authorPath, groupContextId, viewerCanModerateGroupPosts = false }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string; groupContextId?: string; viewerCanModerateGroupPosts?: boolean }) {
   const { t } = useI18n()
   const [current, setCurrent] = useState(post)
   const [deleting, setDeleting] = useState(false)
@@ -1343,7 +1344,7 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onMessage,
       </header>
       {(relationshipError || privacyError) && <p className="form-error post-relationship-error">{relationshipError || privacyError}</p>}
       {decodedContent.text && <p className={postBackground ? 'gateway-post-content has-background' : 'gateway-post-content'} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={current.mentions} onNavigate={onNavigate} /></p>}
-      <PostMediaGallery media={current.media} preferredAspectRatio={current.__typename === 'ReelDetail' ? current.aspectRatio : null} focalPointX={current.__typename === 'ReelDetail' ? current.focalPointX : null} focalPointY={current.__typename === 'ReelDetail' ? current.focalPointY : null} onOpenImage={viewerId && current.__typename !== 'ReelDetail' ? (media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: current.id, mediaId: media.id, mediaUrl: media.url, initialPost: current, initialPlaybackTime }) : undefined} />
+      <PostMediaGallery media={current.media} preferredAspectRatio={current.__typename === 'ReelDetail' ? current.aspectRatio : null} focalPointX={current.__typename === 'ReelDetail' ? current.focalPointX : null} focalPointY={current.__typename === 'ReelDetail' ? current.focalPointY : null} onOpenImage={viewerId && current.__typename === 'ReelDetail' && onOpenReel ? () => onOpenReel(current) : viewerId && current.__typename !== 'ReelDetail' ? (media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: current.id, mediaId: media.id, mediaUrl: media.url, initialPost: current, initialPlaybackTime }) : undefined} />
       {current.sharedSource && <SharedPostSourceCard source={current.sharedSource} locale={locale} onNavigate={onNavigate} onOpenSource={current.sharedSource.type === 1 && current.sharedSource.group ? undefined : (sourceId) => setSharedDetailId(sourceId)} onOpenImage={viewerId && current.sharedSource.type !== 4 ? (source, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: source.id, mediaId: media.id, mediaUrl: media.url, initialPlaybackTime }) : undefined} />}
       {viewerId && <Suspense fallback={<div className="content-actions-skeleton" />}><ContentActions viewerId={viewerId} contentId={current.id} post={current} canShare canReshare={canReshare} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} /></Suspense>}
       {deleting && <DeletePostModal postId={current.id} onClose={() => setDeleting(false)} onDeleted={() => setRemoved(true)} />}

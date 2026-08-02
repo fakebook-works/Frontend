@@ -11,9 +11,11 @@ const apiMocks = vi.hoisted(() => ({
   postDetail: vi.fn(),
 }))
 const socialMocks = vi.hoisted(() => ({ createReel: vi.fn() }))
+const cropMocks = vi.hoisted(() => ({ cropReelVideoFile: vi.fn() }))
 
 vi.mock('../api/client', () => ({ api: apiMocks }))
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
+vi.mock('../lib/reelCrop', () => ({ cropReelVideoFile: cropMocks.cropReelVideoFile, ReelCropError: class ReelCropError extends Error { code = 'unsupported' as const } }))
 vi.mock('../i18n', () => ({
   useI18n: () => ({ t: (key: string) => key, locale: 'en' }),
 }))
@@ -36,6 +38,7 @@ describe('CreateReelModal', () => {
     })
     apiMocks.cancelPendingMedia.mockReset().mockResolvedValue(undefined)
     apiMocks.postDetail.mockReset().mockResolvedValue(null)
+    cropMocks.cropReelVideoFile.mockReset().mockImplementation(async (source: File) => new File([source], `${source.name.replace(/\.[^.]+$/, '')}-cropped.mp4`, { type: 'video/mp4' }))
     socialMocks.createReel.mockReset().mockResolvedValue({
       id: '9007199254740993001',
       type: 4,
@@ -74,6 +77,12 @@ describe('CreateReelModal', () => {
     fireEvent.click(screen.getByRole('option', { name: /^privacyFriends$/ }))
     fireEvent.click(screen.getByRole('button', { name: 'publish' }))
 
+    await waitFor(() => expect(cropMocks.cropReelVideoFile).toHaveBeenCalledWith(file, {
+      aspectRatio: MIN_REEL_ASPECT_RATIO,
+      focalPointX: 0.5,
+      focalPointY: 0.5,
+    }))
+    expect(apiMocks.uploadMedia).toHaveBeenCalledWith(expect.objectContaining({ name: 'reel-cropped.mp4', type: 'video/mp4' }))
     await waitFor(() => expect(socialMocks.createReel).toHaveBeenCalledWith('9007199254740993123', {
       content: 'A new reel',
       privacy: 2,
@@ -136,6 +145,7 @@ describe('CreateReelModal', () => {
     fireEvent.pointerUp(frame, { pointerId: 7, clientX: 120, clientY: 90 })
     fireEvent.click(screen.getByRole('button', { name: 'publish' }))
 
+    await waitFor(() => expect(cropMocks.cropReelVideoFile).toHaveBeenCalled())
     await waitFor(() => expect(socialMocks.createReel).toHaveBeenCalledWith('9007199254740993123', expect.objectContaining({
       aspectRatio: MAX_REEL_ASPECT_RATIO,
       focalPointX: 0,
@@ -167,6 +177,7 @@ describe('CreateReelModal', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'publish' }))
 
+    await waitFor(() => expect(cropMocks.cropReelVideoFile).toHaveBeenCalled())
     await waitFor(() => expect(apiMocks.cancelPendingMedia).toHaveBeenCalledWith(expect.objectContaining({ assetId: 'asset-1' })))
     expect(screen.getByText('createReelError')).toBeInTheDocument()
     expect(onCreated).not.toHaveBeenCalled()

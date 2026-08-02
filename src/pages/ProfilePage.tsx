@@ -21,6 +21,7 @@ import { cropImageFile } from '../lib/imageCrop'
 import { forgetOwnUnseenStory, reconcileOwnUnseenStories, rememberOwnUnseenStory } from '../lib/ownStoryUnseen'
 import { decodePostContent } from '../lib/postContent'
 import { groupProfilePostsByMonth } from '../lib/profilePostGrid'
+import { gatewayReelToSocialContent } from '../lib/reelEntry'
 import { decodeStoryContent } from '../lib/storyContent'
 import { useInlineImageCrop } from '../lib/useInlineImageCrop'
 import { useImageAmbientColor } from '../lib/useImageAmbientColor'
@@ -483,12 +484,12 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
   </section>
 }
 
-export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit, onNavigate, onMessage }: { profile: SocialProfile | null; loading: boolean; error: string | null; canEdit: boolean; viewerId: string; onEdit: () => void; onNavigate: (path: string) => void; onMessage: (profileId: string) => Promise<void> }) {
+export function ProfilePage({ profile, loading, error, canEdit, viewerId, initialTab, onEdit, onNavigate, onOpenReel, onMessage }: { profile: SocialProfile | null; loading: boolean; error: string | null; canEdit: boolean; viewerId: string; initialTab?: ProfileTab; onEdit: () => void; onNavigate: (path: string) => void; onOpenReel?: (ownerId: string, reelId: string, reel?: SocialContent) => void; onMessage: (profileId: string) => Promise<void> }) {
   const { t, locale } = useI18n()
   const [posts, setPosts] = useState<GatewayPost[]>([])
   const [postsLoading, setPostsLoading] = useState(false)
   const [postsUnavailable, setPostsUnavailable] = useState(false)
-  const [tab, setTab] = useState<ProfileTab>('posts')
+  const [tab, setTab] = useState<ProfileTab>(() => initialTab ?? 'posts')
   const [profileFriends, setProfileFriends] = useState<SocialProfile[]>([])
   const [profileFriendMutualCounts, setProfileFriendMutualCounts] = useState<Record<string, number>>({})
   const [friendsLoading, setFriendsLoading] = useState(false)
@@ -753,7 +754,10 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
   }, [profile?.id, tab])
 
   useEffect(() => {
-    setTab('posts')
+    setTab(initialTab ?? 'posts')
+  }, [initialTab, profile?.id])
+
+  useEffect(() => {
     setPostFilter('all')
     setPostView('list')
     setManageMode(false)
@@ -1394,6 +1398,11 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
   if (loading) return <ProfilePageSkeleton />
   if (!profile) return <main className="profile-destination"><div className="card state-card"><h2>{t('profileUnavailable')}</h2><p>{error || t('profileLoadError')}</p></div></main>
 
+  const openReelViewer = (ownerId: string, reelId: string, reel?: SocialContent) => {
+    if (onOpenReel) onOpenReel(ownerId, reelId, reel)
+    else onNavigate(`/reels?source=profile&owner=${encodeURIComponent(ownerId)}&reel=${encodeURIComponent(reelId)}`)
+  }
+
   const activeProfileId = profile.id
   const canViewProfileStories = canEdit || relationship.friendship === 'friend' || relationship.isFollowing
   const profileStoryBucket = canViewProfileStories
@@ -1602,11 +1611,11 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, onEdit
             <div className="self-profile-post-view-tabs"><button type="button" className={postView === 'list' ? 'active' : ''} onClick={() => setPostView('list')}><ProfilePostListIcon /><span>{t('profileListView')}</span></button><button type="button" className={postView === 'grid' ? 'active' : ''} onClick={() => setPostView('grid')}><ProfilePostGridIcon /><span>{t('profileGridView')}</span></button></div>
           </section>}
 
-          {tab === 'posts' && (postsLoading ? <div className="card state-card"><span className="spinner" /></div> : filteredPosts.length > 0 ? postView === 'grid' ? <div className="self-profile-post-months">{profilePostMonthGroups.map((group) => <section className="card self-profile-post-month" key={group.id}><h3>{group.label}</h3><div className="self-profile-post-grid">{group.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} onOpenDetail={() => setProfileDetailPostId(post.id)} onOpenMedia={(item) => void openProfileMediaViewer(item)} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} />) : <div className="card state-card"><h2>{postsUnavailable ? t('unableToLoad') : t('profileNoPosts')}</h2><p>{postsUnavailable ? t('profilePostsLoadError') : canEdit ? t('yourPostsEmpty') : t('userPostsEmpty', { name: profile.displayName.split(' ')[0] })}</p></div>)}
+          {tab === 'posts' && (postsLoading ? <div className="card state-card"><span className="spinner" /></div> : filteredPosts.length > 0 ? postView === 'grid' ? <div className="self-profile-post-months">{profilePostMonthGroups.map((group) => <section className="card self-profile-post-month" key={group.id}><h3>{group.label}</h3><div className="self-profile-post-grid">{group.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} onOpenDetail={() => setProfileDetailPostId(post.id)} onOpenMedia={(item) => void openProfileMediaViewer(item)} onOpenReel={post.__typename === 'ReelDetail' ? () => openReelViewer(profile.id, post.id, gatewayReelToSocialContent(post)) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenReel={(reel) => openReelViewer(profile.id, reel.id, gatewayReelToSocialContent(reel))} />) : <div className="card state-card"><h2>{postsUnavailable ? t('unableToLoad') : t('profileNoPosts')}</h2><p>{postsUnavailable ? t('profilePostsLoadError') : canEdit ? t('yourPostsEmpty') : t('userPostsEmpty', { name: profile.displayName.split(' ')[0] })}</p></div>)}
           {tab === 'about' && <ProfileAboutPanel profile={profile} canEdit={canEdit} />}
           {tab === 'friends' && <ProfileConnectionsTab profile={profile} viewerId={viewerId} canManage={canEdit} onNavigate={onNavigate} />}
           {tab === 'photos' && <ProfileMediaTab profile={profile} canEdit={canEdit} friends={profileFriends} onOpenMedia={(item, entries) => void openProfileMediaViewer(item, entries)} onPostCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
-          {tab === 'reels' && <ProfileReelsTab profile={profile} canEdit={canEdit} friends={profileFriends} onNavigate={onNavigate} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
+          {tab === 'reels' && <ProfileReelsTab profile={profile} canEdit={canEdit} friends={profileFriends} onOpenReel={openReelViewer} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
           {tab === 'groups' && <ProfileGroupsTab groups={profileGroups} managedGroups={profileManagedGroups} loading={groupsLoading} unavailable={groupsUnavailable} canManage={canEdit} onNavigate={onNavigate} />}
         </section>
       </div>
@@ -1956,7 +1965,7 @@ async function loadProfileReelItems(userId: string, mode: 'own' | 'saved'): Prom
   return [...new Map(reels.map((reel) => [reel.id, reel])).values()]
 }
 
-function ProfileReelsTab({ profile, canEdit, friends, onNavigate, onCreated }: { profile: SocialProfile; canEdit: boolean; friends: SocialProfile[]; onNavigate: (path: string) => void; onCreated: (post: GatewayPost) => void }) {
+function ProfileReelsTab({ profile, canEdit, friends, onOpenReel, onCreated }: { profile: SocialProfile; canEdit: boolean; friends: SocialProfile[]; onOpenReel: (ownerId: string, reelId: string, reel?: SocialContent) => void; onCreated: (post: GatewayPost) => void }) {
   const { t } = useI18n()
   const [mode, setMode] = useState<'own' | 'saved'>('own')
   const [items, setItems] = useState<SocialContent[]>([])
@@ -2023,7 +2032,7 @@ function ProfileReelsTab({ profile, canEdit, friends, onNavigate, onCreated }: {
     <nav className="self-profile-collection-tabs" aria-label={t('profileTabReels')}><button type="button" className={mode === 'own' ? 'active' : ''} onClick={() => setMode('own')}>{canEdit ? t('profileYourReels') : t('profileUserReels', { name: profile.displayName })}</button>{canEdit && <button type="button" className={mode === 'saved' ? 'active' : ''} onClick={() => setMode('saved')}>{t('profileSavedReels')}</button>}</nav>
     {loading ? <div className="self-profile-collection-state"><span className="spinner" /></div> : items.length === 0 ? <div className="self-profile-collection-state muted">{t('profileNoReels')}</div> : <div className="self-profile-reels-grid">{items.map((reel) => {
       const media = reel.media[0]
-      return <button type="button" key={reel.id} onClick={() => onNavigate(`/content/${reel.id}`)}>{media ? media.type === 1 ? <video src={media.url} muted playsInline preload="metadata" /> : <img src={media.url} alt="" loading="lazy" /> : <span>{decodePostContent(reel.content).text}</span>}<small><Icon name="eye" size={17} />{viewCounts[reel.id] ?? 0}</small></button>
+      return <button type="button" key={reel.id} onClick={() => onOpenReel(mode === 'own' ? profile.id : reel.authorId, reel.id, reel)}>{media ? media.type === 1 ? <video src={media.url} muted playsInline preload="metadata" /> : <img src={media.url} alt="" loading="lazy" /> : <span>{decodePostContent(reel.content).text}</span>}<small><Icon name="eye" size={17} />{viewCounts[reel.id] ?? 0}</small></button>
     })}</div>}
     </section>
     {canEdit && <PostComposer variant="profile" triggerOnly externalReelOpenRequest={reelOpenRequest} userId={profile.id} displayName={profile.displayName} avatarUrl={profile.avatarUrl} isVerified={profile.isVerified} friends={friends} onCreated={addCreatedReel} />}
