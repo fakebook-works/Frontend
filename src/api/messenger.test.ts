@@ -15,7 +15,7 @@ vi.mock('./client', () => ({
 vi.mock('./realtime', () => ({ subscribeGatewayGraphQl }))
 vi.mock('./social', () => ({ socialApi: { getProfiles } }))
 
-import { conversationImages, createGroupConversation, deleteGroupConversation, deleteMessage, directConversations, editMessage, heartbeatPresence, markDelivered, markRead, message, messages, presence, sendMessage, setConversationMemberRole, setMessageReaction, setTyping, subscribeConversations, subscribePresence, updateGroupConversation } from './messenger'
+import { conversationMedia, createGroupConversation, deleteGroupConversation, deleteMessage, directConversations, editMessage, heartbeatPresence, markDelivered, markRead, message, messages, presence, sendMessage, setConversationMemberRole, setMessageReaction, setTyping, subscribeConversations, subscribePresence, updateGroupConversation } from './messenger'
 
 describe('messenger GraphQL adapter', () => {
   beforeEach(() => {
@@ -347,7 +347,7 @@ describe('messenger GraphQL adapter', () => {
     expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ conversationId: 'conversation-1' })
   })
 
-  it('loads every conversation image across backward message pages in chronological and ordinal order', async () => {
+  it('loads every conversation image and video across backward message pages in chronological and ordinal order', async () => {
     gatewayGraphQl
       .mockResolvedValueOnce({
         conversationMessages: {
@@ -384,7 +384,7 @@ describe('messenger GraphQL adapter', () => {
         },
       })
 
-    const result = await conversationImages('conversation-1')
+    const result = await conversationMedia('conversation-1')
 
     expect(gatewayGraphQl).toHaveBeenCalledTimes(2)
     expect(gatewayGraphQl.mock.calls[0][0]).toContain('pageInfo { startCursor hasPreviousPage }')
@@ -394,6 +394,7 @@ describe('messenger GraphQL adapter', () => {
       { key: 'message-1:0', url: '/media/first-a.png' },
       { key: 'message-1:1', url: '/media/first-b.webp' },
       { key: 'message-3:0', url: '/media/third-a.jpg' },
+      { key: 'message-3:1', url: '/media/third-video.mp4' },
       { key: 'message-3:2', url: '/media/third-b.jpg' },
     ])
     expect(result[0]).toMatchObject({
@@ -424,7 +425,7 @@ describe('messenger GraphQL adapter', () => {
         },
       })
 
-    const result = await conversationImages('conversation-1')
+    const result = await conversationMedia('conversation-1')
 
     expect(gatewayGraphQl).toHaveBeenCalledTimes(2)
     expect(result.map((image) => image.galleryKey)).toEqual(['message-2:0'])

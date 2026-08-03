@@ -47,7 +47,7 @@ export interface SharedPostSource {
     privacy: number
     memberCount: number
     viewerIsMember: boolean
-    joinRequestPending: boolean
+    joinRequestPending?: boolean
   } | null
   requiresGroupMembership?: boolean
 }
@@ -73,6 +73,7 @@ export interface GroupPost extends Omit<FeedPost, '__typename'> {
     name: string
     avatar: string
     canJoin: boolean
+    joinRequestPending?: boolean
   }
   sharedSource?: SharedPostSource | null
 }

@@ -23,15 +23,16 @@ vi.mock('../api/client', () => ({ api: apiMocks }))
 vi.mock('../lib/commentPagePrefetch', () => prefetchMocks)
 vi.mock('../i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('../components/ContentActions', () => ({
-  ContentActions: ({ contentId, post, commentsOpen, renderActions = true, renderComments = true, onCommentsOpenChange }: {
+  ContentActions: ({ contentId, post, commentsOpen, renderActions = true, renderComments = true, onCommentsOpenChange, onContentDeleted }: {
     contentId: string
     post: { __typename: string; id: string }
     commentsOpen: boolean
     renderActions?: boolean
     renderComments?: boolean
     onCommentsOpenChange: (open: boolean) => void
+    onContentDeleted?: (contentId: string) => void
   }) => <>
-    {renderActions && <button type="button" aria-label="commentAction" aria-expanded={commentsOpen} onClick={() => onCommentsOpenChange(!commentsOpen)}>comment</button>}
+    {renderActions && <><button type="button" aria-label="commentAction" aria-expanded={commentsOpen} onClick={() => onCommentsOpenChange(!commentsOpen)}>comment</button><button type="button" aria-label={`delete-${contentId}`} onClick={() => onContentDeleted?.(contentId)}>delete</button></>}
     {renderComments && commentsOpen && <aside data-testid="reel-comments-sidebar" data-content-id={contentId} data-post-id={post.id} data-post-type={post.__typename} />}
   </>,
 }))
@@ -75,6 +76,21 @@ describe('ReelsPage media discussion layout', () => {
 
     expect(socialMocks.getRecommendedReels).toHaveBeenCalledTimes(1)
     expect(socialMocks.getProfile).toHaveBeenCalledTimes(1)
+  })
+
+  it('removes a deleted Reel from the visible queue without returning to the first item', async () => {
+    const first = await socialMocks.getRecommendedReels()
+    socialMocks.getRecommendedReels.mockReset().mockResolvedValue([
+      ...first,
+      { ...first[0], id: '9007199254740994', content: 'Second reel remains' },
+    ])
+    const { container } = render(<ReelsPage userId="1" mode="for-you" onNavigate={vi.fn()} />)
+    await screen.findByText('Second reel remains')
+
+    fireEvent.click(screen.getByRole('button', { name: 'delete-9007199254740993' }))
+
+    await waitFor(() => expect(container.querySelectorAll('.reel-card')).toHaveLength(1))
+    expect(screen.getByText('Second reel remains')).toBeInTheDocument()
   })
 
   it('restores the progress bar from the video element after the preserved route becomes visible again', async () => {

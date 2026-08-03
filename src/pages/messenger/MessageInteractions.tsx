@@ -5,6 +5,7 @@ import type { MessengerMessageDto, MessengerMessageReactionDto, UserSummary } fr
 import { formatMessageHoverTime } from './messageInteractionTime'
 import { messengerLikeLevel } from './helpers'
 import { MessengerLikeIcon } from './MessengerLikeIcon'
+import { MessengerMediaImage } from './MediaGallery'
 import './MessageInteractions.css'
 
 const QUICK_REACTIONS = ['🌺', '👀', '😱', '😢', '🙀', '👌'] as const
@@ -189,11 +190,13 @@ export function MessageHoverTimestamp({ createdAt, mine }: { createdAt: string; 
     anchor.addEventListener('mouseleave', hide)
     anchor.addEventListener('focusin', show)
     anchor.addEventListener('focusout', handleFocusOut)
+    window.addEventListener('messenger-media-viewer-open', hide)
     return () => {
       anchor.removeEventListener('mouseenter', show)
       anchor.removeEventListener('mouseleave', hide)
       anchor.removeEventListener('focusin', show)
       anchor.removeEventListener('focusout', handleFocusOut)
+      window.removeEventListener('messenger-media-viewer-open', hide)
     }
   }, [])
 
@@ -297,7 +300,7 @@ export function MessageReplyPreview({ message, missing = false, composer = false
   const sourceContent = likeLevel
     ? <span className="message-reply-like" role="img" aria-label="Like"><MessengerLikeIcon /></span>
     : sourceKind === 'picture' && firstAttachment
-    ? <img src={firstAttachment.thumbnailUrl || firstAttachment.url} alt="" />
+    ? <MessengerMediaImage attachment={firstAttachment} alt="" />
     : sourceKind === 'file'
       ? <span><em>{attachmentKind === 'audio' ? 'Tin nhắn thoại' : attachmentKind === 'video' ? 'Video đính kèm' : 'File đính kèm'}</em><PaperclipIcon /></span>
       : <span>{missing ? 'Tin nhắn không còn tồn tại' : preview}</span>

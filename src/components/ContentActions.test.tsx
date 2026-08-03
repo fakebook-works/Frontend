@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
+import { Activity, useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GatewayPost, SharedStory } from '../api/gatewayTypes'
@@ -23,6 +24,9 @@ const socialMocks = vi.hoisted(() => ({
   getAdminGroups: vi.fn(),
   sharePost: vi.fn(),
   updatePost: vi.fn(),
+  deleteContent: vi.fn(),
+  updateComment: vi.fn(),
+  getCommentEditHistory: vi.fn(),
 }))
 const apiMocks = vi.hoisted(() => ({
   createShareStory: vi.fn(),
@@ -70,6 +74,9 @@ describe('ContentActions refreshed overlays', () => {
     socialMocks.getAdminGroups.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
     socialMocks.sharePost.mockReset().mockResolvedValue({ id: 'share-1' })
     socialMocks.updatePost.mockReset().mockResolvedValue({ id: '90', privacy: 2 })
+    socialMocks.deleteContent.mockReset().mockResolvedValue(true)
+    socialMocks.updateComment.mockReset().mockResolvedValue(true)
+    socialMocks.getCommentEditHistory.mockReset().mockResolvedValue([])
     apiMocks.createShareStory.mockReset().mockResolvedValue({ id: 'story-1' })
     apiMocks.postDetail.mockReset()
     apiMocks.uploadMediaFiles.mockReset()
@@ -104,6 +111,22 @@ describe('ContentActions refreshed overlays', () => {
     expect(container.querySelector('.thread-post-engagement > nav')).toHaveClass('gateway-post-actions')
     expect(container.querySelector('.content-engagement-summary .content-share-summary')).not.toBeInTheDocument()
     expect(container.querySelector('.thread-post-engagement .content-share-summary')).not.toBeInTheDocument()
+  })
+
+  it('closes the preserved post-detail portal before a hashtag navigates to Search', async () => {
+    const onNavigate = vi.fn()
+    const hashtagPost = { ...post, content: 'Look at #security' }
+    function PreservedDestination() {
+      const [visible, setVisible] = useState(true)
+      return <Activity mode={visible ? 'visible' : 'hidden'}><ContentActions viewerId="1" contentId="90" post={hashtagPost} onNavigate={(path) => { onNavigate(path); setVisible(false) }} /></Activity>
+    }
+    render(<PreservedDestination />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+    fireEvent.click(await screen.findByRole('link', { name: '#security' }))
+
+    expect(onNavigate).toHaveBeenCalledWith('/search?q=%23security&tab=posts')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'comments' })).not.toBeInTheDocument())
+    expect(document.querySelector('.content-detail-shell-close')).not.toBeInTheDocument()
   })
 
   it('submits a comment with Enter while Shift+Enter remains multiline', async () => {
@@ -300,6 +323,7 @@ describe('ContentActions refreshed overlays', () => {
   })
 
   it('uses the own-comment reply copy when the viewer replies to themself', async () => {
+    socialMocks.getProfile.mockResolvedValue({ id: '1', username: 'viewer', displayName: 'Viewer Name', avatarUrl: null, isVerified: false })
     socialMocks.getComments.mockResolvedValue({
       items: [{
         id: 'self-comment', content: 'My own comment', createdAt: '2026-07-20T01:00:00Z',
@@ -316,7 +340,14 @@ describe('ContentActions refreshed overlays', () => {
 
     expect(screen.getByText('replyingToOwnComment')).toBeInTheDocument()
     expect(screen.queryByText('replyingToComment')).not.toBeInTheDocument()
+    const replyState = screen.getByText('replyingToOwnComment').closest<HTMLElement>('.reply-draft-node')!
+    const replyBubble = within(replyState).getByText('replyingToOwnComment').closest('.comment-state-bubble')!
+    expect(replyBubble).not.toHaveTextContent('Viewer Name')
+    expect(replyState.querySelector('.comment-state-heading')).toHaveTextContent('Viewer Name')
     expect(container.querySelector('.comment-compose-reply-target .avatar')).toHaveAttribute('aria-label', 'Viewer Name')
+    fireEvent.click(replyBubble)
+    expect(screen.queryByText('replyingToOwnComment')).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText('commentAs')).toBeInTheDocument()
   })
 
   it('grows the comment composer to eight lines and expands long rendered comments on demand', async () => {
@@ -444,6 +475,95 @@ describe('ContentActions refreshed overlays', () => {
     expect(apiMocks.cancelPendingMedia).not.toHaveBeenCalled()
   })
 
+  it('edits, shows revision history and tombstones an own comment without removing its node', async () => {
+    socialMocks.getComments.mockResolvedValue({
+      items: [{
+        id: 'own-comment-700', content: 'Current text', createdAt: '2026-07-20T02:00:00Z',
+        author: { id: '1', username: 'viewer', displayName: 'Viewer Name', avatarUrl: null, isVerified: false },
+        likeCount: 1, replyCount: 0, viewerHasLiked: true, canFollowAuthor: false, isFollowingAuthor: false,
+        mentions: [], media: null, isDeleted: false, editedAt: '2026-07-20T02:05:00Z',
+      }],
+      endCursor: null,
+      hasNextPage: false,
+    })
+    socialMocks.getCommentEditHistory.mockResolvedValue([{
+      content: 'Original text', editedAt: '2026-07-20T02:05:00Z', mentions: [],
+    }])
+    socialMocks.getProfile.mockResolvedValue({ id: '1', username: 'viewer', displayName: 'Viewer Name', avatarUrl: null, isVerified: false })
+    render(<ContentActions viewerId="1" contentId="90" post={post} />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+    await screen.findByText('Current text')
+
+    fireEvent.click(screen.getByRole('button', { name: 'commentOptions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'editComment' }))
+    const initialEditor = screen.getByRole('textbox', { name: 'editComment' })
+    expect(initialEditor.closest('.comment-compose')).toBeInTheDocument()
+    expect(document.querySelector('.comment-inline-editor')).not.toBeInTheDocument()
+    const activeEditPreview = screen.getByText('editingOwnComment').closest<HTMLElement>('.comment-active-edit-preview')!
+    expect(activeEditPreview).toBeInTheDocument()
+    expect(activeEditPreview).toHaveTextContent('Current text')
+    expect(activeEditPreview.querySelector('.comment-active-edit-title')).toHaveTextContent('editingOwnComment')
+    expect(activeEditPreview.querySelector('.comment-active-edit-original')).toHaveClass('comment-state-text')
+    const activeEditTitle = screen.getByRole('button', { name: 'editingOwnComment' })
+    expect(activeEditTitle).toHaveClass('comment-active-edit-title')
+    fireEvent.click(activeEditTitle)
+    expect(screen.queryByRole('textbox', { name: 'editComment' })).not.toBeInTheDocument()
+    expect(screen.queryByText('editingOwnComment')).not.toBeInTheDocument()
+    expect(screen.getByText('Current text')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'commentOptions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'editComment' }))
+    const editor = screen.getByRole('textbox', { name: 'editComment' })
+    fireEvent.change(editor, { target: { value: 'Updated text' } })
+    fireEvent.click(screen.getByRole('button', { name: 'save' }))
+    await waitFor(() => expect(socialMocks.updateComment).toHaveBeenCalledWith('own-comment-700', 'Updated text'))
+    expect(await screen.findByText('Updated text')).toBeInTheDocument()
+
+    const replyAction = screen.getByRole('button', { name: 'reply' })
+    const editedAction = screen.getByRole('button', { name: 'editedMessage' })
+    expect(replyAction).toHaveClass('comment-meta-text-action')
+    expect(editedAction).toHaveClass('comment-meta-text-action')
+    fireEvent.click(editedAction)
+    const currentText = screen.getByText('Updated text')
+    const historyText = await screen.findByText('Original text')
+    const historyEntry = historyText.closest('.comment-history-entry')!
+    expect(currentText.compareDocumentPosition(historyEntry) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(historyEntry).not.toHaveClass('comment-bubble')
+    expect(historyEntry.compareDocumentPosition(replyAction.closest('.comment-meta')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+    fireEvent.mouseEnter(historyEntry)
+    expect(await screen.findByRole('tooltip')).toBeInTheDocument()
+    fireEvent.mouseLeave(historyEntry)
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument())
+    expect(socialMocks.getCommentEditHistory).toHaveBeenCalledWith('own-comment-700')
+
+    fireEvent.click(screen.getByRole('button', { name: 'commentOptions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'deleteComment' }))
+    expect(screen.getByRole('menuitem', { name: 'deleteComment' })).toHaveClass('active')
+    expect(screen.getByRole('menuitem', { name: 'deleteComment' })).toHaveAttribute('aria-pressed', 'true')
+    let deleteConfirm = screen.getByRole('group', { name: 'deleteCommentConfirm' })
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(socialMocks.deleteContent).not.toHaveBeenCalled()
+    fireEvent.click(within(deleteConfirm).getByRole('button', { name: 'cancel' }))
+    expect(screen.queryByRole('group', { name: 'deleteCommentConfirm' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'deleteComment' })).not.toHaveClass('active')
+    expect(screen.getByRole('menuitem', { name: 'deleteComment' })).toHaveAttribute('aria-pressed', 'false')
+    expect(socialMocks.deleteContent).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'deleteComment' }))
+    deleteConfirm = screen.getByRole('group', { name: 'deleteCommentConfirm' })
+    fireEvent.click(within(deleteConfirm).getByRole('button', { name: 'confirm' }))
+    await waitFor(() => expect(socialMocks.deleteContent).toHaveBeenCalledWith('own-comment-700'))
+    const tombstone = (await screen.findByText('commentDeleted')).closest<HTMLElement>('.thread-comment')!
+    expect(tombstone).toHaveTextContent('Viewer Name')
+    expect(tombstone.querySelector('.comment-author .avatar')).toBeInTheDocument()
+    const tombstoneBubble = within(tombstone).getByText('commentDeleted').closest('.comment-state-bubble')!
+    expect(tombstoneBubble).not.toHaveTextContent('Viewer Name')
+    expect(tombstone.querySelector('.comment-state-heading')).toHaveTextContent('Viewer Name')
+    expect(screen.queryByText('Updated text')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'reply' })).not.toBeInTheDocument()
+  })
+
   it('pastes a copied image into the existing one-image comment upload flow', async () => {
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:clipboard-comment') })
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
@@ -512,10 +632,34 @@ describe('ContentActions refreshed overlays', () => {
     expect(screen.getByRole('menuitem', { name: 'interested' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'notInterested' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'copyLink' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'deleteReel' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: /videoPlaybackSpeed/ }))
+    expect(screen.queryByRole('menuitem', { name: 'interested' })).not.toBeInTheDocument()
+    expect(container.querySelector('.reel-speed-panel')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'back' }))
+    expect(screen.getByRole('menuitem', { name: 'interested' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: /videoPlaybackSpeed/ }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '1.5x' }))
     expect(onRateChange).toHaveBeenCalledWith(1.5)
     expect(container.querySelector('.reel-options-menu')).not.toBeInTheDocument()
+  })
+
+  it('offers deletion only to the Reel owner and reports the deleted id', async () => {
+    const ownedReel: GatewayPost = {
+      __typename: 'ReelDetail', id: 'owned-reel-94', type: 3, content: 'Mine', privacy: 0,
+      create: '2026-07-20T01:00:00Z', author: { id: '1', name: 'Viewer', avatar: '', isVerified: false },
+      media: [{ id: 'rm4', type: 1, url: 'https://uploads.example.com/owned-reel.mp4' }],
+    }
+    const onContentDeleted = vi.fn()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<ContentActions viewerId="1" contentId={ownedReel.id} post={ownedReel} variant="reel" onContentDeleted={onContentDeleted} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'more' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'deleteReel' }))
+
+    await waitFor(() => expect(socialMocks.deleteContent).toHaveBeenCalledWith(ownedReel.id))
+    expect(onContentDeleted).toHaveBeenCalledWith(ownedReel.id)
+    confirm.mockRestore()
   })
 
   it('renders Reel comments in the reusable photo-viewer sidebar without opening a modal', async () => {
@@ -742,6 +886,23 @@ describe('ContentActions refreshed overlays', () => {
     expect(screen.getByText('Original detail content')).toBeInTheDocument()
     expect(apiMocks.postDetail).toHaveBeenCalledWith('original-post')
     expect(onNavigate).not.toHaveBeenCalled()
+  })
+
+  it('closes post detail before navigating from a hashtag', async () => {
+    const hashtagPost: GatewayPost = {
+      __typename: 'FeedPostDetail', id: 'hashtag-post', type: 2, content: 'Đọc #thước_phim', privacy: 0,
+      create: '2026-07-20T08:00:00Z', author: { id: '2', name: 'Original Author', avatar: '', isVerified: false, canFollow: false },
+      media: [], sharedSource: null,
+    }
+    apiMocks.postDetail.mockResolvedValue(hashtagPost)
+    const onClose = vi.fn()
+    const onNavigate = vi.fn()
+    render(<ContentDetailOverlay viewerId="1" contentId={hashtagPost.id} onClose={onClose} onNavigate={onNavigate} />)
+
+    fireEvent.click(await screen.findByRole('link', { name: '#thước_phim' }))
+
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(onNavigate).toHaveBeenCalledWith('/search?q=%23th%C6%B0%E1%BB%9Bc_phim&tab=posts')
   })
 
   it('keeps feed and story sharing available for a private post the viewer can read', async () => {

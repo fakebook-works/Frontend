@@ -317,6 +317,16 @@ describe('GatewayHomePage', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'createReel' })).not.toBeInTheDocument())
   })
 
+  it('navigates from the Home composer avatar without opening the composer', () => {
+    const onNavigate = vi.fn()
+    const { container } = render(<PostComposer userId="9007199254740993123" displayName="Home Owner" avatarUrl={null} friends={[]} onNavigate={onNavigate} onCreated={vi.fn()} />)
+
+    fireEvent.click(within(container.querySelector('.home-composer-card') as HTMLElement).getByRole('button', { name: 'Home Owner' }))
+
+    expect(onNavigate).toHaveBeenCalledWith('/profile/9007199254740993123')
+    expect(screen.queryByRole('dialog', { name: 'createPostTitle' })).not.toBeInTheDocument()
+  })
+
   it('renders retryable service errors', async () => {
     apiMocks.recommendedFeed.mockRejectedValueOnce(new Error('offline'))
     apiMocks.homeStories.mockRejectedValueOnce(new Error('offline'))
@@ -1105,6 +1115,23 @@ describe('GatewayHomePage', () => {
     fireEvent.click(within(feedCard).getByRole('button', { name: 'hidePost' }))
     expect(screen.queryByText('Public author post')).not.toBeInTheDocument()
     expect(screen.getByText('Public group post')).toBeInTheDocument()
+  })
+
+  it('hydrates a pending group request on first render and cancels it from the post header', async () => {
+    apiMocks.recommendedFeed.mockResolvedValue([{ postId: 'pending-group-post', post: {
+      __typename: 'GroupPostDetail', id: 'pending-group-post', type: 2, content: 'Pending group post', privacy: 0,
+      create: '2026-07-17T08:01:00Z', author: { id: '3', name: 'Group Author', avatar: '', isVerified: false, canFollow: false },
+      group: { id: 'pending-group', name: 'Pending Group', avatar: '', canJoin: true, joinRequestPending: true }, media: [],
+    } }])
+
+    render(<GatewayHomePage />)
+
+    const requestedButton = await screen.findByRole('button', { name: 'joinRequested' })
+    expect(requestedButton).toHaveClass('is-settled')
+    expect(socialMocks.requestJoinGroup).not.toHaveBeenCalled()
+    fireEvent.click(requestedButton)
+    await waitFor(() => expect(socialMocks.cancelJoinGroupRequest).toHaveBeenCalledWith('9007199254740993123', 'pending-group'))
+    expect(screen.getByRole('button', { name: 'joinGroup' })).toBeInTheDocument()
   })
 
   it('uses group-derived privacy labels and the group icon for private group posts', async () => {

@@ -114,6 +114,17 @@ function PanelHarness() {
   />
 }
 
+function TogglePanelHarness({ open }: { open: boolean }) {
+  return <MessengerDock
+    me={me}
+    friends={[]}
+    panelOpen={open}
+    onPanelClose={() => undefined}
+    onOpenAll={() => undefined}
+    onOpenProfile={() => undefined}
+  />
+}
+
 describe('MessengerDock overflow windows', () => {
   let inboxListener: ((event: Record<string, string | null>) => void) | null
   let presenceListener: ((event: Record<string, string | null>) => void) | null
@@ -659,6 +670,25 @@ describe('MessengerDock overflow windows', () => {
     expect(row.querySelector('.avatar')).toHaveStyle({ width: '48px', height: '48px' })
     expect(within(row).getByText(/2 tuần trước/)).toBeInTheDocument()
     expect(within(dialog).getAllByRole('button', { name: 'messengerSettings' })).toHaveLength(1)
+  })
+
+  it('refreshes the complete conversation list every time the header panel reopens', async () => {
+    const group = groupConversation(['3'])
+    const direct = directConversation('2')
+    messengerMocks.conversations
+      .mockResolvedValueOnce([group])
+      .mockResolvedValueOnce([direct, group])
+    const { rerender } = render(<TogglePanelHarness open />)
+
+    await screen.findByRole('button', { name: /defaultGroupChatName/ })
+    expect(messengerMocks.conversations).toHaveBeenLastCalledWith('1', 100)
+
+    rerender(<TogglePanelHarness open={false} />)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'messages' })).not.toBeInTheDocument())
+    rerender(<TogglePanelHarness open />)
+
+    expect(await screen.findByRole('button', { name: /Friend 2/ })).toBeInTheDocument()
+    expect(messengerMocks.conversations).toHaveBeenCalledTimes(2)
   })
 
   it('shows the attachment kind instead of the empty-conversation fallback for a media-only latest message', async () => {

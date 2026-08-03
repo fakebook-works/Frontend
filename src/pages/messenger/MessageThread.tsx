@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { messengerApi, type MessengerPresenceDto } from '../../api/messenger'
 import type { MediaUpload, MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
+import { RichTextContent } from '../../components/MentionContent'
 import { Icon } from '../../components/Icon'
 import { VerifiedBadge } from '../../components/VerifiedBadge'
 import { LinkPreview } from '../../components/LinkPreview'
@@ -102,8 +103,8 @@ export function MessageThread({
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
-  const loadConversationImages = useCallback(
-    () => messengerApi.conversationImages(conversation.id),
+  const loadConversationMedia = useCallback(
+    () => messengerApi.conversationMedia(conversation.id),
     [conversation.id],
   )
 
@@ -335,8 +336,8 @@ export function MessageThread({
                         ? <p className="message-deleted-bubble">Tin nhắn đã được thu hồi</p>
                         : likeLevel
                           ? <span className={`messenger-like-message level-${likeLevel}`} aria-label={t('like')}><MessengerLikeIcon size={48} /></span>
-                          : message.body && <><p>{message.body}</p><LinkPreview content={message.body} onNavigate={onNavigate} /></>}
-                      {!message.deleted && <MediaGallery attachments={message.attachments} messageId={message.id} mine={mine} senderName={message.sender.displayName} loadConversationImages={loadConversationImages} />}
+                          : message.body && <><p><RichTextContent content={message.body} onNavigate={onNavigate} /></p><LinkPreview content={message.body} onNavigate={onNavigate} /></>}
+                      {!message.deleted && <MediaGallery attachments={message.attachments} messageId={message.id} mine={mine} senderName={message.sender.displayName} loadConversationMedia={loadConversationMedia} onForward={() => onForwardMessage(message)} />}
                       <MessageHoverTimestamp createdAt={message.createdAt} mine={mine} />
                       <MessageReactionSummary reactions={message.reactions} viewerId={me.id} />
                     </div>

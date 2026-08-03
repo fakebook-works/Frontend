@@ -142,6 +142,14 @@ export interface SocialComment {
   isFollowingAuthor: boolean
   mentions?: GatewayMention[]
   media: GatewayMedia | null
+  isDeleted: boolean
+  editedAt: string | null
+}
+
+export interface SocialCommentEditRevision {
+  content: string
+  editedAt: string
+  mentions?: GatewayMention[]
 }
 
 export type SavedContentItem =
@@ -188,7 +196,7 @@ const POST_FIELDS = `
     mentions { userId name available }
     taggedUsers { id name avatar isVerified }
     author { id name avatar isVerified canFollow }
-    group { id name avatar canJoin }
+    group { id name avatar canJoin joinRequestPending }
     media { id type url }
     sharedSource {
       id isAvailable type content privacy create aspectRatio focalPointX focalPointY requiresGroupMembership
@@ -205,7 +213,7 @@ const GROUP_POST_FIELDS = `
   mentions { userId name available }
   taggedUsers { id name avatar isVerified }
   author { id name avatar isVerified canFollow }
-  group { id name avatar canJoin }
+  group { id name avatar canJoin joinRequestPending }
   media { id type url }
   sharedSource {
     id isAvailable type content privacy create aspectRatio focalPointX focalPointY requiresGroupMembership
@@ -910,10 +918,12 @@ export async function getComments(targetId: string, limit = 30, cursor: string |
     isFollowingAuthor: boolean
     mentions: Array<{ userId: string; name: string; available: boolean }>
     media: { id: string; type: number; url: string } | null
+    isDeleted: boolean
+    editedAt: string | null
   }>; endCursor: string | null; hasNextPage: boolean } }>(
     `query Comments($limit: Int!, $cursor: String) {
       comments(targetId: ${target}, limit: $limit, cursor: $cursor) {
-        items { id content create author { id name avatar isVerified } likeCount replyCount viewerHasLiked canFollowAuthor isFollowingAuthor mentions { userId name available } media { id type url } }
+        items { id content create author { id name avatar isVerified } likeCount replyCount viewerHasLiked canFollowAuthor isFollowingAuthor mentions { userId name available } media { id type url } isDeleted editedAt }
         endCursor hasNextPage
       }
     }`,
@@ -933,8 +943,28 @@ export async function getComments(targetId: string, limit = 30, cursor: string |
       isFollowingAuthor: Boolean(comment.isFollowingAuthor),
       mentions: normalizeMentionUsers(comment.mentions),
       media: comment.media ? { ...comment.media, id: String(comment.media.id), type: Number(comment.media.type) } : null,
+      isDeleted: Boolean(comment.isDeleted),
+      editedAt: comment.editedAt ?? null,
     })),
   }
+}
+
+export async function getCommentEditHistory(commentId: string): Promise<SocialCommentEditRevision[]> {
+  const comment = graphQlLongLiteral(commentId)
+  const data = await gatewayGraphQl<{ commentEditHistory: Array<{
+    content: string
+    editedAt: string
+    mentions: Array<{ userId: string; name: string; available: boolean }>
+  }> }>(
+    `query CommentEditHistory {
+      commentEditHistory(commentId: ${comment}) { content editedAt mentions { userId name available } }
+    }`,
+  )
+  return data.commentEditHistory.map((revision) => ({
+    content: revision.content,
+    editedAt: revision.editedAt,
+    mentions: normalizeMentionUsers(revision.mentions),
+  }))
 }
 
 export async function getSavedContent(limit = 30, cursor: string | null = null): Promise<{ items: SavedContentItem[]; endCursor: string | null; hasNextPage: boolean }> {
@@ -1352,6 +1382,17 @@ export async function deleteContent(contentId: string): Promise<boolean> {
   return data.deleteContent
 }
 
+export async function updateComment(commentId: string, content: string): Promise<boolean> {
+  const comment = graphQlLongLiteral(commentId)
+  const data = await gatewayGraphQl<{ updateComment: { id: string } | null }>(
+    `mutation UpdateComment($content: String!) {
+      updateComment(input: { id: ${comment}, content: $content }) { id }
+    }`,
+    { content },
+  )
+  return data.updateComment !== null
+}
+
 export async function watchContent(viewerId: string, targetId: string): Promise<boolean> {
   const viewer = graphQlLongLiteral(viewerId)
   const target = graphQlLongLiteral(targetId)
@@ -1490,6 +1531,7 @@ export const socialApi = {
   getContentEngagement,
   getContentViewCounts,
   getComments,
+  getCommentEditHistory,
   getSavedContent,
   getRecommendedReels,
   getReelCollection,
@@ -1528,6 +1570,7 @@ export const socialApi = {
   createReel,
   createGroupPost,
   updatePost,
+  updateComment,
   deleteContent,
   watchContent,
   tagUser,

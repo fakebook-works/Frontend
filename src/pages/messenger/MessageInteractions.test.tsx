@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MessengerMessageDto } from '../../api/types'
 import { MessageActionRail, MessageHoverTimestamp, MessageReplyPreview } from './MessageInteractions'
@@ -90,6 +90,17 @@ describe('Messenger message interactions', () => {
     fireEvent.mouseEnter(content)
     expect(screen.getByRole('tooltip')).toBeTruthy()
     fireEvent.mouseLeave(content)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+
+  it('clears the timestamp before the media viewer portal opens', () => {
+    const { container } = render(<div><MessageHoverTimestamp createdAt={new Date().toISOString()} mine /></div>)
+    const content = container.firstElementChild as HTMLElement
+    fireEvent.mouseEnter(content)
+    expect(screen.getByRole('tooltip')).toBeTruthy()
+
+    act(() => window.dispatchEvent(new Event('messenger-media-viewer-open')))
+
     expect(screen.queryByRole('tooltip')).toBeNull()
   })
 

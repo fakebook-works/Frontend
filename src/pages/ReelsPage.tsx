@@ -280,6 +280,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   const viewCountsCacheRef = useRef(new Map<string, Record<string, number>>())
   const relationshipsCacheRef = useRef(new Map<string, Record<string, ProfileRelationshipState>>())
   const reelPositionCacheRef = useRef(new Map<string, { reelId: string | null; index: number }>())
+  const deletedReelIdsRef = useRef(new Set<string>())
   const creatorProfileUserRef = useRef<string | null>(null)
   const pageRef = useRef<HTMLElement>(null)
   const stageRef = useRef<HTMLElement>(null)
@@ -384,6 +385,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
       }
 
       if (requestSequence !== requestSequenceRef.current) return
+      nextReels = nextReels.filter((reel) => !deletedReelIdsRef.current.has(reel.id))
       applyQueue(nextReels)
       reelsCacheRef.current.set(requestKey, nextReels)
       setRelationships({})
@@ -792,6 +794,54 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     onNavigate(path)
   }, [onNavigate])
 
+  const removeDeletedReel = useCallback((reelId: string) => {
+    const previous = reelsRef.current
+    const removedIndex = previous.findIndex((reel) => reel.id === reelId)
+    if (removedIndex < 0) return
+
+    deletedReelIdsRef.current.add(reelId)
+    cancelProgrammaticScroll()
+    const next = previous.filter((reel) => reel.id !== reelId)
+    const nextIndex = Math.min(removedIndex, Math.max(0, next.length - 1))
+    reelsRef.current = next
+    activeIndexRef.current = nextIndex
+    setReels(next)
+    setActiveIndex(nextIndex)
+    setCommentReelId((current) => current === reelId ? null : current)
+    setViewCounts((current) => {
+      if (!(reelId in current)) return current
+      const copy = { ...current }
+      delete copy[reelId]
+      return copy
+    })
+
+    for (const [key, cached] of reelsCacheRef.current) {
+      const filtered = cached.filter((reel) => reel.id !== reelId)
+      reelsCacheRef.current.set(key, filtered)
+      const saved = reelPositionCacheRef.current.get(key)
+      if (saved?.reelId === reelId) {
+        const index = Math.min(saved.index, Math.max(0, filtered.length - 1))
+        reelPositionCacheRef.current.set(key, { reelId: filtered[index]?.id ?? null, index })
+      }
+    }
+    for (const [key, counts] of viewCountsCacheRef.current) {
+      if (!(reelId in counts)) continue
+      const copy = { ...counts }
+      delete copy[reelId]
+      viewCountsCacheRef.current.set(key, copy)
+    }
+
+    if (next.length === 0 && entryViewer) {
+      setLibraryViewerOpen(false)
+      onEntryClose?.()
+      return
+    }
+    window.requestAnimationFrame?.(() => {
+      const stage = stageRef.current
+      if (stage && stage.clientHeight > 0) scrollReelStage(stage, nextIndex * stage.clientHeight)
+    })
+  }, [cancelProgrammaticScroll, entryViewer, onEntryClose])
+
   return <><main ref={pageRef} className={`reels-page${libraryMode && !libraryViewerOpen ? ' is-library' : ''}${libraryViewerOpen ? ' is-library-viewer' : ''}${commentsSidebarOpen ? ' has-comments-sidebar' : ''}`}>
     {!libraryViewerOpen && <aside className="reels-sidebar">
       <header><h1>{t('reels')}</h1></header>
@@ -854,9 +904,10 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
                 commentsOpen={commentReelId === reel.id}
                 commentsLayoutOpen={commentsSidebarOpen}
                 onCommentsOpenChange={(open) => setCommentReelId(open ? reel.id : null)}
-                onFollowed={markAuthorFollowed}
-                onNavigate={navigateFromReel}
-              />)}
+                 onFollowed={markAuthorFollowed}
+                 onNavigate={navigateFromReel}
+                 onDeleted={removeDeletedReel}
+               />)}
     </section>}
 
     {commentReel && commentPost && <Suspense fallback={<aside className="reels-comments-sidebar" aria-busy="true" />}>
@@ -1062,6 +1113,7 @@ function ReelCard({
   onCommentsOpenChange,
   onFollowed,
   onNavigate,
+  onDeleted,
 }: {
   reel: SocialContent
   viewerId: string
@@ -1074,6 +1126,7 @@ function ReelCard({
   onCommentsOpenChange: (open: boolean) => void
   onFollowed: (authorId: string) => void
   onNavigate: (path: string) => void
+  onDeleted: (reelId: string) => void
 }) {
   const { t } = useI18n()
   const media = reel.media[0]
@@ -1390,9 +1443,10 @@ function ReelCard({
           engagementEnabled={warm}
           reelPlaybackRate={playbackRate}
           onReelPlaybackRateChange={changePlaybackRate}
-          onCommentsOpenChange={onCommentsOpenChange}
-          onNavigate={onNavigate}
-        />
+           onCommentsOpenChange={onCommentsOpenChange}
+           onNavigate={onNavigate}
+           onContentDeleted={onDeleted}
+         />
       </Suspense>
     </div>
   </article>

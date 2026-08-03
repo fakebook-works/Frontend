@@ -1,0 +1,613 @@
+/* Responsive media viewers, modal surfaces and Messenger dock. */
+
+@media (max-width: 1365px) {
+  .modal,
+  .content-thread-modal,
+  .reel-composer-modal,
+  .story-creator-backdrop > .story-creator-dialog,
+  .image-crop-modal { max-width: calc(100vw - 24px); }
+
+  .post-photo-viewer-stage,
+  .post-photo-viewer-sidebar,
+  .reels-stage,
+  .reel-card,
+  .reel-card-shell,
+  .reel-canvas,
+  .story-viewer-canvas,
+  .story-frame { min-width: 0; min-height: 0; }
+}
+
+@media (max-width: 1179px) and (min-width: 960px) {
+  .reels-page { grid-template-columns: 250px minmax(0, 1fr); }
+  .reels-sidebar { padding-inline: 12px; }
+  .reel-card-shell { max-width: calc(100vw - 340px); }
+
+  .story-viewer-backdrop { --story-sidebar-width: 286px; }
+  .story-viewer-canvas { padding-inline: 56px; }
+
+  .mini-chat-window { width: 286px; }
+}
+
+@media (max-width: 959px) {
+  .modal-backdrop {
+    padding: 12px;
+    overscroll-behavior: contain;
+  }
+
+  .modal,
+  .reel-composer-modal,
+  .image-crop-modal,
+  .story-creator-backdrop > .story-creator-dialog {
+    max-height: calc(100dvh - 24px);
+  }
+
+  .modal-body,
+  .reel-composer-layout,
+  .image-crop-body,
+  .story-creator-backdrop .story-creator-body {
+    min-height: 0;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .story-viewer-backdrop { display: block; }
+  .story-viewer-sidebar { display: none; }
+  .story-viewer-canvas { width: 100%; height: 100dvh; padding: 10px 62px; }
+  .story-viewer,
+  .story-viewer-owner { width: min(400px, calc(100vw - 124px), calc(56.25dvh - 22px)); }
+
+  .post-photo-viewer { --photo-comments-width: min(320px, 38vw); }
+
+  .reels-page:not(.is-library-viewer) {
+    height: calc(100dvh - var(--topbar-h));
+    margin-top: var(--topbar-h);
+    padding-top: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+  }
+
+  .reels-sidebar {
+    position: static;
+    width: 100%;
+    height: var(--topbar-h);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+    padding: 0 8px;
+    border-right: 0;
+    border-bottom: 1px solid #353637;
+  }
+
+  .reels-sidebar > header {
+    height: var(--topbar-h);
+    min-height: var(--topbar-h);
+    display: flex;
+    align-items: center;
+    padding: 0 7px;
+  }
+
+  .reels-sidebar h1 { margin: 0; font-size: 1.2rem; }
+  .reels-sidebar nav {
+    min-width: 0;
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .reels-sidebar nav::-webkit-scrollbar { display: none; }
+  .reels-sidebar nav > button {
+    width: auto;
+    min-width: max-content;
+    height: 44px;
+    min-height: 44px;
+    flex: 0 0 auto;
+    padding: 6px 10px;
+  }
+
+  .reels-stage {
+    width: 100%;
+    height: calc(100dvh - (var(--topbar-h) * 2));
+    padding-right: 0;
+  }
+  .reel-canvas { height: calc(100dvh - (var(--topbar-h) * 2) - var(--reel-frame-gap)); }
+  .reel-step-controls { display: none; }
+
+  .reels-page.is-library-viewer {
+    height: 100dvh;
+    margin-top: 0;
+    padding: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .reels-page.is-library-viewer .reels-sidebar { display: none; }
+  .reels-page.is-library-viewer .reels-stage { height: 100dvh; padding: 0; }
+  .reels-page.is-library-viewer .reel-canvas { height: calc(100dvh - var(--reel-frame-gap)); }
+
+  .reel-composer-layout { grid-template-columns: minmax(280px, 330px) minmax(0, 1fr); }
+  .reel-preview-panel { padding-inline: 14px; }
+
+  .mini-chat-window { width: min(286px, calc(100vw - 20px)); }
+}
+
+@media (max-width: 767px) {
+  body.modal-interaction-locked { overflow: hidden; }
+
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 6px max(6px, var(--fb-safe-right)) max(6px, var(--fb-safe-bottom)) max(6px, var(--fb-safe-left));
+  }
+
+  .modal {
+    width: 100%;
+    max-width: none;
+    max-height: calc(100dvh - var(--fb-safe-top) - 6px);
+    border-radius: 14px 14px 10px 10px;
+  }
+
+  .modal-head {
+    position: sticky;
+    z-index: 8;
+    top: 0;
+    flex: 0 0 auto;
+    min-height: 52px;
+    padding: 8px 12px;
+    background: var(--card);
+  }
+  .modal-head h2 { font-size: 1.12rem; }
+
+  .modal-body {
+    min-height: 0;
+    flex: 1 1 auto;
+    padding: 12px;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .modal-body::-webkit-scrollbar { display: none; }
+
+  .modal-foot {
+    position: sticky;
+    z-index: 8;
+    bottom: 0;
+    flex: 0 0 auto;
+    padding: 10px 12px max(10px, var(--fb-safe-bottom));
+    background: var(--card);
+  }
+
+  /* Content-heavy editors receive the full dynamic viewport. Small confirm
+     dialogs continue to use the compact bottom-sheet surface above. */
+  .home-composer-backdrop,
+  .reel-composer-backdrop,
+  .image-crop-backdrop,
+  body .story-creator-backdrop,
+  .content-modal-backdrop { padding: 0; }
+
+  .home-post-modal,
+  .reel-composer-modal,
+  .image-crop-modal,
+  .story-creator-backdrop > .story-creator-dialog,
+  .content-thread-modal:not(.photo-detail-discussion) {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .home-post-modal-head { min-height: 54px; padding-top: max(8px, var(--fb-safe-top)); }
+  .home-post-modal-body {
+    max-height: none;
+    padding-right: 12px;
+    padding-left: 12px;
+    scrollbar-width: none;
+  }
+  .home-post-modal-body::-webkit-scrollbar { display: none; }
+  .home-media-preview { max-height: min(54dvh, 520px); }
+
+  .reel-composer-modal { display: flex; }
+  .reel-composer-head { min-height: calc(54px + var(--fb-safe-top)); padding-top: var(--fb-safe-top); }
+  .reel-composer-layout {
+    min-height: 0;
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .reel-composer-layout::-webkit-scrollbar { display: none; }
+  .reel-composer-panel {
+    min-height: auto;
+    overflow: visible;
+    padding: 14px;
+    border-right: 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .reel-publish-button { margin-top: 8px; }
+  .reel-preview-panel { min-height: min(620px, 82dvh); padding: 14px 10px max(14px, var(--fb-safe-bottom)); }
+  .reel-preview-stage { padding-block: 6px 10px; }
+  .reel-preview-frame { max-width: 100%; max-height: 60dvh; }
+
+  .image-crop-modal { overflow: hidden; }
+  .image-crop-body {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px;
+    scrollbar-width: none;
+  }
+  .image-crop-body::-webkit-scrollbar { display: none; }
+  .image-crop-body label { grid-template-columns: minmax(90px, auto) minmax(0, 1fr); }
+
+  /* Post detail is a true mobile surface: its head and composer stay put while
+     the post and nested comments share one scroll area. */
+  .content-thread-modal:not(.photo-detail-discussion) {
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    background: var(--card);
+  }
+  .content-thread-head { padding-top: max(7px, var(--fb-safe-top)); }
+  .content-thread-scroll,
+  .content-thread-comments { overscroll-behavior: contain; }
+  .content-thread-list { padding: 12px 10px 18px; }
+  .thread-comment { grid-template-columns: 34px minmax(0, 1fr); gap: 7px; }
+  .thread-comment-node.is-reply { --comment-level-indent: clamp(18px, 7vw, 28px); }
+  .content-thread-modal .comment-compose { padding-bottom: max(9px, var(--fb-safe-bottom)); }
+
+  /* Photo/video detail keeps media visible while discussion becomes the lower
+     pane. With no discussion requested, media immediately reclaims all space. */
+  .post-photo-viewer,
+  body.post-photo-viewer-open.mini-chat-bubble-rail-open .post-photo-viewer {
+    width: 100vw;
+    height: 100dvh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(42dvh, 1fr) minmax(260px, 48dvh);
+  }
+
+  .post-photo-viewer.no-sidebar,
+  body.post-photo-viewer-open.mini-chat-bubble-rail-open .post-photo-viewer.no-sidebar {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  body.post-photo-viewer-open.mini-chat-bubble-rail-open .post-photo-viewer::after { display: none; }
+  .post-photo-viewer-stage { padding: 0; }
+  .post-photo-viewer-sidebar {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    padding-top: 0;
+    border-top: var(--detail-divider-width) solid var(--photo-detail-divider);
+  }
+  .post-photo-viewer-sidebar::before { display: none; }
+  .photo-detail-discussion.content-thread-modal {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  .post-photo-viewer-tools {
+    top: max(8px, var(--fb-safe-top));
+    right: max(8px, var(--fb-safe-right));
+    gap: 4px;
+  }
+  .post-photo-viewer-tools button { width: 36px; height: 36px; }
+  .post-photo-viewer-tools button svg { width: 21px; height: 21px; }
+  .post-photo-viewer-nav { width: 38px; height: 38px; }
+  .post-photo-viewer-nav.previous { left: max(6px, var(--fb-safe-left)); }
+  .post-photo-viewer-nav.next { right: max(6px, var(--fb-safe-right)); }
+
+  .photo-detail-discussion .thread-post-preview > header { padding-inline: 11px; }
+  .photo-detail-discussion .thread-post-preview .gateway-post-content { padding-inline: 11px; }
+  .photo-detail-discussion .content-thread-comments .content-thread-list { padding: 10px 10px 15px; }
+  .photo-detail-discussion .comment-compose { padding: 7px 9px max(8px, var(--fb-safe-bottom)); }
+
+  /* The Story viewer is an overlay, so it owns the full safe viewport and does
+     not inherit the application's bottom navigation spacing. */
+  .story-viewer-backdrop { width: 100vw; height: 100dvh; }
+  .story-viewer-canvas {
+    width: 100%;
+    height: 100%;
+    padding: var(--fb-safe-top) 0 var(--fb-safe-bottom);
+  }
+  .story-viewer,
+  .story-viewer-owner { width: min(100vw, calc(56.25dvh - 12px)); height: auto; }
+  .story-frame { border-radius: 0; }
+  .story-progress { top: max(8px, var(--fb-safe-top)); right: 9px; left: 9px; }
+  .story-viewer-header { top: calc(max(8px, var(--fb-safe-top)) + 18px); right: 8px; left: 8px; }
+  .story-owner { gap: 7px; }
+  .story-owner strong { font-size: .88rem; }
+  .story-owner small { font-size: .76rem; }
+  .story-viewer-controls { gap: 0; }
+  .story-viewer-controls > button,
+  .story-viewer-menu-wrap > button { width: 34px; height: 34px; }
+
+  .story-nav {
+    width: 42px;
+    height: 42px;
+    background: rgb(0 0 0 / 42%);
+  }
+  .story-nav.previous { left: max(6px, var(--fb-safe-left)); }
+  .story-nav.next { right: max(6px, var(--fb-safe-right)); }
+
+  .story-viewer-panel {
+    position: fixed;
+    inset: auto max(6px, var(--fb-safe-right)) 0 max(6px, var(--fb-safe-left));
+    width: auto;
+    max-height: min(64dvh, 620px);
+    padding: 0 12px max(12px, var(--fb-safe-bottom));
+    border-radius: 15px 15px 0 0;
+    overscroll-behavior: contain;
+  }
+  .story-detail-thumbnails { grid-auto-columns: 88px; }
+  .story-detail-thumbnails > button { height: 157px; }
+
+  .story-viewer-menu {
+    position: fixed;
+    top: auto;
+    right: max(8px, var(--fb-safe-right));
+    bottom: max(8px, var(--fb-safe-bottom));
+    left: max(8px, var(--fb-safe-left));
+    width: auto;
+  }
+
+  /* Reel pages keep snap scrolling, but comments become a bottom sheet. This
+     avoids narrowing/cropping vertical media on a phone. */
+  .reels-page:not(.is-library-viewer) {
+    height: calc(100dvh - var(--topbar-h) - var(--fb-mobile-nav-height));
+  }
+  .reels-page:not(.is-library-viewer) .reels-stage {
+    height: calc(100dvh - (var(--topbar-h) * 2) - var(--fb-mobile-nav-height));
+  }
+  .reels-page:not(.is-library-viewer) .reel-canvas {
+    height: calc(100dvh - (var(--topbar-h) * 2) - var(--fb-mobile-nav-height) - var(--reel-frame-gap));
+  }
+
+  .reel-card-shell {
+    max-width: 100%;
+    grid-template-columns: minmax(0, auto) 50px;
+    gap: 4px;
+  }
+  .reel-canvas { max-width: calc(100vw - 54px); border-radius: 8px; }
+  .reel-overlay { padding: 64px 11px 23px; }
+  .reel-top-controls { inset: 9px 10px auto; }
+  .reel-actions { width: 50px; gap: 9px; padding-bottom: 13px; }
+  .reel-actions button { width: 46px; min-width: 46px; }
+
+  .reels-page.has-comments-sidebar,
+  body.mini-chat-bubble-rail-open .reels-page.has-comments-sidebar { padding-right: 0; }
+  .reels-comments-sidebar,
+  body.mini-chat-bubble-rail-open .reels-comments-sidebar {
+    top: auto;
+    right: 0;
+    bottom: var(--fb-mobile-nav-height);
+    left: 0;
+    width: 100vw;
+    height: min(58dvh, 600px);
+    border-top: 1px solid var(--detail-divider);
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -12px 34px rgb(0 0 0 / 36%);
+  }
+  body.reels-library-viewer-open .reels-comments-sidebar { bottom: 0; }
+  .reels-comments-sidebar .photo-detail-discussion.content-thread-modal { height: 100%; }
+  .reels-page.has-comments-sidebar .reel-step-controls { transform: translate3d(0, -50%, 0); }
+
+  .reels-page.is-library-viewer .reel-card-shell { max-height: 100%; }
+  .reels-page.is-library-viewer .reel-canvas { max-width: calc(100vw - 54px); border-radius: 8px; }
+
+  /* Touch devices cannot reveal controls by hover. Keep essential media
+     controls available and disable hover-only expansion of the volume pill. */
+  .post-video-controls { opacity: 1; }
+  .reel-search-button { opacity: 1; pointer-events: auto; }
+
+  .reel-volume-control:hover,
+  .reel-volume-control:focus-within { width: 36px; }
+  .reel-volume-control:hover input[type='range'],
+  .reel-volume-control:focus-within input[type='range'] { width: 0; flex-basis: 0; opacity: 0; }
+
+  /* One conversation at a time on mobile. The window occupies the usable
+     viewport while the app header and bottom navigation remain reachable. */
+  .mini-chat-region,
+  .mini-chat-region.has-bubble-rail,
+  .mini-chat-region.home-compose-rail {
+    right: 0;
+    bottom: var(--fb-mobile-nav-height);
+    left: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .mini-chat-dock-layout,
+  .mini-chat-windows { width: 100%; max-width: 100%; gap: 0; }
+  .mini-chat-window {
+    width: 100%;
+    max-width: 100%;
+    height: calc(100dvh - var(--topbar-h) - var(--fb-mobile-nav-height) - var(--fb-safe-top));
+    max-height: none;
+    border-radius: 0;
+  }
+  .mini-chat-window:not(:last-child) { display: none; }
+  .mini-chat-bubble-rail { display: none; }
+
+  body:is(.post-photo-viewer-open, .reels-library-viewer-open, .content-detail-open) .mini-chat-region {
+    bottom: 0;
+  }
+  body:is(.post-photo-viewer-open, .reels-library-viewer-open, .content-detail-open) .mini-chat-window {
+    height: calc(100dvh - var(--topbar-h) - var(--fb-safe-top));
+  }
+
+  .mini-chat-list {
+    width: calc(100vw - 12px);
+    max-width: none;
+    max-height: min(72dvh, 620px);
+    margin-inline: 6px;
+    border-radius: 14px 14px 0 0;
+  }
+  .mini-chat-head { padding-top: 5px; }
+  .mini-chat-messages { overscroll-behavior: contain; }
+  .mini-chat-compose { padding-bottom: max(8px, var(--fb-safe-bottom)); }
+
+  .messenger-chat-window { width: 100%; }
+  .messenger-chat-window:not(:last-child) { display: none; }
+
+  .shell-messenger {
+    min-height: 0;
+    padding-top: calc(var(--topbar-h) + var(--fb-safe-top));
+  }
+  .messenger-shell,
+  .messenger-shell.detail-open {
+    height: calc(100dvh - var(--topbar-h) - var(--fb-safe-top) - var(--fb-mobile-nav-height));
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .messenger-list,
+  .messenger-thread,
+  .messenger-detail { min-width: 0; min-height: 0; }
+
+  .messenger-popover,
+  .messenger-popover-redesign {
+    top: calc(var(--topbar-h) + var(--fb-safe-top) + 5px);
+    right: max(6px, var(--fb-safe-right));
+    left: max(6px, var(--fb-safe-left));
+    width: auto;
+    max-width: none;
+    max-height: calc(100dvh - var(--topbar-h) - var(--fb-safe-top) - var(--fb-mobile-nav-height) - 12px);
+  }
+
+  .media-lightbox {
+    width: 100vw;
+    width: 100dvw;
+    max-width: 100dvw;
+    height: 100dvh;
+    padding: 0;
+  }
+  .media-lightbox figure {
+    top: calc(var(--topbar-h) + var(--fb-safe-top));
+    right: max(8px, var(--fb-safe-right));
+    bottom: calc(var(--topbar-h) + var(--media-lightbox-thumbnail-row) + max(8px, var(--fb-safe-bottom)));
+    left: max(8px, var(--fb-safe-left));
+  }
+  .media-lightbox-tools { top: max(8px, var(--fb-safe-top)); right: max(7px, var(--fb-safe-right)); gap: 4px; }
+  .media-lightbox-nav.previous { left: max(7px, var(--fb-safe-left)); }
+  .media-lightbox-nav.next { right: max(7px, var(--fb-safe-right)); }
+  .media-lightbox-thumbnails { bottom: max(8px, var(--fb-safe-bottom)); width: calc(100vw - 16px); max-width: calc(100dvw - 16px); }
+}
+
+@media (max-width: 480px) {
+  .post-video-controls { gap: 4px; padding-right: 7px; padding-left: 7px; }
+  .post-video-controls > time { min-width: 54px; font-size: .67rem; }
+  .post-video-control-button { width: 25px; height: 25px; flex-basis: 25px; }
+
+  .content-thread-head h2 { font-size: 1.08rem; }
+  .content-thread-list { padding-inline: 8px; }
+  .comment-bubble { max-width: 100%; }
+
+  .post-photo-viewer,
+  body.post-photo-viewer-open.mini-chat-bubble-rail-open .post-photo-viewer {
+    grid-template-rows: minmax(38dvh, 1fr) minmax(280px, 52dvh);
+  }
+
+  .post-photo-viewer-tools { gap: 2px; }
+  .post-photo-viewer-tools button { width: 34px; height: 34px; }
+  .post-photo-viewer-nav { width: 36px; height: 36px; }
+
+  .story-caption { right: 12px; left: 12px; }
+  .story-text-only { padding: 28px 18px; font-size: 1.25rem; }
+  .story-shared-post-card { width: calc(100% - 16px); max-height: calc(100% - 146px); }
+
+  .reels-sidebar h1 { display: none; }
+  .reels-sidebar { grid-template-columns: minmax(0, 1fr); }
+  .reels-sidebar nav > button { padding-inline: 8px; }
+  .reel-author-name strong { font-size: .92rem; }
+  .reel-caption { font-size: .84rem; }
+  .reel-actions { gap: 7px; }
+  .reel-actions button { min-height: 48px; }
+
+  .reel-options-menu {
+    position: fixed;
+    right: max(7px, var(--fb-safe-right));
+    bottom: max(7px, var(--fb-safe-bottom));
+    left: max(7px, var(--fb-safe-left));
+    width: auto;
+    max-height: 65dvh;
+    overflow-y: auto;
+  }
+
+  .mini-msg-stack.message-interaction-host,
+  .mini-msg-line:not(.mine) .mini-msg-stack.message-interaction-host { max-width: calc(100% - 72px); }
+  .mini-msg-media,
+  .mini-msg-file,
+  .mini-msg-audio { max-width: min(250px, 74vw); }
+}
+
+@media (max-height: 620px) and (orientation: landscape) and (max-width: 959px) {
+  .modal-backdrop { padding: 0; }
+  .modal,
+  .home-post-modal,
+  .reel-composer-modal,
+  .image-crop-modal,
+  .story-creator-backdrop > .story-creator-dialog { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+
+  .story-viewer,
+  .story-viewer-owner { width: min(340px, calc(56.25dvh - 8px)); }
+  .story-viewer-panel { max-height: 78dvh; }
+
+  .reels-page:not(.is-library-viewer) .reels-sidebar { display: none; }
+  .reels-page:not(.is-library-viewer) { grid-template-rows: minmax(0, 1fr); }
+  .reels-page:not(.is-library-viewer) .reels-stage { height: calc(100dvh - var(--topbar-h) - var(--fb-mobile-nav-height)); }
+  .reels-page:not(.is-library-viewer) .reel-canvas { height: calc(100dvh - var(--topbar-h) - var(--fb-mobile-nav-height) - 8px); }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .post-video-controls { opacity: 1; }
+  .post-photo-viewer-tools button,
+  .post-photo-viewer-nav,
+  .story-viewer-controls > button,
+  .story-viewer-menu-wrap > button,
+  .story-nav { min-width: 42px; min-height: 42px; }
+
+  .reel-actions button,
+  .reel-search-button,
+  .reel-volume-control > button { touch-action: manipulation; }
+
+  .message-actions,
+  .mini-message-actions { opacity: 1; pointer-events: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .post-photo-viewer-image,
+  .reel-canvas,
+  .reel-step-controls,
+  .mini-chat-window,
+  .story-detail-thumbnails > button { transition: none; }
+}
+
+/* The compact application shell now has two rows at the top. Reels keeps its
+   own destination strip at one row instead of incorrectly treating the full
+   shell height as the local strip height a second time. */
+@media (max-width: 900px) {
+  :root { --fb-reels-local-nav-height: 52px; }
+
+  .reels-page:not(.is-library-viewer) {
+    height: calc(100dvh - var(--topbar-h));
+    margin-top: var(--topbar-h);
+    grid-template-rows: var(--fb-reels-local-nav-height) minmax(0, 1fr);
+  }
+
+  .reels-page:not(.is-library-viewer) .reels-sidebar {
+    height: var(--fb-reels-local-nav-height);
+  }
+
+  .reels-page:not(.is-library-viewer) .reels-sidebar > header {
+    height: var(--fb-reels-local-nav-height);
+    min-height: var(--fb-reels-local-nav-height);
+  }
+
+  .reels-page:not(.is-library-viewer) .reels-stage {
+    height: calc(100dvh - var(--topbar-h) - var(--fb-reels-local-nav-height));
+  }
+
+  .reels-page:not(.is-library-viewer) .reel-canvas {
+    height: calc(100dvh - var(--topbar-h) - var(--fb-reels-local-nav-height) - var(--reel-frame-gap));
+  }
+}

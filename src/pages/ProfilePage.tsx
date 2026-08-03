@@ -1606,7 +1606,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
         </aside>}
 
         <section ref={profilePostColumnRef} className="profile-post-list">
-          {tab === 'posts' && canEdit && <PostComposer variant="profile" userId={profile.id} displayName={profile.displayName} avatarUrl={profile.avatarUrl} isVerified={profile.isVerified} friends={profileFriends} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
+          {tab === 'posts' && canEdit && <PostComposer variant="profile" userId={profile.id} displayName={profile.displayName} avatarUrl={profile.avatarUrl} isVerified={profile.isVerified} friends={profileFriends} onNavigate={onNavigate} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
           {tab === 'posts' && <section className="card self-profile-post-tools">
             <header><h2>{t('profilePostsTitle')}</h2><div><details><summary><ProfilePostFilterIcon />{t('profilePostFilters')}</summary><div>{(['all', 'media', 'text'] as ProfilePostFilter[]).map((filter) => <button type="button" key={filter} className={postFilter === filter ? 'active' : ''} onClick={() => setPostFilter(filter)}>{t(filter === 'all' ? 'profileAllPosts' : filter === 'media' ? 'profileMediaPosts' : 'profileTextPosts')}</button>)}</div></details>{canEdit && <button type="button" className={manageMode ? 'active' : ''} onClick={() => setManageMode((value) => !value)}><ProfilePostManageIcon />{t(manageMode ? 'done' : 'profileManagePosts')}</button>}</div></header>
             {canEdit && manageMode && <p>{t('profileManagePostsHint')}</p>}

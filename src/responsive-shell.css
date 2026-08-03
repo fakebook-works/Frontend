@@ -1,0 +1,813 @@
+/*
+ * Responsive shell
+ * ----------------
+ * This file is intentionally loaded after App.css. The established desktop
+ * composition is the design baseline, so every material override is scoped to
+ * a viewport below 1366px. Keep page-specific and media-viewer rules in their
+ * respective responsive files.
+ */
+
+:root {
+  --fb-mobile-nav-height: 0px;
+  --fb-safe-top: env(safe-area-inset-top, 0px);
+  --fb-safe-right: env(safe-area-inset-right, 0px);
+  --fb-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --fb-safe-left: env(safe-area-inset-left, 0px);
+  --fb-responsive-gutter: 20px;
+}
+
+.shell-search-responsive-placeholder { display: none; }
+
+@media (max-width: 1365px) {
+  :root { --fb-responsive-gutter: clamp(12px, 1.7vw, 20px); }
+
+  .authenticated-app,
+  .authenticated-app > *,
+  .gateway-home,
+  .gateway-feed-column,
+  .gateway-feed-column > *,
+  .gateway-post,
+  .gateway-post > *,
+  .post-head,
+  .post-head-copy,
+  .post-content,
+  .post-media-gallery,
+  .shared-post-source { min-width: 0; }
+
+  .app-shell-topbar {
+    grid-template-columns: minmax(205px, 1fr) minmax(380px, 610px) minmax(205px, 1fr);
+    padding-right: max(10px, var(--fb-safe-right));
+    padding-left: max(10px, var(--fb-safe-left));
+  }
+
+  .gateway-home {
+    width: 100%;
+    padding-right: var(--fb-responsive-gutter);
+    padding-left: var(--fb-responsive-gutter);
+    gap: clamp(18px, 2.2vw, 34px);
+  }
+}
+
+/* Compact desktop: preserve the feed and contacts instead of squeezing all
+   three columns until their text and controls begin to collide. */
+@media (max-width: 1179px) and (min-width: 960px) {
+  .app-shell-topbar {
+    grid-template-columns: minmax(175px, 1fr) minmax(390px, 580px) minmax(180px, 1fr);
+    gap: 9px;
+  }
+
+  .gateway-home {
+    max-width: 1060px;
+    grid-template-columns: minmax(500px, 660px) minmax(230px, 282px);
+    justify-content: center;
+  }
+
+  .gateway-left-rail { display: none; }
+  .gateway-feed-column { grid-column: 1; }
+  .gateway-right-rail { display: block; grid-column: 2; }
+
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search-wrap {
+    width: 160px;
+    min-width: 160px;
+    flex-basis: 160px;
+  }
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search { width: 160px; }
+}
+
+@media (max-width: 959px) {
+  :root { --fb-responsive-gutter: clamp(10px, 2.2vw, 18px); }
+
+  .app-shell-topbar {
+    grid-template-columns: minmax(132px, .72fr) minmax(310px, 1.45fr) auto;
+    gap: 7px;
+    padding-inline: max(8px, var(--fb-safe-left));
+  }
+
+  .app-shell-actions { min-width: max-content; }
+  .app-shell-actions .icon-circle { display: grid; }
+  .app-shell-actions .shell-menu-button { display: none; }
+
+  .shell-search-wrap:not(.is-active):not(.is-closing) {
+    width: 36px;
+    min-width: 36px;
+    flex: 0 0 36px;
+  }
+
+  .authenticated-app .shell-search-wrap:not(.is-active):not(.is-closing) .shell-search {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    justify-content: center;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--circle);
+  }
+
+  .authenticated-app .shell-search-wrap:not(.is-active):not(.is-closing) .shell-search input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .gateway-home {
+    max-width: 700px;
+    grid-template-columns: minmax(0, 660px);
+    justify-content: center;
+  }
+
+  .gateway-left-rail,
+  .gateway-right-rail { display: none; }
+  .gateway-feed-column { grid-column: 1; }
+
+  .account-dropdown,
+  .apps-menu-panel,
+  .notification-popover,
+  .notification-popover-redesign {
+    max-height: calc(100dvh - var(--topbar-h) - 16px);
+    overscroll-behavior: contain;
+  }
+}
+
+@media (max-width: 767px) {
+  :root {
+    --fb-mobile-nav-height: calc(56px + var(--fb-safe-bottom));
+    --fb-responsive-gutter: 8px;
+  }
+
+  html,
+  body,
+  #root { min-height: 100%; }
+
+  body { overscroll-behavior-x: none; }
+
+  .authenticated-app {
+    min-height: 100dvh;
+    padding-bottom: var(--fb-mobile-nav-height);
+  }
+
+  .app-shell-topbar {
+    top: 0;
+    height: calc(var(--topbar-h) + var(--fb-safe-top));
+    min-height: calc(var(--topbar-h) + var(--fb-safe-top));
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    padding-top: var(--fb-safe-top);
+    padding-right: max(7px, var(--fb-safe-right));
+    padding-left: max(7px, var(--fb-safe-left));
+    background: var(--card);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    transform: none;
+    will-change: auto;
+  }
+
+  .shell-brand-search-anchor {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .shell-brand-search {
+    width: 100%;
+    min-width: 0;
+    gap: 5px;
+  }
+
+  .shell-search-leading-slot {
+    width: 36px;
+    min-width: 36px;
+    flex-basis: 36px;
+  }
+
+  /* On a phone the compact search is a proper touch target. Activating it
+     expands the same control into the header, rather than mounting a second
+     search surface and causing a visible jump. */
+  .shell-search-wrap {
+    width: 36px;
+    min-width: 36px;
+    display: block;
+    flex: 0 0 36px;
+  }
+
+  .authenticated-app .shell-search-wrap:not(.is-active):not(.is-closing) .shell-search {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    justify-content: center;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--circle);
+  }
+
+  .authenticated-app .shell-search-wrap:not(.is-active):not(.is-closing) .shell-search input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .authenticated-app .shell-search-wrap:not(.is-active):not(.is-closing) .shell-search-glyph {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+  }
+
+  .shell-brand-search.is-searching,
+  .authenticated-app:is(.groups-route, .friends-route, .search-results-route) .shell-brand-search.is-searching {
+    top: var(--fb-safe-top);
+    right: 0;
+    left: 0;
+    width: 100vw;
+    min-height: var(--topbar-h);
+    padding: 7px max(8px, var(--fb-safe-right)) 7px max(8px, var(--fb-safe-left));
+    border-radius: 0 0 12px 12px;
+  }
+
+  .shell-brand-search.is-searching .shell-search-leading-slot,
+  .shell-brand-search.is-searching.is-closing .shell-search-leading-slot {
+    flex: 0 0 36px;
+    width: 36px;
+    transform: none;
+  }
+
+  .shell-brand-search.is-searching .shell-search-wrap,
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route) .shell-brand-search.is-searching .shell-search-wrap {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+    margin-left: 0;
+  }
+
+  .shell-brand-search.is-searching .shell-search,
+  .shell-brand-search.is-searching.is-closing .shell-search,
+  .authenticated-app:is(.groups-route, .friends-route, .search-results-route) .shell-brand-search.is-searching .shell-search {
+    width: 100%;
+    height: 38px;
+    display: flex;
+    margin: 0;
+    padding-inline: 13px;
+    border-radius: 20px;
+    background: var(--shell-search-surface);
+  }
+
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search.is-searching .shell-search-wrap .shell-search,
+  .authenticated-app:is(.groups-route, .friends-route, .search-results-route)
+    .shell-brand-search.is-searching .shell-search-wrap .shell-search {
+    align-self: stretch;
+    margin: 0;
+  }
+
+  .shell-brand-search.is-searching .shell-search input {
+    position: static;
+    width: 100%;
+    height: 20px;
+    opacity: 1;
+    cursor: text;
+  }
+
+  .shell-search-wrap.is-active .quick-search-results {
+    width: calc(100vw - max(8px, var(--fb-safe-left)) - max(8px, var(--fb-safe-right)));
+    max-height: calc(100dvh - var(--topbar-h) - var(--fb-safe-top) - 8px);
+    margin: 7px 0 0 calc(-36px - 5px);
+    padding: 2px 0 6px;
+  }
+
+  .shell-search-wrap.is-active .quick-search-results > button {
+    min-height: 52px;
+    height: auto;
+    padding-block: 7px;
+  }
+
+  .app-shell-actions {
+    grid-column: 2;
+    gap: 4px;
+  }
+
+  .app-shell-actions .icon-circle,
+  .shell-avatar-button,
+  .shell-avatar-button .avatar {
+    width: 36px;
+    height: 36px;
+  }
+  .app-shell-actions .icon-circle { display: grid; }
+  .app-shell-actions .shell-menu-button { display: none; }
+
+  /* Four destinations remain easy to reach with one hand. Their visual icon
+     size is unchanged; only the touch area and active-edge orientation change. */
+  .app-shell-nav {
+    position: fixed;
+    z-index: 1400;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: var(--fb-mobile-nav-height);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 0 var(--fb-safe-right) var(--fb-safe-bottom) var(--fb-safe-left);
+    border-top: 1px solid var(--divider);
+    background: color-mix(in srgb, var(--card) 96%, transparent);
+    box-shadow: 0 -4px 16px rgb(0 0 0 / 10%);
+    -webkit-backdrop-filter: blur(16px) saturate(120%);
+    backdrop-filter: blur(16px) saturate(120%);
+  }
+
+  .app-shell-nav button {
+    min-width: 0;
+    min-height: 56px;
+    padding: 0;
+  }
+
+  .app-shell-nav button::before { inset: 5px 4px; }
+  .app-shell-nav button.active::after {
+    inset: 0 10px auto;
+    height: 2.5px;
+    border-radius: 0 0 2px 2px;
+  }
+
+  body:is(.post-photo-viewer-open, .reels-library-viewer-open, .content-detail-open) .app-shell-nav,
+  body.modal-interaction-locked .app-shell-nav { display: none; }
+
+  body:is(.post-photo-viewer-open, .reels-library-viewer-open, .content-detail-open) .authenticated-app,
+  body.modal-interaction-locked .authenticated-app { padding-bottom: 0; }
+
+  .account-dropdown,
+  .apps-menu-panel,
+  .notification-popover,
+  .notification-popover-redesign {
+    top: calc(var(--topbar-h) + var(--fb-safe-top) + 5px);
+    right: max(6px, var(--fb-safe-right));
+    left: max(6px, var(--fb-safe-left));
+    width: auto;
+    max-width: none;
+    max-height: calc(100dvh - var(--topbar-h) - var(--fb-safe-top) - var(--fb-mobile-nav-height) - 12px);
+    border-radius: 12px;
+  }
+
+  .gateway-home {
+    width: 100%;
+    max-width: 680px;
+    min-height: calc(100dvh - var(--fb-mobile-nav-height));
+    grid-template-columns: minmax(0, 1fr);
+    padding: calc(var(--topbar-h) + var(--fb-safe-top) + 8px) var(--fb-responsive-gutter) 14px;
+    gap: 10px;
+  }
+
+  .gateway-feed-column {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .gateway-stories,
+  .home-composer-card,
+  .gateway-post {
+    border-radius: 10px;
+  }
+
+  .story-strip,
+  .story-list,
+  .home-story-list {
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .story-tile,
+  .story-create-tile { scroll-snap-align: start; }
+
+  .home-composer-card { padding-inline: 10px; }
+  .home-composer-row { gap: 7px; }
+  .home-composer-prompt {
+    min-width: 0;
+    padding-inline: 12px;
+    font-size: .94rem;
+  }
+
+  .home-composer-quick-action,
+  .home-composer-media { width: 36px; height: 36px; }
+
+  .post-head { padding-inline: 11px; }
+  .post-head-primary,
+  .post-tagged-users { min-width: 0; }
+  .post-author-name,
+  .post-group-link,
+  .post-tagged-users button {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .gateway-post-content,
+  .post-content { overflow-wrap: anywhere; }
+
+  .gateway-post-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding-inline: 4px;
+  }
+
+  .gateway-post-actions button {
+    min-width: 0;
+    min-height: 40px;
+    padding-inline: 5px;
+  }
+
+  .content-engagement-summary {
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 7px 12px;
+    padding-inline: 11px;
+  }
+
+  .post-owner-menu > div {
+    position: fixed;
+    top: auto;
+    right: max(8px, var(--fb-safe-right));
+    bottom: calc(var(--fb-mobile-nav-height) + 8px);
+    left: max(8px, var(--fb-safe-left));
+    width: auto;
+    max-height: min(62dvh, 440px);
+    overflow-y: auto;
+    border-radius: 12px;
+  }
+
+  .single-content-page,
+  .unknown-page {
+    width: 100%;
+    min-height: calc(100dvh - var(--fb-mobile-nav-height));
+    padding: calc(var(--topbar-h) + var(--fb-safe-top) + 10px) 8px 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-shell-topbar {
+    gap: 3px;
+    padding-right: max(5px, var(--fb-safe-right));
+    padding-left: max(5px, var(--fb-safe-left));
+  }
+
+  .app-shell-actions { gap: 2px; }
+  .gateway-home { padding-inline: 6px; }
+  .gateway-stories { margin-inline: 0; }
+  .gateway-post-actions button { font-size: .78rem; }
+
+  .post-head { padding-right: 8px; padding-left: 9px; }
+  .post-content,
+  .gateway-post-content { padding-inline: 11px; }
+}
+
+@media (max-width: 360px) {
+  .shell-menu-button { display: none !important; }
+  .app-shell-actions .icon-circle,
+  .shell-avatar-button,
+  .shell-avatar-button .avatar { width: 34px; height: 34px; }
+  .app-shell-actions { gap: 1px; }
+  .home-composer-quick-actions > :first-child { display: none; }
+  .gateway-post-actions button { gap: 3px; font-size: .74rem; }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .app-shell-nav button,
+  .app-shell-actions button,
+  .shell-search-leading-slot button { -webkit-tap-highlight-color: transparent; }
+
+  .gateway-post-actions button,
+  .post-head button,
+  .home-composer-row button { min-height: 42px; }
+
+  .post-owner-menu > div button { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-brand-search,
+  .shell-search,
+  .shell-search-leading-slot,
+  .shell-search-leading-slot > button,
+  .app-shell-nav { scroll-behavior: auto; }
+}
+
+/* -------------------------------------------------------------------------
+   Responsive navigation refinement
+
+   The primary destinations always belong to the top navigation. On compact
+   screens they move to a second row inside the same header; they never become
+   a detached bottom bar. The default Home/Profile search contracts smoothly
+   with the viewport and only becomes a true circular control at phone-min.
+   ------------------------------------------------------------------------- */
+
+@media (max-width: 1365px) {
+  .authenticated-app {
+    /* 213px at the desktop boundary, then a steady linear contraction to a
+       compact 66px pill. The previous 30vw formula stayed pinned at 213px
+       until ~910px and made the right edge appear frozen while resizing. */
+    --fb-responsive-search-width: clamp(66px, calc(19.22vw - 49.35px), 213px);
+  }
+
+  .app-shell-topbar {
+    grid-template-columns: minmax(230px, 1fr) minmax(300px, 620px) max-content;
+    gap: clamp(6px, 1vw, 14px);
+  }
+
+  .app-shell-nav {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .app-shell-nav button {
+    min-width: 0;
+    padding-inline: clamp(2px, .65vw, 8px);
+  }
+
+  .app-shell-nav button::before { inset-inline: 3px; }
+
+  /* Historical breakpoints hid Menu before the other actions needed to
+     contract. Keep the complete action cluster available at every width. */
+  .app-shell-actions,
+  .app-shell-actions .apps-menu-wrap,
+  .app-shell-actions .account-menu-wrap { flex: 0 0 auto; }
+
+  .app-shell-actions .icon-circle,
+  .app-shell-actions .shell-menu-button { display: grid !important; }
+
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search-wrap {
+    width: var(--fb-responsive-search-width);
+    min-width: var(--fb-responsive-search-width);
+    flex: 0 0 var(--fb-responsive-search-width);
+    /* Follow viewport resizing immediately; a delayed width transition is what
+       made dragging a responsive viewport feel as though search was stuck. */
+    transition: none;
+  }
+
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search {
+    width: var(--fb-responsive-search-width);
+    min-width: 0;
+    justify-content: flex-start;
+    gap: clamp(3px, .65vw, 8px);
+    padding-inline: clamp(7px, 1vw, 13px);
+    border-radius: 20px;
+    overflow: hidden;
+    transition: gap .12s ease, padding .12s ease, border-radius .12s ease;
+  }
+
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search input {
+    position: static;
+    inset: auto;
+    width: 100%;
+    min-width: 0;
+    height: 20px;
+    display: block;
+    padding: 0;
+    overflow: hidden;
+    opacity: 1;
+    cursor: text;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .shell-search-wrap:not(.is-active):not(.is-closing) .shell-search-glyph {
+    width: 20px !important;
+    min-width: 20px;
+    height: 20px !important;
+    flex: 0 0 20px !important;
+    aspect-ratio: 1;
+    overflow: visible;
+    transform-box: fill-box;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .shell-search-glyph circle,
+  .shell-search-glyph path { vector-effect: non-scaling-stroke; }
+}
+
+/* The single-row phase keeps all four destinations compact instead of
+   allowing their historical minimum widths to squeeze search/actions. */
+@media (min-width: 901px) and (max-width: 1179px) {
+  .app-shell-topbar {
+    grid-template-columns: minmax(230px, 1fr) minmax(280px, 1.35fr) max-content;
+  }
+
+  .app-shell-nav button::before { inset: 5px 3px; }
+}
+
+/* A real two-row top header. Row one owns brand/search/actions and row two
+   owns the four primary destinations. `--topbar-h` remains the canonical page
+   offset so every destination starts below both rows. */
+@media (max-width: 900px) {
+  :root {
+    --fb-shell-primary-row: 52px;
+    --fb-shell-secondary-row: 52px;
+    --topbar-h: calc(var(--fb-shell-primary-row) + var(--fb-shell-secondary-row));
+    --fb-mobile-nav-height: 0px;
+  }
+
+  .authenticated-app {
+    min-height: 100dvh;
+    padding-bottom: 0;
+  }
+
+  .app-shell-topbar {
+    top: 0;
+    height: calc(var(--topbar-h) + var(--fb-safe-top));
+    min-height: calc(var(--topbar-h) + var(--fb-safe-top));
+    grid-template-columns: minmax(0, 1fr) max-content;
+    grid-template-rows: var(--fb-shell-primary-row) var(--fb-shell-secondary-row);
+    align-items: center;
+    gap: 0 6px;
+    padding: var(--fb-safe-top) max(7px, var(--fb-safe-right)) 0 max(7px, var(--fb-safe-left));
+    overflow: visible;
+    background: var(--card);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    transform: none;
+    will-change: auto;
+  }
+
+  .shell-brand-search-anchor {
+    width: 100%;
+    min-width: 0;
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .shell-brand-search {
+    width: 100%;
+    min-width: 0;
+    gap: 5px;
+  }
+
+  .shell-search-leading-slot {
+    width: 36px;
+    min-width: 36px;
+    flex: 0 0 36px;
+  }
+
+  .app-shell-actions {
+    min-width: max-content;
+    grid-column: 2;
+    grid-row: 1;
+    gap: 4px;
+  }
+
+  .app-shell-actions .icon-circle,
+  .shell-avatar-button,
+  .shell-avatar-button .avatar {
+    width: 36px;
+    height: 36px;
+  }
+
+  .app-shell-nav {
+    position: static;
+    z-index: auto;
+    inset: auto;
+    width: 100%;
+    height: var(--fb-shell-secondary-row);
+    min-height: 0;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    align-self: stretch;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 0;
+    border-top: 1px solid color-mix(in srgb, var(--divider) 72%, transparent);
+    border-bottom: 0;
+    background: transparent;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .app-shell-nav button {
+    height: var(--fb-shell-secondary-row);
+    min-height: 0;
+    padding: 0 2px;
+  }
+
+  .app-shell-nav button::before { inset: 4px 3px; }
+  .app-shell-nav button.active::after {
+    inset: auto 8px 0;
+    height: 2.5px;
+    border-radius: 2px 2px 0 0;
+  }
+
+  /* Search expansion still owns the first row. Its dropdown may cover the
+     second row, but the shell itself keeps a stable 104px page offset. */
+  .shell-brand-search.is-searching,
+  .authenticated-app:is(.groups-route, .friends-route, .search-results-route)
+    .shell-brand-search.is-searching {
+    top: var(--fb-safe-top);
+    right: auto;
+    left: 0;
+    width: min(var(--destination-sidebar-width, 320px), 100vw);
+    min-height: var(--fb-shell-primary-row);
+    padding: 7px 8px 7px 20px;
+  }
+
+  .shell-brand-search.is-searching.has-recent-empty {
+    height: calc(var(--fb-shell-primary-row) * 2);
+  }
+
+  .shell-search-wrap.is-active .quick-search-results > button,
+  .shell-search-wrap.is-active .quick-search-results.is-recent-empty {
+    height: var(--fb-shell-primary-row);
+    min-height: var(--fb-shell-primary-row);
+  }
+
+  .shell-search-wrap.is-active .quick-search-results {
+    max-height: calc(100dvh - var(--fb-shell-primary-row) - var(--fb-safe-top) - 8px);
+  }
+
+  body:is(.post-photo-viewer-open, .reels-library-viewer-open, .content-detail-open),
+  body.modal-interaction-locked {
+    --fb-shell-secondary-row: 0px;
+    --topbar-h: var(--fb-shell-primary-row);
+  }
+
+  body:is(.post-photo-viewer-open, .reels-library-viewer-open, .content-detail-open) .app-shell-nav,
+  body.modal-interaction-locked .app-shell-nav { display: none; }
+}
+
+/* At intermediate phone widths there is room for the magnifier and a compact
+   ellipsis, so do not abruptly remove all placeholder feedback. */
+@media (min-width: 601px) and (max-width: 880px) {
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search:has(input:placeholder-shown) {
+    position: relative;
+  }
+
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search:has(input:placeholder-shown) .shell-search-responsive-placeholder {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    color: color-mix(in srgb, var(--secondary) 78%, #fff 22%);
+    font-size: .9rem;
+    line-height: 20px;
+    pointer-events: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search:has(input:placeholder-shown) input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: text;
+  }
+}
+
+/* Once the remaining label space is no longer useful, switch directly from
+   the compact ellipsis pill to the same 36px circle used by shell actions. */
+@media (max-width: 600px) {
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search-wrap,
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search {
+    width: 36px;
+    min-width: 36px;
+    flex-basis: 36px;
+  }
+
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search {
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    border-radius: 50%;
+  }
+
+  .authenticated-app:not(.groups-route):not(.friends-route):not(.search-results-route)
+    .shell-brand-search:not(.is-searching) .shell-search input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    opacity: 0;
+    cursor: text;
+  }
+
+}
+
+@media (max-width: 360px) {
+  .app-shell-actions .icon-circle,
+  .shell-avatar-button,
+  .shell-avatar-button .avatar { width: 34px; height: 34px; }
+
+  .app-shell-actions { gap: 1px; }
+  .app-shell-actions .shell-menu-button { display: grid !important; }
+}

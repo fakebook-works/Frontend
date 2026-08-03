@@ -145,7 +145,7 @@ const GROUP_POST_FIELDS = `
   mentions { userId name available }
   taggedUsers { id name avatar isVerified }
   author { id name avatar isVerified canFollow }
-  group { id name avatar canJoin }
+  group { id name avatar canJoin joinRequestPending }
   media { id type url }
   sharedSource {
     id isAvailable type content privacy create aspectRatio focalPointX focalPointY requiresGroupMembership

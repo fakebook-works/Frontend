@@ -1,5 +1,43 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { parseHashtagText } from '../lib/hashtags'
 import { parseMentionDraft, type MentionEntity } from '../lib/mentions'
+import { extractWebUrls } from '../lib/urlMedia'
+
+function DraftHashtagText({ value, keyPrefix }: { value: string; keyPrefix: string }) {
+  const urls = extractWebUrls(value)
+  const parts: ReactNode[] = []
+  let cursor = 0
+
+  const appendText = (text: string, prefix: string) => {
+    parseHashtagText(text).forEach((segment, index) => {
+      parts.push(segment.type === 'text'
+        ? segment.value
+        : <strong className="mention-draft-name hashtag-draft-name" key={`${prefix}-${index}`}>{segment.value}</strong>)
+    })
+  }
+
+  urls.forEach((url, index) => {
+    const offset = value.indexOf(url, cursor)
+    if (offset < 0) return
+    appendText(value.slice(cursor, offset), `${keyPrefix}-before-url-${index}`)
+    parts.push(url)
+    cursor = offset + url.length
+  })
+  appendText(value.slice(cursor), `${keyPrefix}-after-url`)
+  return <>{parts}</>
+}
+
+function hasDraftHashtag(value: string): boolean {
+  const urls = extractWebUrls(value)
+  let cursor = 0
+  for (const url of urls) {
+    const offset = value.indexOf(url, cursor)
+    if (offset < 0) continue
+    if (parseHashtagText(value.slice(cursor, offset)).some((segment) => segment.type === 'hashtag')) return true
+    cursor = offset + url.length
+  }
+  return parseHashtagText(value.slice(cursor)).some((segment) => segment.type === 'hashtag')
+}
 
 export function MentionDraftOverlay({ text, entities, textareaRef }: {
   text: string
@@ -8,9 +46,11 @@ export function MentionDraftOverlay({ text, entities, textareaRef }: {
 }) {
   const layerRef = useRef<HTMLDivElement>(null)
   const [style, setStyle] = useState<CSSProperties>({})
+  const draftSegments = parseMentionDraft(text, [...entities])
+  const active = entities.length > 0 || draftSegments.some((segment) => segment.type === 'text' && hasDraftHashtag(segment.value))
 
   useLayoutEffect(() => {
-    if (entities.length === 0) return
+    if (!active) return
     const textarea = textareaRef.current
     const layer = layerRef.current
     if (!textarea || !layer) return
@@ -36,9 +76,13 @@ export function MentionDraftOverlay({ text, entities, textareaRef }: {
         fontFamily: computed.fontFamily,
         fontSize: computed.fontSize,
         fontStyle: computed.fontStyle,
+        fontStretch: computed.fontStretch as CSSProperties['fontStretch'],
         fontWeight: computed.fontWeight,
         lineHeight: computed.lineHeight,
         letterSpacing: computed.letterSpacing,
+        fontKerning: computed.fontKerning as CSSProperties['fontKerning'],
+        fontVariantLigatures: computed.fontVariantLigatures as CSSProperties['fontVariantLigatures'],
+        fontFeatureSettings: computed.fontFeatureSettings,
         wordSpacing: computed.wordSpacing,
         textAlign: computed.textAlign as CSSProperties['textAlign'],
         textIndent: computed.textIndent,
@@ -57,12 +101,12 @@ export function MentionDraftOverlay({ text, entities, textareaRef }: {
       textarea.removeEventListener('scroll', syncScroll)
       resizeObserver?.disconnect()
     }
-  }, [entities.length, text, textareaRef])
+  }, [active, entities.length, text, textareaRef])
 
-  if (entities.length === 0) return null
+  if (!active) return null
   return <div ref={layerRef} className="mention-draft-overlay" style={style} aria-hidden="true">
-    {parseMentionDraft(text, [...entities]).map((segment, index) => segment.type === 'text'
-      ? segment.value
+    {draftSegments.map((segment, index) => segment.type === 'text'
+      ? <DraftHashtagText value={segment.value} keyPrefix={`text-${index}`} key={`text-${index}`} />
       : <strong className="mention-draft-name" key={`${segment.entity.userId}-${segment.entity.start}-${index}`}>{segment.entity.displayName}</strong>)}
   </div>
 }

@@ -98,12 +98,15 @@ export interface MessengerPresenceDto {
   updatedAt: string | null
 }
 
-export interface MessengerConversationImage extends MediaUpload {
+export interface MessengerConversationMedia extends MediaUpload {
   galleryKey: string
   messageId: string
   ordinal: number
   createdAt: string
 }
+
+/** @deprecated Use MessengerConversationMedia; the viewer now includes video. */
+export type MessengerConversationImage = MessengerConversationMedia
 
 const MESSAGE_CORE_FIELDS = `
   id conversationId senderUserId sequence kind systemEvent systemSubjectUserId text replyToMessageId createdAt editedAt deleted
@@ -326,8 +329,8 @@ export async function messages(conversationId: string, viewerId: string, last = 
   ))
 }
 
-export async function conversationImages(conversationId: string): Promise<MessengerConversationImage[]> {
-  const pages: MessengerConversationImage[][] = []
+export async function conversationMedia(conversationId: string): Promise<MessengerConversationMedia[]> {
+  const pages: MessengerConversationMedia[][] = []
   const visitedCursors = new Set<string>()
   let before: string | null = null
 
@@ -335,7 +338,7 @@ export async function conversationImages(conversationId: string): Promise<Messen
     const data: { conversationMessages: ConversationMessagePageGraphQl } = await gatewayGraphQl<{
       conversationMessages: ConversationMessagePageGraphQl
     }>(
-      `query ConversationImages($id: UUID!, $last: Int!, $before: String) {
+      `query ConversationMedia($id: UUID!, $last: Int!, $before: String) {
         conversationMessages(conversationId: $id, last: $last, before: $before) {
           items {
             id conversationId senderUserId sequence text createdAt deleted
@@ -355,7 +358,7 @@ export async function conversationImages(conversationId: string): Promise<Messen
         .sort((left, right) => left.ordinal - right.ordinal)
         .flatMap((attachment) => {
           const media = attachmentFromGraphQl(attachment)
-          if (media.type !== 'image') return []
+          if (media.type !== 'image' && media.type !== 'video') return []
           return [{
             ...media,
             galleryKey: `${message.id}:${attachment.ordinal}`,
@@ -374,12 +377,15 @@ export async function conversationImages(conversationId: string): Promise<Messen
   }
 
   const seen = new Set<string>()
-  return pages.flat().filter((image) => {
-    if (seen.has(image.galleryKey)) return false
-    seen.add(image.galleryKey)
+  return pages.flat().filter((item) => {
+    if (seen.has(item.galleryKey)) return false
+    seen.add(item.galleryKey)
     return true
   })
 }
+
+/** Backwards-compatible alias; it now returns both image and video media. */
+export const conversationImages = conversationMedia
 
 export async function message(messageId: string, viewerId: string): Promise<MessengerMessageDto> {
   const data = await gatewayGraphQl<{ message: MessageGraphQl }>(
@@ -687,6 +693,7 @@ export const messengerApi = {
   conversations,
   directConversations,
   messages,
+  conversationMedia,
   conversationImages,
   message,
   sendMessage,

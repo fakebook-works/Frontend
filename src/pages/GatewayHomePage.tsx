@@ -474,6 +474,7 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
           avatarUrl={profile?.avatarUrl || null}
           isVerified={profile?.isVerified}
           friends={friends}
+          onNavigate={onNavigate}
           onCreated={(post) => {
             locallyCreatedPostIds.current.add(post.id)
             setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])
@@ -626,7 +627,7 @@ function PollComposerIcon({ size = 27 }: { size?: number }) {
   </svg>
 }
 
-export function PostComposer({ variant = 'home', userId, displayName, avatarUrl, isVerified, friends, groupId = null, groupName = '', groupAvatarUrl = null, groupPrivacy = 0, onReel, onCreated, triggerOnly = false, externalOpenRequest = 0, externalReelOpenRequest = 0 }: { variant?: 'home' | 'profile' | 'group'; userId: string; displayName: string; avatarUrl: string | null; isVerified?: boolean; friends: UserSummary[]; groupId?: string | null; groupName?: string; groupAvatarUrl?: string | null; groupPrivacy?: number; onReel?: () => void; onCreated: (post: GatewayPost) => void; triggerOnly?: boolean; externalOpenRequest?: number; externalReelOpenRequest?: number }) {
+export function PostComposer({ variant = 'home', userId, displayName, avatarUrl, isVerified, friends, groupId = null, groupName = '', groupAvatarUrl = null, groupPrivacy = 0, onNavigate, onReel, onCreated, triggerOnly = false, externalOpenRequest = 0, externalReelOpenRequest = 0 }: { variant?: 'home' | 'profile' | 'group'; userId: string; displayName: string; avatarUrl: string | null; isVerified?: boolean; friends: UserSummary[]; groupId?: string | null; groupName?: string; groupAvatarUrl?: string | null; groupPrivacy?: number; onNavigate?: (path: string) => void; onReel?: () => void; onCreated: (post: GatewayPost) => void; triggerOnly?: boolean; externalOpenRequest?: number; externalReelOpenRequest?: number }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const [reelOpen, setReelOpen] = useState(false)
@@ -1003,7 +1004,7 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   return <>
     {!triggerOnly && <section className={variant === 'home' ? 'card gateway-composer home-composer-card' : variant === 'group' ? 'card gateway-composer home-composer-card profile-composer-card group-profile-composer-card' : 'card gateway-composer home-composer-card profile-composer-card'} aria-label={t('createPost')}>
       <div className="home-composer-row">
-        <Avatar name={displayName} src={avatarUrl} size={40} />
+        <button type="button" className="home-composer-avatar" aria-label={displayName} onClick={(event) => { event.stopPropagation(); onNavigate?.(`/profile/${userId}`) }}><Avatar name={displayName} src={avatarUrl} size={40} /></button>
         <button type="button" className="home-composer-prompt" onClick={showComposer}>{t(variant === 'group' ? 'groupPostPrompt' : variant === 'profile' ? 'profilePostPrompt' : 'postComposerPlaceholder')}</button>
         {variant === 'home' && <div className="home-composer-quick-actions">
           <button type="button" className="home-composer-quick-action live" aria-label={t('liveVideo')} title={t('liveVideo')} onClick={() => undefined}><LiveVideoIcon size={29} /></button>
@@ -1228,7 +1229,9 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel
   const [relationshipBusy, setRelationshipBusy] = useState(false)
   const [relationshipError, setRelationshipError] = useState<string | null>(null)
   const [followingFromCard, setFollowingFromCard] = useState(false)
-  const [joinRequestedFromCard, setJoinRequestedFromCard] = useState(false)
+  const [joinRequestedFromCard, setJoinRequestedFromCard] = useState(
+    post.__typename === 'GroupPostDetail' && Boolean(post.group.joinRequestPending),
+  )
   const [privacyBusy, setPrivacyBusy] = useState(false)
   const [privacyError, setPrivacyError] = useState<string | null>(null)
   const [sharedDetailId, setSharedDetailId] = useState<string | null>(null)
@@ -1236,7 +1239,7 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel
   useEffect(() => {
     setCurrent(post)
     setFollowingFromCard(false)
-    setJoinRequestedFromCard(false)
+    setJoinRequestedFromCard(post.__typename === 'GroupPostDetail' && Boolean(post.group.joinRequestPending))
     setSharedDetailId(null)
     setPhotoViewer(null)
   }, [post])
@@ -1288,15 +1291,19 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel
 
   async function joinGroup() {
     if (!viewerId || current.__typename !== 'GroupPostDetail') return
+    const cancelling = joinRequestedFromCard
     setRelationshipBusy(true)
     setRelationshipError(null)
     try {
-      const success = joinRequestedFromCard
+      const success = cancelling
         ? await socialApi.cancelJoinGroupRequest(viewerId, current.group.id)
         : await socialApi.requestJoinGroup(viewerId, current.group.id)
       if (!success) throw new Error('Join action rejected')
-      setJoinRequestedFromCard((currentValue) => !currentValue)
-      setCurrent((value) => value.__typename === 'GroupPostDetail' ? { ...value, group: { ...value.group, canJoin: joinRequestedFromCard } } : value)
+      const nextPending = !cancelling
+      setJoinRequestedFromCard(nextPending)
+      setCurrent((value) => value.__typename === 'GroupPostDetail'
+        ? { ...value, group: { ...value.group, canJoin: true, joinRequestPending: nextPending } }
+        : value)
     } catch {
       setRelationshipError(t('joinGroupError'))
     } finally {

@@ -1,0 +1,656 @@
+/* Responsive page layouts. Desktop (>= 1366px) remains owned by App.css. */
+
+@media (max-width: 1365px) {
+  .self-profile-header-shell,
+  .self-profile-destination-grid,
+  .group-profile-alert {
+    max-width: calc(100vw - 28px);
+  }
+
+  .self-profile-destination-grid,
+  .group-profile-content-grid { min-width: 0; }
+
+  .friends-page-content,
+  .groups-main,
+  .discovery-content,
+  .settings-content { min-width: 0; }
+}
+
+@media (max-width: 1179px) and (min-width: 960px) {
+  .settings-page { grid-template-columns: 300px minmax(0, 1fr); }
+  .settings-sidebar { padding-inline: 11px; }
+  .settings-content { padding-inline: clamp(20px, 3.5vw, 48px); }
+
+  .friends-page-layout,
+  .groups-page,
+  .discovery-layout { grid-template-columns: 300px minmax(0, 1fr); }
+
+  .friends-page-content,
+  .groups-main,
+  .discovery-content { padding-inline: clamp(16px, 2.4vw, 28px); }
+
+  .friends-card-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .groups-membership-grid,
+  .groups-suggestion-grid,
+  .groups-card-skeleton-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .self-profile-connections-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .self-profile-media-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .self-profile-reels-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+@media (max-width: 959px) {
+  :root {
+    --destination-compact-title-height: 40px;
+    --destination-compact-option-height: 44px;
+  }
+
+  /* Destination sidebars become compact, horizontally scrollable navigation.
+     They remain in the document flow, so the selected destination and scroll
+     state survive navigation without a separate mobile implementation. */
+  .friends-page-layout,
+  .groups-page,
+  .discovery-layout,
+  .group-create-page,
+  .settings-page {
+    display: block;
+    min-height: calc(100dvh - var(--fb-mobile-nav-height));
+  }
+
+  .friends-page-sidebar,
+  .groups-sidebar,
+  .discovery-sidebar,
+  .group-create-panel,
+  .settings-sidebar {
+    position: relative;
+    top: auto;
+    width: 100%;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--divider);
+    box-shadow: none;
+  }
+
+  .friends-page-sidebar > header,
+  .groups-sidebar > header,
+  .discovery-sidebar > header {
+    height: var(--destination-compact-title-height);
+    min-height: var(--destination-compact-title-height);
+  }
+
+  .friends-page-sidebar nav,
+  .groups-primary-nav,
+  .discovery-sidebar nav,
+  .settings-sidebar nav {
+    display: flex;
+    grid-template-columns: none;
+    gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .friends-page-sidebar nav::-webkit-scrollbar,
+  .groups-primary-nav::-webkit-scrollbar,
+  .discovery-sidebar nav::-webkit-scrollbar,
+  .settings-sidebar nav::-webkit-scrollbar { display: none; }
+
+  .friends-page-sidebar nav > button,
+  .groups-primary-nav > button,
+  .discovery-sidebar nav > button,
+  .settings-sidebar nav > button {
+    width: auto;
+    min-width: max-content;
+    height: var(--destination-compact-option-height);
+    min-height: var(--destination-compact-option-height);
+    flex: 0 0 auto;
+    padding-inline: 10px 14px;
+  }
+
+  .settings-sidebar {
+    padding: 0 8px 8px;
+    background: var(--card);
+  }
+
+  .settings-sidebar h1 {
+    display: flex;
+    align-items: center;
+    height: var(--topbar-h);
+    margin: 0 8px;
+    font-size: 1.4rem;
+  }
+
+  .settings-search { margin: 0 4px 8px; }
+  .settings-sidebar nav button { grid-template-columns: 36px minmax(0, auto); }
+  .settings-sidebar nav small,
+  .settings-chevron { display: none; }
+  .settings-nav-icon { width: 36px; height: 36px; }
+
+  .friends-page-content,
+  .groups-main,
+  .discovery-content,
+  .settings-content {
+    width: min(100%, 760px);
+    margin-inline: auto;
+    padding: 16px 14px calc(72px + var(--fb-safe-bottom));
+  }
+
+  .groups-sidebar-collection,
+  .groups-sidebar-divider { display: none; }
+
+  .groups-search-row {
+    height: 42px;
+    min-height: 42px;
+    align-items: center;
+    padding-inline: 7px;
+  }
+  .groups-search-shell,
+  .groups-search { height: 36px; }
+  .groups-primary-nav { padding: 0 7px 4px; }
+  .groups-primary-nav > button { display: grid; grid-template-columns: 36px minmax(0, auto); }
+
+  .discovery-content .search-result-column,
+  .discovery-state { max-width: 660px; }
+
+  .friends-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .groups-membership-grid,
+  .groups-suggestion-grid,
+  .groups-card-skeleton-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .self-profile-destination-grid,
+  .self-profile-destination-grid.tab-posts,
+  .self-profile-destination-grid.tab-posts.group-profile-content-grid,
+  .group-profile-main.discussion,
+  .group-profile-content-grid {
+    width: min(100%, 700px);
+    max-width: calc(100vw - 20px);
+    height: auto;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    align-items: start;
+    overflow: visible;
+    margin-inline: auto;
+  }
+
+  .self-profile-destination-grid.tab-posts > .self-profile-left-column,
+  .self-profile-destination-grid.tab-posts > .profile-post-list {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    align-self: start;
+    overflow: visible;
+    padding-top: 0;
+  }
+
+  .self-profile-destination-grid.tab-posts > .profile-post-list,
+  .group-profile-post-column { grid-row: 1; }
+  .self-profile-destination-grid.tab-posts > .self-profile-left-column,
+  .group-profile-info-column { grid-row: 2; }
+
+  .self-profile-connections-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .self-profile-media-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .self-profile-reels-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+  .group-create-panel {
+    padding: 12px 14px 16px;
+    background: var(--card);
+  }
+  .group-create-submit { margin-top: 12px; }
+  .group-create-preview-stage {
+    min-height: 0;
+    padding: 16px 14px calc(72px + var(--fb-safe-bottom));
+  }
+
+  .settings-overview-search,
+  .settings-overview-panel { padding-inline: clamp(18px, 5vw, 42px); }
+  .settings-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-shortcuts button { min-height: 220px; }
+}
+
+/* At phone width the option labels would otherwise force a horizontal strip
+   to scroll. Keep the icons as equal compact destinations and remove the
+   redundant large title row. Friends/Groups retain their settings control in
+   the first compact row rather than dropping it from the interface. */
+@media (max-width: 600px) {
+  .friends-page-sidebar,
+  .groups-sidebar { position: relative; }
+
+  .friends-page-sidebar > header,
+  .groups-sidebar > header {
+    position: absolute;
+    z-index: 4;
+    top: 2px;
+    right: 7px;
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    border: 0;
+  }
+
+  .friends-page-sidebar > header h1,
+  .groups-sidebar > header h1,
+  .discovery-sidebar > header { display: none; }
+
+  .friends-page-sidebar > header > button,
+  .groups-sidebar > header > button { width: 36px; height: 36px; }
+
+  .friends-page-sidebar nav,
+  .discovery-sidebar nav {
+    width: 100%;
+    padding-right: 48px;
+  }
+
+  .groups-search-row { padding-right: 50px; }
+
+  .friends-page-sidebar nav > button,
+  .groups-primary-nav > button,
+  .discovery-sidebar nav > button {
+    width: auto;
+    min-width: 46px;
+    height: 42px;
+    min-height: 42px;
+    flex: 1 1 0;
+    grid-template-columns: 36px;
+    justify-content: center;
+    gap: 0;
+    padding: 0 5px;
+  }
+
+  .friends-page-sidebar nav strong,
+  .groups-primary-nav strong,
+  .discovery-sidebar nav strong { display: none; }
+}
+
+@media (max-width: 767px) {
+  .friends-page-layout,
+  .groups-page,
+  .discovery-layout,
+  .settings-page,
+  .group-create-page {
+    min-height: 100dvh;
+    padding-top: calc(var(--topbar-h) + var(--fb-safe-top));
+    padding-bottom: 0;
+  }
+
+  .friends-page-sidebar,
+  .groups-sidebar,
+  .discovery-sidebar,
+  .settings-sidebar {
+    position: static;
+    border-bottom-color: color-mix(in srgb, var(--divider) 88%, transparent);
+  }
+
+  .friends-page-sidebar > header,
+  .groups-sidebar > header,
+  .discovery-sidebar > header { padding-inline: 12px; }
+
+  .friends-page-sidebar h1,
+  .groups-sidebar > header h1,
+  .discovery-sidebar h1 { font-size: 1.32rem; }
+
+  .friends-page-sidebar nav,
+  .groups-primary-nav,
+  .discovery-sidebar nav { padding-right: 6px; padding-left: 6px; }
+
+  .friends-page-sidebar nav > button,
+  .groups-primary-nav > button,
+  .discovery-sidebar nav > button {
+    min-width: max-content;
+    gap: 8px;
+    padding-inline: 8px 12px;
+  }
+
+  .friends-page-sidebar nav strong,
+  .groups-primary-nav strong,
+  .discovery-sidebar nav strong { font-size: .88rem; font-weight: 560; }
+
+  .friends-page-content,
+  .groups-main,
+  .discovery-content,
+  .settings-content {
+    width: 100%;
+    padding: 12px 8px 14px;
+  }
+
+  .friends-page-content-head,
+  .groups-section-heading,
+  .groups-directory-heading,
+  .page-content-head {
+    min-height: 44px;
+    height: auto;
+    align-items: center;
+    margin-bottom: 10px;
+    padding-inline: 4px;
+  }
+
+  .friends-page-content-head h2,
+  .groups-section-heading h2,
+  .groups-directory-heading h2,
+  .page-content-head h1,
+  .page-content-head h2 { font-size: 1.12rem; }
+
+  .friends-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .friend-card-body { padding: 9px; }
+  .friend-card-actions { gap: 6px; }
+  .friend-card-actions button {
+    min-width: 0;
+    min-height: 34px;
+    padding-inline: 7px;
+    font-size: .78rem;
+  }
+
+  .groups-membership-grid,
+  .groups-suggestion-grid,
+  .groups-card-skeleton-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+
+  .groups-suggestion-card,
+  .groups-membership-card { min-width: 0; }
+
+  .search-entity-result {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 9px;
+    padding: 9px;
+  }
+
+  .search-entity-avatar,
+  .search-entity-avatar .avatar { width: 48px !important; height: 48px !important; }
+  .search-entity-copy > strong { font-size: .94rem; }
+  .search-entity-copy > small { font-size: .78rem; }
+  .search-result-action {
+    grid-column: 2;
+    justify-self: start;
+    min-width: 96px;
+    max-width: 100%;
+  }
+
+  .people-grid,
+  .group-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+
+  .self-profile-page,
+  .group-profile-page {
+    min-height: calc(100dvh - var(--fb-mobile-nav-height));
+    padding-top: calc(var(--topbar-h) + var(--fb-safe-top));
+    padding-bottom: 12px;
+  }
+
+  .self-profile-cover-card { --self-profile-cover-height: clamp(190px, 52vw, 285px); }
+  .self-profile-header-shell { width: 100%; max-width: none; }
+
+  .self-profile-cover-action {
+    right: 10px;
+    bottom: 10px;
+    max-width: calc(100% - 20px);
+  }
+
+  .self-profile-cover-edit-controls {
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .self-profile-header-shell .profile-destination-header {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .self-profile-header-shell .profile-destination-title {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .self-profile-header-shell .profile-destination-title h1 {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    font-size: clamp(1.45rem, 6vw, 1.72rem);
+  }
+
+  .self-profile-header-actions,
+  .visitor-profile-header-actions,
+  .group-profile-header-actions {
+    width: 100%;
+    max-width: 100%;
+    justify-content: center;
+  }
+
+  .self-profile-header-actions > button,
+  .self-profile-header-actions > .visitor-profile-action-menu-host > button {
+    min-height: 34px;
+    flex: 0 1 auto;
+  }
+
+  .self-profile-header-shell .self-profile-tabs {
+    width: 100%;
+    min-height: 48px;
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .self-profile-header-shell .self-profile-tabs::-webkit-scrollbar { display: none; }
+  .self-profile-tabs > .self-profile-tab-option { min-height: 48px; padding-inline: 14px; }
+  .self-profile-tabs > .self-profile-tab-more,
+  .self-profile-tabs > .visitor-profile-tab-menu { position: sticky; right: 0; flex: 0 0 auto; }
+
+  .self-profile-destination-grid,
+  .self-profile-destination-grid.tab-posts,
+  .group-profile-content-grid,
+  .group-profile-alert {
+    width: 100%;
+    max-width: none;
+    padding-inline: 7px;
+  }
+
+  .self-profile-page .profile-post-list,
+  .group-profile-post-column { gap: 10px; }
+
+  .self-profile-side-card,
+  .self-profile-collection-card,
+  .self-profile-post-tools,
+  .self-profile-page .gateway-post,
+  .group-profile-page .gateway-post,
+  .group-profile-page .gateway-composer { border-radius: 10px; }
+
+  .self-profile-collection-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .self-profile-section-actions {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+  .self-profile-section-actions::-webkit-scrollbar { display: none; }
+
+  .self-profile-collection-tabs {
+    min-height: 46px;
+    margin-bottom: 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .self-profile-collection-tabs::-webkit-scrollbar { display: none; }
+  .self-profile-collection-tabs > button { flex: 0 0 auto; padding-inline: 14px; }
+
+  .self-profile-about-details,
+  .profile-about-editor-grid { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .profile-about-panel > header { padding-inline: 14px; }
+  .profile-about-details { padding-inline: 14px; }
+
+  .profile-about-inline-editor,
+  .profile-about-inline-editor.editing-all { grid-template-columns: minmax(0, 1fr); }
+  .profile-about-edit-actions.inline > .profile-about-commit-actions,
+  .profile-about-edit-actions.inline > .profile-about-remove {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .profile-about-edit-actions.inline > .profile-about-commit-actions { justify-content: flex-end; }
+
+  .self-profile-connections-grid { grid-template-columns: minmax(0, 1fr); }
+  .self-profile-connections-grid > article { min-height: 92px; padding: 10px; }
+  .self-profile-connection-person { gap: 10px; }
+
+  .self-profile-media-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .self-profile-reels-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+
+  .profile-composer-actions > button,
+  .profile-composer-actions > label { gap: 5px; margin-inline: 1px; padding-inline: 4px; font-size: .82rem; }
+  .profile-composer-actions > button > svg,
+  .profile-composer-actions > label > svg { width: 23px; height: 23px; flex-basis: 23px; }
+
+  .group-profile-member-stack { max-width: 100%; overflow: hidden; }
+  .group-profile-person-actions > div {
+    position: fixed;
+    top: auto;
+    right: max(8px, var(--fb-safe-right));
+    bottom: calc(var(--fb-mobile-nav-height) + 8px);
+    left: max(8px, var(--fb-safe-left));
+    width: auto;
+    max-height: 55dvh;
+    overflow-y: auto;
+  }
+
+  .group-profile-edit-modal,
+  .group-profile-invite-modal,
+  .group-photo-picker { width: calc(100vw - 12px); max-height: calc(100dvh - 12px); }
+  .group-photo-picker-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+  .settings-content-heading h2 { font-size: 1.45rem; }
+  .settings-overview-search,
+  .settings-overview-panel { padding: 16px 12px; }
+  .settings-shortcuts { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .settings-shortcuts button {
+    min-height: 112px;
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr);
+    align-items: center;
+    gap: 14px;
+  }
+  .settings-shortcut-icon { width: 54px; height: 54px; }
+  .settings-resource-row {
+    min-height: 100px;
+    grid-template-columns: 52px minmax(0, 1fr) auto;
+    gap: 11px;
+    padding: 12px;
+  }
+  .settings-form-grid,
+  .theme-options { grid-template-columns: minmax(0, 1fr); }
+  .setting-choice { align-items: stretch; flex-direction: column; gap: 12px; }
+  .setting-choice select { width: 100%; }
+
+  .group-create-preview-card { padding: 8px; }
+  .group-create-preview-copy { padding-inline: 8px; }
+  .group-create-preview-copy nav { gap: 18px; overflow-x: auto; padding-inline: 8px; }
+  .group-create-preview-body { grid-template-columns: minmax(0, 1fr); padding-inline: 8px; }
+  .group-create-preview-body > aside { display: none; }
+}
+
+@media (max-width: 480px) {
+  .friends-card-grid { gap: 6px; }
+  .friend-card-body { padding: 7px; }
+  .friend-card-actions { grid-template-columns: minmax(0, 1fr); }
+
+  .people-grid,
+  .group-grid { grid-template-columns: minmax(0, 1fr); }
+
+  .search-entity-result { grid-template-columns: 44px minmax(0, 1fr); }
+  .search-entity-avatar,
+  .search-entity-avatar .avatar { width: 44px !important; height: 44px !important; }
+
+  .self-profile-avatar-wrap { transform: scale(.92); }
+  .self-profile-avatar-wrap.editing-avatar { transform: scale(.94); }
+  .self-profile-header-actions > button,
+  .self-profile-header-actions > .visitor-profile-action-menu-host { flex: 1 1 auto; }
+  .self-profile-header-actions > .self-profile-header-chevron,
+  .self-profile-header-actions > details { flex: 0 0 auto; }
+
+  .self-profile-collection-card { padding-inline: 10px; }
+  .self-profile-media-grid,
+  .self-profile-reels-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+
+  .profile-composer-action-label { display: none; }
+  .profile-composer-actions > button,
+  .profile-composer-actions > label { min-height: 44px; }
+
+  .group-photo-picker-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .settings-profile-summary { align-items: flex-start; padding: 14px; }
+  .settings-form-grid { gap: 12px; padding: 14px; }
+  .settings-actions { padding: 0 14px 14px; }
+}
+
+@media (max-height: 620px) and (orientation: landscape) and (max-width: 959px) {
+  .friends-page-sidebar > header,
+  .groups-sidebar > header,
+  .discovery-sidebar > header,
+  .settings-sidebar h1 { display: none; }
+  .friends-page-sidebar nav,
+  .groups-primary-nav,
+  .discovery-sidebar nav,
+  .settings-sidebar nav { padding-top: 5px; }
+  .self-profile-cover-card { --self-profile-cover-height: min(44vw, 210px); }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .friends-page-sidebar nav > button,
+  .groups-primary-nav > button,
+  .discovery-sidebar nav > button,
+  .self-profile-tabs > button,
+  .self-profile-collection-tabs > button { touch-action: manipulation; }
+
+  .self-profile-section-action,
+  .self-profile-connection-menu > button,
+  .group-profile-person-actions summary { min-height: 40px; }
+}
+
+/* Keep the phone rail overrides last: the broader 767px rules above also
+   match these widths and must not restore their desktop-sized padding. */
+@media (max-width: 600px) {
+  .friends-page-sidebar > header,
+  .groups-sidebar > header {
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+  }
+
+  .friends-page-sidebar nav {
+    padding: 0 48px 4px 6px;
+  }
+
+  .discovery-sidebar nav {
+    padding: 0 6px 4px;
+  }
+
+  .groups-primary-nav {
+    padding: 0 6px 4px;
+  }
+
+  .friends-page-sidebar nav > button,
+  .groups-primary-nav > button,
+  .discovery-sidebar nav > button {
+    width: auto;
+    min-width: 0;
+    height: 42px;
+    min-height: 42px;
+    flex: 1 1 0;
+    grid-template-columns: 36px;
+    justify-content: center;
+    gap: 0;
+    padding: 0 4px;
+  }
+}

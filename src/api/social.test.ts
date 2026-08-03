@@ -594,4 +594,42 @@ describe('SocialGraph Gateway adapter', () => {
     expect(query).toContain('r1: relationshipState(userId: 73)')
     expect(query).not.toContain('viewerId')
   })
+
+  it('maps comment tombstones and loads bounded edit history through the trusted Gateway query', async () => {
+    gatewayGraphQl
+      .mockResolvedValueOnce({ comments: {
+        items: [{
+          id: '9007199254740993010', content: '', create: '2026-08-03T00:00:00Z',
+          author: { id: '2', name: 'Author', avatar: '', isVerified: false },
+          likeCount: 0, replyCount: 2, viewerHasLiked: false, canFollowAuthor: false, isFollowingAuthor: false,
+          mentions: [], media: null, isDeleted: true, editedAt: null,
+        }],
+        endCursor: null,
+        hasNextPage: false,
+      } })
+      .mockResolvedValueOnce({ commentEditHistory: [{
+        content: 'old [[mention:3]]', editedAt: '2026-08-02T00:00:00Z',
+        mentions: [{ userId: '3', name: 'Friend', available: true }],
+      }] })
+
+    const page = await socialApi.getComments('9007199254740993000')
+    const history = await socialApi.getCommentEditHistory('9007199254740993011')
+
+    expect(page.items[0]).toMatchObject({ isDeleted: true, editedAt: null, replyCount: 2 })
+    expect(history[0]).toMatchObject({ content: 'old [[mention:3]]', mentions: [{ userId: '3', name: 'Friend' }] })
+    const historyQuery = gatewayGraphQl.mock.calls[1][0] as string
+    expect(historyQuery).toContain('commentEditHistory(commentId: 9007199254740993011)')
+    expect(historyQuery).not.toContain('viewerId')
+  })
+
+  it('edits a comment without sending a spoofable actor id', async () => {
+    gatewayGraphQl.mockResolvedValue({ updateComment: { id: '9007199254740993011' } })
+
+    await expect(socialApi.updateComment('9007199254740993011', 'edited')).resolves.toBe(true)
+
+    const [query, variables] = gatewayGraphQl.mock.calls[0]
+    expect(query).toContain('updateComment(input: { id: 9007199254740993011, content: $content })')
+    expect(query).not.toContain('userId')
+    expect(variables).toEqual({ content: 'edited' })
+  })
 })

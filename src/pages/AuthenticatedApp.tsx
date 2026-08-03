@@ -329,6 +329,7 @@ export function AuthenticatedApp() {
 
   function go(path: string) {
     if (activePrimaryDestination) destinationScrollRef.current[activePrimaryDestination] = documentScrollTop()
+    lastHomeDetailPostIdRef.current = null
     setReelOverlay(null)
     setPhotoOverlay(null)
     setMenuOpen(false)
@@ -435,7 +436,7 @@ export function AuthenticatedApp() {
           <button type="button" className="shell-search-back" onMouseDown={(event) => event.preventDefault()} onClick={closeQuickSearch} aria-label={t('back')} aria-hidden={!quickOpen} tabIndex={quickOpen ? 0 : -1}><svg className="shell-search-back-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 12H7M11.5 7.5 7 12l4.5 4.5" /></svg></button>
         </span>
         <form ref={searchRef} className={quickOpen ? 'shell-search-wrap is-active' : quickClosing ? 'shell-search-wrap is-closing' : 'shell-search-wrap'} onSubmit={submitSearch} onFocus={openQuickSearch} onKeyDown={(event) => { if (event.key === 'Escape') closeQuickSearch() }} onBlur={() => window.setTimeout(() => { if (!searchRef.current?.contains(document.activeElement)) beginQuickSearchClose() }, 0)}>
-          <label className="shell-search"><svg className={`shell-search-glyph${quickOpen ? ' is-hidden' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><input ref={searchInputRef} value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder={t('searchPlaceholder')} aria-label={t('searchPlaceholder')} /></label>
+          <label className="shell-search"><svg className={`shell-search-glyph${quickOpen ? ' is-hidden' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><span className="shell-search-responsive-placeholder" aria-hidden="true">{t('searchPlaceholder')}</span><input ref={searchInputRef} value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder={t('searchPlaceholder')} aria-label={t('searchPlaceholder')} /></label>
           {quickOpen && <QuickSearchDropdown query={searchText.trim()} items={quickResults} loading={quickLoading} onOpen={openQuickResult} onSearchQuery={runSearch} />}
         </form>
         </div>

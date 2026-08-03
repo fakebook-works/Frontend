@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { api } from '../api/client'
 import type { GatewayMedia, GatewayPost, SharedStory } from '../api/gatewayTypes'
 import { socialApi, type ContentEngagement } from '../api/social'
@@ -339,6 +339,16 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
     ? activePost.sharedSource.id
     : activePost?.id ?? contentId
 
+  function navigateFromViewer(path: string) {
+    // Commit removal of every portal owned by the viewer before the preserved
+    // destination underneath it is hidden during navigation.
+    flushSync(() => {
+      setShareOpen(false)
+      onClose()
+    })
+    onNavigate?.(path)
+  }
+
   return createPortal(<>
     <button type="button" className="content-detail-shell-close post-photo-viewer-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>
     <div className={`post-photo-viewer${fullscreen ? ' is-fullscreen' : ''}${activePost || showUnavailableSource ? '' : ' no-sidebar'}`} role="dialog" aria-modal="true" aria-label={t('photoViewer')}>
@@ -387,16 +397,16 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
           onToggleLike={toggleLike}
           onShare={() => setShareOpen(true)}
           onClose={onClose}
-          onNavigate={onNavigate}
+          onNavigate={navigateFromViewer}
           onPostChanged={(updatedPost) => {
             setPostOverrides((current) => ({ ...current, [updatedPost.id]: updatedPost }))
             setPost((current) => current?.id === updatedPost.id ? updatedPost : current)
           }}
           onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))}
         />}
-        {showUnavailableSource && <UnavailablePhotoDiscussion viewerId={viewerId} author={unavailableAuthor} onNavigate={onNavigate} />}
+        {showUnavailableSource && <UnavailablePhotoDiscussion viewerId={viewerId} author={unavailableAuthor} onNavigate={navigateFromViewer} />}
       </aside>
     </div>
-    {shareOpen && activePost && canReshare && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare initialPreview={activePost.sharedSource?.isAvailable ? activePost.sharedSource : null} allowStory={activePost.__typename !== 'GroupPostDetail' && activePost.sharedSource?.type !== 1 && activePost.sharedSource?.type !== 3} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
+    {shareOpen && activePost && canReshare && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare initialPreview={activePost.sharedSource?.isAvailable ? activePost.sharedSource : null} allowStory={activePost.__typename !== 'GroupPostDetail' && activePost.sharedSource?.type !== 1 && activePost.sharedSource?.type !== 3} onClose={() => setShareOpen(false)} onNavigate={navigateFromViewer} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
   </>, document.body)
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { api } from '../api/client'
 import { messengerApi } from '../api/messenger'
 import { socialApi, type ContentEngagement, type SocialGroup } from '../api/social'
@@ -56,8 +57,8 @@ function ReelPlaybackSpeedIcon() {
   </svg>
 }
 
-function ReelMenuChevron() {
-  return <svg className="reel-option-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6 3.5 4.2 4.5L6 12.5" /></svg>
+function ReelMenuChevron({ direction = 'right' }: { direction?: 'left' | 'right' }) {
+  return <svg className={`reel-option-chevron ${direction}`} viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m6 3.5 4.2 4.5L6 12.5" /></svg>
 }
 
 interface ContentActionsProps {
@@ -82,9 +83,10 @@ interface ContentActionsProps {
   onStoryCreated?: (story: SharedStory) => void
   onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void
   onOpenReel?: (post: GatewayReelPost) => void
+  onContentDeleted?: (contentId: string) => void
 }
 
-export function ContentActions({ viewerId, contentId, post, variant = 'post', canShare = true, canReshare = canShare, commentsPresentation = 'modal', commentsOpen: controlledCommentsOpen, renderActions = true, renderComments = true, engagementEnabled = true, reelPlaybackRate, onReelPlaybackRateChange, onCommentsOpenChange, onNavigate, onMessage, onStoryCreated, onOpenImage, onOpenReel }: ContentActionsProps) {
+export function ContentActions({ viewerId, contentId, post, variant = 'post', canShare = true, canReshare = canShare, commentsPresentation = 'modal', commentsOpen: controlledCommentsOpen, renderActions = true, renderComments = true, engagementEnabled = true, reelPlaybackRate, onReelPlaybackRateChange, onCommentsOpenChange, onNavigate, onMessage, onStoryCreated, onOpenImage, onOpenReel, onContentDeleted }: ContentActionsProps) {
   const { t, locale } = useI18n()
   const [engagement, setEngagement] = useState<ContentEngagement>({ ...EMPTY_ENGAGEMENT, targetId: contentId })
   const [loading, setLoading] = useState(true)
@@ -215,12 +217,26 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
     ? post.sharedSource.id
     : contentId
   const effectivePlaybackRate = reelPlaybackRate ?? localPlaybackRate
+  const ownedReel = variant === 'reel' && post?.__typename === 'ReelDetail' && post.author.id === viewerId
 
   function selectPlaybackRate(rate: number) {
     setLocalPlaybackRate(rate)
     onReelPlaybackRateChange?.(rate)
     setReelSpeedOpen(false)
     setReelOptionsOpen(false)
+  }
+
+  function navigateFromContentAction(path: string) {
+    // Primary destinations are preserved with React Activity. A portal owned by a
+    // destination that is about to become hidden does not inherit Activity's hidden
+    // wrapper, so commit its close before changing route or its modal/X can linger.
+    flushSync(() => {
+      setCommentsOpen(false)
+      setShareOpen(false)
+      setReelOptionsOpen(false)
+      setReelSpeedOpen(false)
+    })
+    onNavigate?.(path)
   }
 
   async function copyReelLink() {
@@ -231,6 +247,23 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
       setReelSpeedOpen(false)
     } catch {
       setError(t('copyLinkError'))
+    }
+  }
+
+  async function deleteOwnedReel() {
+    if (!ownedReel || busy) return
+    if (!window.confirm(t('deleteReelConfirm'))) return
+    setBusy('delete-reel')
+    setError(null)
+    try {
+      if (!await socialApi.deleteContent(contentId)) throw new Error('Delete rejected')
+      setReelOptionsOpen(false)
+      setReelSpeedOpen(false)
+      onContentDeleted?.(contentId)
+    } catch {
+      setError(t('deleteReelError'))
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -254,18 +287,22 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
       {canShare && <button type="button" className={shareOpen ? 'active' : ''} aria-label={t('shareAction')} disabled={!sharingAllowed} aria-disabled={!sharingAllowed} onClick={() => setShareOpen(true)}><Icon name="shareOutline" /><span aria-hidden={!loading && engagement.shareCount === 0} className={!loading && engagement.shareCount === 0 ? 'reel-action-count is-empty' : 'reel-action-count'}>{reelCounts.shares}</span></button>}
       <button type="button" aria-label={engagement.viewerHasSaved ? t('saved') : t('save')} className={`reel-save-action${engagement.viewerHasSaved ? ' active' : ''}`} disabled={loading || busy != null} onClick={() => void toggleSave()}><Icon name="bookmark" /></button>
       <button type="button" className={`reel-more-action${reelOptionsOpen ? ' active' : ''}`} aria-label={t('more')} aria-expanded={reelOptionsOpen} onClick={() => { setReelOptionsOpen((open) => !open); setReelSpeedOpen(false) }}><Icon name="more" /></button>
-      {reelOptionsOpen && <div className="reel-options-menu" role="menu" aria-label={t('more')}>
+      {reelOptionsOpen && !reelSpeedOpen && <div className="reel-options-menu" role="menu" aria-label={t('more')}>
         <button type="button" role="menuitem" className={reelPreference === 'interested' ? 'selected' : ''} onClick={() => { setReelPreference('interested'); setReelOptionsOpen(false) }}><ReelPreferenceIcon kind="plus" /><span>{t('interested')}</span></button>
         <button type="button" role="menuitem" className={reelPreference === 'not-interested' ? 'selected' : ''} onClick={() => { setReelPreference('not-interested'); setReelOptionsOpen(false) }}><ReelPreferenceIcon kind="minus" /><span>{t('notInterested')}</span></button>
         <button type="button" role="menuitem" onClick={() => void copyReelLink()}><Icon name="link" size={21} /><span>{t('copyLink')}</span></button>
-        <button type="button" role="menuitem" aria-expanded={reelSpeedOpen} onClick={() => setReelSpeedOpen((open) => !open)}><ReelPlaybackSpeedIcon /><span>{t('videoPlaybackSpeed')}</span><strong>{effectivePlaybackRate}x</strong><ReelMenuChevron /></button>
-        {reelSpeedOpen && <div className="reel-speed-menu" role="menu" aria-label={t('videoPlaybackSpeed')}>
+        <button type="button" role="menuitem" aria-expanded="false" onClick={() => setReelSpeedOpen(true)}><ReelPlaybackSpeedIcon /><span>{t('videoPlaybackSpeed')}</span><strong>{effectivePlaybackRate}x</strong><ReelMenuChevron /></button>
+        {ownedReel && <button type="button" role="menuitem" className="reel-delete-option" disabled={busy === 'delete-reel'} onClick={() => void deleteOwnedReel()}><Icon name="trash" size={21} /><span>{t('deleteReel')}</span></button>}
+      </div>}
+      {reelOptionsOpen && reelSpeedOpen && <div className="reel-options-menu reel-speed-panel" role="menu" aria-label={t('videoPlaybackSpeed')}>
+        <button type="button" className="reel-speed-back" aria-label={t('back')} onClick={() => setReelSpeedOpen(false)}><ReelMenuChevron direction="left" /><span>{t('videoPlaybackSpeed')}</span><strong>{effectivePlaybackRate}x</strong></button>
+        <div className="reel-speed-menu">
           {[.5, .75, 1, 1.25, 1.5, 2].map((rate) => <button type="button" role="menuitemradio" aria-checked={effectivePlaybackRate === rate} className={effectivePlaybackRate === rate ? 'selected' : ''} key={rate} onClick={() => selectPlaybackRate(rate)}><span>{rate}x</span>{effectivePlaybackRate === rate && <Icon name="check" size={16} />}</button>)}
-        </div>}
+        </div>
       </div>}
     </aside>)}
-    {renderComments && commentsOpen && (commentsPresentation === 'sidebar' ? <aside className="reels-comments-sidebar" aria-label={t('comments')}><PostDetailCommentsModal key={`${viewerId}:${contentId}`} variant="photo-sidebar" viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} shareDisabled={!sharingAllowed} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onOpenReel={onOpenReel ? (detailPost) => { setCommentsOpen(false); onOpenReel(detailPost) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} /></aside> : <PostDetailCommentsModal key={`${viewerId}:${contentId}`} viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} shareDisabled={!sharingAllowed} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={onNavigate} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onOpenReel={onOpenReel ? (detailPost) => { setCommentsOpen(false); onOpenReel(detailPost) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} />)}
-    {sharingAllowed && shareOpen && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare initialPreview={post?.sharedSource?.isAvailable ? post.sharedSource : null} allowStory={post?.__typename !== 'GroupPostDetail' && post?.sharedSource?.type !== 1 && post?.sharedSource?.type !== 3} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
+    {renderComments && commentsOpen && (commentsPresentation === 'sidebar' ? <aside className="reels-comments-sidebar" aria-label={t('comments')}><PostDetailCommentsModal key={`${viewerId}:${contentId}`} variant="photo-sidebar" viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} shareDisabled={!sharingAllowed} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={navigateFromContentAction} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onOpenReel={onOpenReel ? (detailPost) => { setCommentsOpen(false); onOpenReel(detailPost) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} /></aside> : <PostDetailCommentsModal key={`${viewerId}:${contentId}`} viewerId={viewerId} targetId={contentId} post={post} engagement={engagement} likeBusy={busy === 'like'} canShare={canShare} shareDisabled={!sharingAllowed} onToggleLike={toggleLike} onShare={() => { setCommentsOpen(false); setShareOpen(true) }} onClose={() => setCommentsOpen(false)} onNavigate={navigateFromContentAction} onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { setCommentsOpen(false); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined} onOpenReel={onOpenReel ? (detailPost) => { setCommentsOpen(false); onOpenReel(detailPost) } : undefined} onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))} />)}
+    {sharingAllowed && shareOpen && <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare initialPreview={post?.sharedSource?.isAvailable ? post.sharedSource : null} allowStory={post?.__typename !== 'GroupPostDetail' && post?.sharedSource?.type !== 1 && post?.sharedSource?.type !== 3} onClose={() => setShareOpen(false)} onNavigate={navigateFromContentAction} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />}
   </>
 }
 
@@ -285,6 +322,12 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
   const [loadError, setLoadError] = useState(false)
   const [likeBusy, setLikeBusy] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+
+  function navigateFromDetail(path: string) {
+    // Unmount portalled detail chrome before its route owner is hidden.
+    flushSync(onClose)
+    onNavigate?.(path)
+  }
 
   useEffect(() => {
     let active = true
@@ -336,7 +379,7 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
     : post.id
 
   if (shareOpen && canReshare) {
-    return <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare initialPreview={post.sharedSource?.isAvailable ? post.sharedSource : null} allowStory={post.__typename !== 'GroupPostDetail' && post.sharedSource?.type !== 1 && post.sharedSource?.type !== 3} onClose={() => setShareOpen(false)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />
+    return <ShareModal viewerId={viewerId} sourceId={shareSourceId} canReshare initialPreview={post.sharedSource?.isAvailable ? post.sharedSource : null} allowStory={post.__typename !== 'GroupPostDetail' && post.sharedSource?.type !== 1 && post.sharedSource?.type !== 3} onClose={() => setShareOpen(false)} onNavigate={navigateFromDetail} onMessage={onMessage} onStoryCreated={onStoryCreated} onShared={() => setEngagement((current) => ({ ...current, shareCount: current.shareCount + 1 }))} />
   }
 
   return <PostDetailCommentsModal
@@ -350,7 +393,7 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
     onToggleLike={toggleLike}
     onShare={() => setShareOpen(true)}
     onClose={onClose}
-    onNavigate={onNavigate}
+    onNavigate={navigateFromDetail}
     onPostChanged={setPost}
     onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { onClose(); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined}
     onOpenReel={(detailPost) => {

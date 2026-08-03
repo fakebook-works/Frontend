@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import type { NormalStory } from '../api/gatewayTypes'
 import type { MediaUpload } from '../api/types'
 import { useI18n } from '../i18n'
+import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
 import {
   DEFAULT_STORY_BACKGROUND,
   STORY_BACKGROUND_PRESETS,
@@ -34,6 +35,7 @@ function createPreviewUrl(file: File) {
 }
 
 export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryCreatorModalProps) {
+  useBodyInteractionLock(open, ['story-creator-open'])
   const { t } = useI18n()
   const inputId = useId()
   const fileInputRef = useRef<HTMLInputElement>(null)

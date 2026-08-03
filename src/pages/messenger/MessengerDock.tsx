@@ -7,6 +7,7 @@ import type { MessengerPresenceDto, MessengerRealtimeEvent } from '../../api/mes
 import { socialApi } from '../../api/social'
 import type { MediaUpload, MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
+import { RichTextContent } from '../../components/MentionContent'
 import { Icon } from '../../components/Icon'
 import { VerifiedBadge } from '../../components/VerifiedBadge'
 import { LinkPreview } from '../../components/LinkPreview'
@@ -229,6 +230,8 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const [composeToolsConversationId, setComposeToolsConversationId] = useState<string | null>(null)
   const [expandedEditHistoryIds, setExpandedEditHistoryIds] = useState<Set<string>>(() => new Set())
   const [bubblePreviewAnchor, setBubblePreviewAnchor] = useState<BubblePreviewAnchor | null>(null)
+  const translateRef = useRef(t)
+  translateRef.current = t
   const seenEventIds = useRef(new Set<string>())
   const conversationsRef = useRef<MessengerConversationDto[]>([])
   // Read through a ref so the inbox stream does not tear down and reconnect every time a
@@ -574,22 +577,22 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const loadConversations = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true)
     try {
-      const items = await messengerApi.conversations(me.id)
+      const items = await messengerApi.conversations(me.id, 100)
       conversationsRef.current = items
       setConversations(items)
       setError(null)
       return items
     } catch {
-      setError(t('messengerUnavailableDesc'))
+      setError(translateRef.current('messengerUnavailableDesc'))
       return null
     } finally {
       if (showLoading) setLoading(false)
     }
-  }, [me.id, t])
+  }, [me.id])
 
   useEffect(() => {
-    if (panelOpen && conversations.length === 0) void loadConversations(true)
-  }, [conversations.length, loadConversations, panelOpen])
+    if (panelOpen) void loadConversations(conversationsRef.current.length === 0)
+  }, [loadConversations, panelOpen])
 
   useEffect(() => {
     if (!panelOpen) {
@@ -1342,8 +1345,8 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
                           ? <p className="mini-msg-bubble message-deleted-bubble">Tin nhắn đã được thu hồi</p>
                           : likeLevel
                             ? <span className={`messenger-like-message level-${likeLevel}`} aria-label={t('like')}><MessengerLikeIcon size={48} /></span>
-                            : message.body && <><p className="mini-msg-bubble">{message.body}</p><LinkPreview content={message.body} onNavigate={onNavigate} /></>}
-                        {!message.deleted && <MediaGallery attachments={message.attachments} compact messageId={message.id} mine={mine} senderName={message.sender.displayName} loadConversationImages={() => messengerApi.conversationImages(conversation.id)} />}
+                            : message.body && <><p className="mini-msg-bubble"><RichTextContent content={message.body} onNavigate={onNavigate} /></p><LinkPreview content={message.body} onNavigate={onNavigate} /></>}
+                        {!message.deleted && <MediaGallery attachments={message.attachments} compact messageId={message.id} mine={mine} senderName={message.sender.displayName} loadConversationMedia={() => messengerApi.conversationMedia(conversation.id)} onForward={() => setForwardingMessage(message)} />}
                         <MessageHoverTimestamp createdAt={message.createdAt} mine={mine} />
                         <MessageReactionSummary reactions={message.reactions} viewerId={me.id} />
                       </div>
