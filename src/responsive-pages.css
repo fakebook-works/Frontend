@@ -40,11 +40,9 @@
     overflow-x: auto;
     overflow-y: hidden;
     padding: 0 6px 4px;
-    scrollbar-width: none;
+    
     -webkit-overflow-scrolling: touch;
   }
-
-  .saved-page-sidebar nav::-webkit-scrollbar { display: none; }
   .saved-page-sidebar nav > button {
     width: auto;
     min-width: max-content;
@@ -184,14 +182,9 @@
     overflow-y: hidden;
     overscroll-behavior-x: contain;
     padding-bottom: 4px;
-    scrollbar-width: none;
+    
     -webkit-overflow-scrolling: touch;
   }
-
-  .friends-page-sidebar nav::-webkit-scrollbar,
-  .groups-primary-nav::-webkit-scrollbar,
-  .discovery-sidebar nav::-webkit-scrollbar,
-  .settings-sidebar nav::-webkit-scrollbar { display: none; }
 
   .friends-page-sidebar nav > button,
   .groups-primary-nav > button,
@@ -525,11 +518,9 @@
     overflow-x: auto;
     overflow-y: hidden;
     overscroll-behavior-x: contain;
-    scrollbar-width: none;
+    
     -webkit-overflow-scrolling: touch;
   }
-
-  .self-profile-header-shell .self-profile-tabs::-webkit-scrollbar { display: none; }
   .self-profile-tabs > .self-profile-tab-option { min-height: 48px; padding-inline: 14px; }
   .self-profile-tabs > .self-profile-tab-more,
   .self-profile-tabs > .visitor-profile-tab-menu { position: sticky; right: 0; flex: 0 0 auto; }
@@ -565,18 +556,16 @@
     margin-left: 0;
     overflow-x: auto;
     flex-wrap: nowrap;
-    scrollbar-width: none;
+    
   }
-  .self-profile-section-actions::-webkit-scrollbar { display: none; }
 
   .self-profile-collection-tabs {
     min-height: 46px;
     margin-bottom: 12px;
     overflow-x: auto;
     overflow-y: hidden;
-    scrollbar-width: none;
+    
   }
-  .self-profile-collection-tabs::-webkit-scrollbar { display: none; }
   .self-profile-collection-tabs > button { flex: 0 0 auto; padding-inline: 14px; }
 
   .self-profile-about-details,
