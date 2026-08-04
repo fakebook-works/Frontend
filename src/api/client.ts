@@ -792,6 +792,15 @@ export const api = {
     )
     return data.changePassword
   },
+  changeEmail: async (currentPassword: string, newEmail: string): Promise<AuthActionResult> => {
+    const data = await graphQlRequest<{ changeEmail: AuthActionResult }>(
+      `mutation ChangeEmail($input: ChangeEmailInput!) {
+        changeEmail(input: $input) { success message refreshTokenCookie { operation } }
+      }`,
+      { input: { currentPassword, newEmail } },
+    )
+    return data.changeEmail
+  },
   logout: async (): Promise<AuthActionResult> => {
     const data = await graphQlRequest<{ logout: AuthActionResult }>(
       `mutation Logout { logout { success message } }`,

@@ -92,4 +92,6 @@ export interface MessengerConversationDto {
   updatedAt: string
   unreadCount: number
   lastMessage: MessengerMessageDto | null
+  viewerHasBlockedDirectUser?: boolean
+  directUserHasBlockedViewer?: boolean
 }

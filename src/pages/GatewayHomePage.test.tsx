@@ -944,6 +944,24 @@ describe('GatewayHomePage', () => {
     expect(onMessage).toHaveBeenCalledWith('2')
   })
 
+  it('opens an existing direct conversation without requiring the contact to remain a friend', async () => {
+    const directConversation = {
+      id: 'direct-existing', type: 'DIRECT' as const, participants: [
+        { id: '9007199254740993123', username: 'me', displayName: 'Me', avatarUrl: null, leftAt: null },
+        { id: '9', username: 'former-friend', displayName: 'Former Friend', avatarUrl: null, leftAt: null },
+      ], title: null, avatarUrl: null, updatedAt: '2026-01-01', unreadCount: 0, lastMessage: null,
+    }
+    messengerMocks.directConversations.mockResolvedValue([directConversation])
+    const onConversation = vi.fn()
+    const onMessage = vi.fn().mockResolvedValue(undefined)
+    render(<GatewayHomePage onConversation={onConversation} onMessage={onMessage} />)
+
+    const contactName = await screen.findByText('Former Friend')
+    fireEvent.click(contactName.closest('button')!)
+    expect(onConversation).toHaveBeenCalledWith(directConversation)
+    expect(onMessage).not.toHaveBeenCalled()
+  })
+
   it('renders active group conversations below contacts and opens the selected group', async () => {
     const directConversation = {
       id: 'direct-1', type: 'DIRECT' as const, participants: [

@@ -20,6 +20,7 @@ import { MessageActionRail, MessageHoverTimestamp, MessageReactionSummary, Messa
 import { MessageSenderAvatar } from './MessageSenderAvatar'
 import { MessageEditHistory, MessageEditingBar, MessageEditMarker } from './MessageEditState'
 import { SystemMessageLine } from './SystemMessageLine'
+import type { PendingMediaUploadPreview } from './pendingMediaUploadState'
 import { useI18n } from '../../i18n'
 
 interface MessageThreadProps {
@@ -28,6 +29,7 @@ interface MessageThreadProps {
   messages: MessengerMessageDto[]
   draft: string
   pendingAttachments: MediaUpload[]
+  pendingUploadPreviews: PendingMediaUploadPreview[]
   uploading: boolean
   apiState: 'gateway' | 'unavailable'
   showDetail: boolean
@@ -39,6 +41,7 @@ interface MessageThreadProps {
   onDraftChange: (value: string) => void
   onAttachFiles: (files: FileList | File[] | null) => void
   onRemoveAttachment: (url: string) => void
+  onRemovePendingUpload: (id: string) => void
   onSubmit: (e: FormEvent) => void
   onSendLike: (level: MessengerLikeLevel) => void
   replyTarget: MessengerMessageDto | null
@@ -51,6 +54,7 @@ interface MessageThreadProps {
   onOpenProfile: (id: string) => void
   onNavigate?: (path: string) => void
   onOpenGroup?: () => void
+  onUnblockDirect?: (targetUserId: string) => void
   onToggleDetail: () => void
   onBack: () => void
 }
@@ -61,6 +65,7 @@ export function MessageThread({
   messages,
   draft,
   pendingAttachments,
+  pendingUploadPreviews,
   uploading,
   apiState,
   showDetail,
@@ -72,6 +77,7 @@ export function MessageThread({
   onDraftChange,
   onAttachFiles,
   onRemoveAttachment,
+  onRemovePendingUpload,
   onSubmit,
   onSendLike,
   replyTarget,
@@ -84,6 +90,7 @@ export function MessageThread({
   onOpenProfile,
   onNavigate,
   onOpenGroup,
+  onUnblockDirect,
   onToggleDetail,
   onBack,
 }: MessageThreadProps) {
@@ -195,6 +202,15 @@ export function MessageThread({
     ? conversation.participants.find((participant) => participant.id === typingUserId)
     : undefined
   const isOnline = conversation.type === 'GROUP' ? groupOnlineCount > 0 : Boolean(presence?.isOnline)
+  const viewerBlockedOther = conversation.type === 'DIRECT' && Boolean(conversation.viewerHasBlockedDirectUser)
+  const otherBlockedViewer = conversation.type === 'DIRECT' && Boolean(conversation.directUserHasBlockedViewer)
+  const directBlockNotice = viewerBlockedOther && otherBlockedViewer
+    ? 'messengerBlockedBoth'
+    : viewerBlockedOther
+      ? 'messengerBlockedByYou'
+      : otherBlockedViewer
+        ? 'messengerBlockedByThem'
+        : null
 
   function handleSubmit(e: FormEvent) {
     if (editingMessage) {
@@ -355,6 +371,10 @@ export function MessageThread({
       </div>
 
       {/* Compose */}
+      {directBlockNotice ? <div className="messenger-block-notice" role="status">
+        <p>{t(directBlockNotice)}</p>
+        {viewerBlockedOther && otherParticipant && onUnblockDirect && <button type="button" onClick={() => onUnblockDirect(otherParticipant.id)}>{t('unblock')}</button>}
+      </div> : <>
       {editingMessage
         ? <div className="messenger-editing-bar"><MessageEditingBar message={editingMessage} onCancel={cancelEditing} /></div>
         : replyTarget && <div className="messenger-replying-bar"><MessageReplyPreview message={replyTarget} viewerId={me.id} composer onCancel={onCancelReply} /></div>}
@@ -412,7 +432,7 @@ export function MessageThread({
           />
           <EmojiButton onPick={(emoji) => editingMessage ? setEditDraft(editDraft + emoji) : onDraftChange(draft + emoji)} />
         </label>
-        {editingMessage || draft.trim() || pendingAttachments.length ? <button
+        {editingMessage || draft.trim() || pendingAttachments.length || pendingUploadPreviews.length ? <button
           type="submit"
           className="icon-circle subtle send ready"
           aria-label={t('sendMessage')}
@@ -421,9 +441,15 @@ export function MessageThread({
           <Icon name="send" size={20} />
         </button> : <HoldLikeButton label={t('like')} disabled={uploading} buttonClassName="icon-circle subtle send ready messenger-hold-like" onSend={onSendLike} />}
       </form>
-      {(pendingAttachments.length > 0 || uploading) && (
+      {(pendingAttachments.length > 0 || pendingUploadPreviews.length > 0) && (
         <div className="messenger-attachment-tray">
-          {uploading && <span className="attachment-chip">{t('uploading')}</span>}
+          {pendingUploadPreviews.map((preview) => (
+            <button className="attachment-chip" key={preview.id} type="button" onClick={() => onRemovePendingUpload(preview.id)}>
+              <MediaAttachmentPreview attachment={preview.attachment} />
+              <span className="attachment-chip-name">{preview.attachment.name}</span>
+              <span aria-hidden="true">×</span>
+            </button>
+          ))}
           {pendingAttachments.map((attachment) => (
             <button
               key={attachment.url}
@@ -438,6 +464,7 @@ export function MessageThread({
           ))}
         </div>
       )}
+      </>}
     </section>
   )
 }

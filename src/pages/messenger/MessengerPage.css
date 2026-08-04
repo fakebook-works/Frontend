@@ -2109,7 +2109,7 @@ body.messenger-media-viewer-open .message-hover-timestamp { display: none !impor
   border: 0;
   border-radius: 19px;
   color: var(--text);
-  font-size: .84rem;
+  font-size: .88rem;
   font-weight: 600;
   background: transparent;
 }
@@ -2131,8 +2131,8 @@ body.messenger-media-viewer-open .message-hover-timestamp { display: none !impor
 }
 .messenger-popover-redesign .messenger-popover-list > button.unread strong,
 .messenger-popover-redesign .messenger-popover-list > button.unread small { color: var(--text); font-weight: 600; }
-.messenger-popover-redesign .messenger-popover-list strong { font-size: .84rem; font-weight: 600; }
-.messenger-popover-redesign .messenger-popover-list small { font-size: .76rem; }
+.messenger-popover-redesign .messenger-popover-list strong { font-size: .9rem; font-weight: 600; }
+.messenger-popover-redesign .messenger-popover-list small { font-size: .8rem; }
 
 .mini-chat-region {
   z-index: 1400;
@@ -3053,4 +3053,59 @@ body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-new-but
   .media-lightbox-thumbnail { width: 46px; height: 46px; flex-basis: 46px; border-radius: 7px; }
   .media-lightbox-nav.previous { left: 8px; }
   .media-lightbox-nav.next { right: 8px; }
+}
+.mini-chat-block-notice {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--divider);
+  color: var(--secondary);
+  text-align: center;
+  font-size: .8rem;
+}
+
+.messenger-block-notice {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--divider);
+  color: var(--secondary);
+  text-align: center;
+  font-size: .85rem;
+}
+
+.messenger-block-notice p {
+  margin: 0;
+}
+
+.messenger-block-notice button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 16px;
+  color: var(--blue);
+  background: var(--chip-active);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mini-chat-block-notice p {
+  margin: 0;
+}
+
+.mini-chat-block-notice button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 15px;
+  color: var(--blue);
+  background: var(--chip-active);
+  font-weight: 600;
+  cursor: pointer;
 }

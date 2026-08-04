@@ -74,8 +74,8 @@ describe('FriendsPage redesign', () => {
 
     await waitFor(() => expect(socialMocks.getFriendSuggestions).toHaveBeenCalledWith('1', 36))
     const labels = [...container.querySelectorAll('.friends-page-sidebar nav strong')].map((item) => item.textContent)
-    expect(labels).toEqual(['friendsHome', 'sentRequests', 'incomingRequests', 'friendSuggestionsNav', 'allFriends'])
-    expect(container.querySelectorAll('.friend-nav-glyph')).toHaveLength(5)
+    expect(labels).toEqual(['friendsHome', 'sentRequests', 'incomingRequests', 'friendSuggestionsNav', 'allFriends', 'blockedPeople'])
+    expect(container.querySelectorAll('.friend-nav-glyph')).toHaveLength(6)
     expect(screen.getByRole('button', { name: 'settingsPrivacy' })).toBeInTheDocument()
     expect(container.querySelector('.friends-settings-button .sidebar-settings-glyph')).toBeInTheDocument()
     expect(container.querySelector('.friends-page-sidebar nav > button > svg')).not.toBeInTheDocument()

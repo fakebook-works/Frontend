@@ -767,12 +767,31 @@ async function getGroupMembershipPage(userId: string, field: 'memberGroups' | 'a
   return { ...data[field], items: data[field].items.map(groupFromGraphQl) }
 }
 
+async function getProfileGroupMembershipPage(userId: string, field: 'profileMemberGroups' | 'profileAdminGroups', limit = 50, cursor: string | null = null): Promise<GroupMembershipPage> {
+  const id = graphQlLongLiteral(userId)
+  const data = await gatewayGraphQl<Record<string, { items: Array<Record<string, unknown>>; endCursor: string | null; hasNextPage: boolean }>>(
+    `query ProfileGroupMemberships($limit: Int!, $cursor: String) {
+      ${field}(userId: ${id}, limit: $limit, cursor: $cursor) { items { ${GROUP_FIELDS} } endCursor hasNextPage }
+    }`,
+    { limit, cursor },
+  )
+  return { ...data[field], items: data[field].items.map(groupFromGraphQl) }
+}
+
 export function getMemberGroups(userId: string, limit = 50, cursor: string | null = null): Promise<GroupMembershipPage> {
   return getGroupMembershipPage(userId, 'memberGroups', limit, cursor)
 }
 
 export function getAdminGroups(userId: string, limit = 50, cursor: string | null = null): Promise<GroupMembershipPage> {
   return getGroupMembershipPage(userId, 'adminGroups', limit, cursor)
+}
+
+export function getProfileMemberGroups(userId: string, limit = 50, cursor: string | null = null): Promise<GroupMembershipPage> {
+  return getProfileGroupMembershipPage(userId, 'profileMemberGroups', limit, cursor)
+}
+
+export function getProfileAdminGroups(userId: string, limit = 50, cursor: string | null = null): Promise<GroupMembershipPage> {
+  return getProfileGroupMembershipPage(userId, 'profileAdminGroups', limit, cursor)
 }
 
 export async function getPendingGroupJoins(userId: string, limit = 50, cursor: string | null = null): Promise<GroupMembershipPage> {
@@ -1120,6 +1139,7 @@ export async function blockUser(viewerId: string, blockedUserId: string): Promis
   const data = await gatewayGraphQl<{ blockUser: boolean }>(
     `mutation { blockUser(blockerId: ${viewer}, blockedUserId: ${blocked}) }`,
   )
+  if (data.blockUser && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('fakebook:block-state-changed'))
   return data.blockUser
 }
 
@@ -1129,6 +1149,7 @@ export async function unblockUser(viewerId: string, blockedUserId: string): Prom
   const data = await gatewayGraphQl<{ unblockUser: boolean }>(
     `mutation { unblockUser(blockerId: ${viewer}, blockedUserId: ${blocked}) }`,
   )
+  if (data.unblockUser && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('fakebook:block-state-changed'))
   return data.unblockUser
 }
 
@@ -1520,6 +1541,8 @@ export const socialApi = {
   getProfileRelationshipStates,
   getMemberGroups,
   getAdminGroups,
+  getProfileMemberGroups,
+  getProfileAdminGroups,
   getPendingGroupJoins,
   getGroupMembershipState,
   getGroupMembershipStates,

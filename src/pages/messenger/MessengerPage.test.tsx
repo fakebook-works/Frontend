@@ -42,6 +42,8 @@ vi.mock('../../i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 describe('Messenger unavailable state', () => {
   window.HTMLElement.prototype.scrollIntoView = vi.fn()
   beforeEach(() => {
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn((file: File) => `blob:${file.name}`) })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
     messengerMocks.conversations.mockReset().mockRejectedValue(new Error('offline'))
     messengerMocks.messages.mockReset().mockResolvedValue([])
     messengerMocks.message.mockReset()
@@ -126,28 +128,50 @@ describe('Messenger unavailable state', () => {
       { id: 'conversation-1', type: 'DIRECT', participants: [me, friendOne], title: null, avatarUrl: null, updatedAt: '2026-01-02', unreadCount: 0, lastMessage: null },
       { id: 'conversation-2', type: 'DIRECT', participants: [me, friendTwo], title: null, avatarUrl: null, updatedAt: '2026-01-01', unreadCount: 0, lastMessage: null },
     ])
-    uploadMocks.uploadMediaFiles.mockResolvedValue([{
-      url: '/media/files/first.png',
-      type: 'image',
-      contentType: 'image/png',
-      size: 5,
-      name: 'first.png',
-      assetId: 'asset-first',
-      state: 'pending',
-    }])
+    uploadMocks.uploadMediaFiles.mockReturnValue(new Promise(() => undefined))
 
     const { container } = render(<MessengerPage me={me} friends={[friendOne, friendTwo]} onOpenProfile={vi.fn()} />)
     await screen.findAllByText('Friend One')
     const fileInput = container.querySelector<HTMLInputElement>('.messenger-file-input')!
     fireEvent.change(fileInput, { target: { files: [new File(['image'], 'first.png', { type: 'image/png' })] } })
     expect(await screen.findByText('first.png')).toBeInTheDocument()
+    expect(uploadMocks.uploadMediaFiles).not.toHaveBeenCalled()
 
     const row = (name: string) => screen.getAllByRole('button').find((button) => button.classList.contains('messenger-row') && button.textContent?.includes(name))!
     fireEvent.click(row('Friend Two'))
     expect(screen.queryByText('first.png')).not.toBeInTheDocument()
     fireEvent.click(row('Friend One'))
     expect(await screen.findByText('first.png')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'sendMessage' }))
+
+    await waitFor(() => expect(uploadMocks.uploadMediaFiles).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'first.png', type: 'image/png' }),
+    ]))
     expect(uploadMocks.cancelPendingMedia).not.toHaveBeenCalled()
+  })
+
+  it('caps local previews before upload so a later selection cannot create orphan pending assets', async () => {
+    const me = { id: 'me', username: 'me', displayName: 'Me', avatarUrl: null }
+    const friend = { id: 'friend-1', username: 'friend-1', displayName: 'Friend One', avatarUrl: null }
+    messengerMocks.conversations.mockResolvedValue([
+      { id: 'conversation-1', type: 'DIRECT', participants: [me, friend], title: null, avatarUrl: null, updatedAt: '2026-01-02', unreadCount: 0, lastMessage: null },
+    ])
+    uploadMocks.uploadMediaFiles.mockReturnValue(new Promise(() => undefined))
+
+    const { container } = render(<MessengerPage me={me} friends={[friend]} onOpenProfile={vi.fn()} />)
+    await screen.findAllByText('Friend One')
+    const fileInput = container.querySelector<HTMLInputElement>('.messenger-file-input')!
+    const files = Array.from({ length: 12 }, (_, index) => new File(['image'], `image-${index}.png`, { type: 'image/png' }))
+    fireEvent.change(fileInput, { target: { files: files.slice(0, 6) } })
+    fireEvent.change(fileInput, { target: { files: files.slice(6) } })
+
+    await waitFor(() => expect(container.querySelectorAll('.attachment-chip')).toHaveLength(10))
+    fireEvent.click(screen.getByRole('button', { name: 'sendMessage' }))
+    await waitFor(() => expect(uploadMocks.uploadMediaFiles).toHaveBeenCalledWith(
+      expect.arrayContaining(files.slice(0, 10)),
+    ))
+    expect(uploadMocks.uploadMediaFiles.mock.calls[0][0]).toHaveLength(10)
   })
 
   it('keeps an initially selected conversation unread until the user clicks the thread', async () => {

@@ -155,6 +155,25 @@ describe('Gateway contract helpers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('routes email replacement through the authenticated Authentication mutation without a user id', async () => {
+    persistAuth({
+      accessToken: 'test-token',
+      refreshTokenExpiresAt: null,
+      user: { userId: '1', email: 'old@example.com', validDate: null, status: 1 },
+    })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: { changeEmail: { success: true, message: 'verify', refreshTokenCookie: { operation: 'CLEAR' } } },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    await expect(api.changeEmail('CurrentPassword123!', 'new@example.com')).resolves.toMatchObject({ success: true })
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as { query: string; variables: Record<string, unknown> }
+    expect(request.query).toContain('mutation ChangeEmail($input: ChangeEmailInput!)')
+    expect(request.query).toContain('changeEmail(input: $input)')
+    expect(request.query).not.toContain('userId')
+    expect(request.variables).toEqual({ input: { currentPassword: 'CurrentPassword123!', newEmail: 'new@example.com' } })
+  })
+
   it('refreshes an expired access token once and retries with the rotated token', async () => {
     persistAuth({
       accessToken: 'expired-token',

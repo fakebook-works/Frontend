@@ -197,6 +197,7 @@ export function FriendsPage({
     { id: 'incoming', path: '/friends/incoming', label: t('incomingRequests'), icon: 'request-received' },
     { id: 'suggestions', path: '/friends/suggestions', label: t('friendSuggestionsNav'), icon: 'suggestions' },
     { id: 'friends', path: '/friends/friends', label: t('allFriends'), icon: 'friends' },
+    { id: 'blocked', path: '/friends/blocked', label: t('blockedPeople'), icon: 'blocked' },
   ]
   const title = section === 'home' || section === 'suggestions'
     ? t('friendSuggestionsTitle')
@@ -367,10 +368,11 @@ function FriendDirectorySidebar({
   </aside>
 }
 
-type FriendNavIconName = 'home' | 'request-sent' | 'request-received' | 'suggestions' | 'friends'
+type FriendNavIconName = 'home' | 'request-sent' | 'request-received' | 'suggestions' | 'friends' | 'blocked'
 
 function FriendNavIcon({ name }: { name: FriendNavIconName }) {
   if (name === 'home') return <FriendPeopleGlyph className="friend-nav-glyph" filled />
+  if (name === 'blocked') return <Icon name="block" className="friend-nav-glyph" size={22} />
 
   const symbolPath = name === 'suggestions'
     ? 'M15.8 16.1v6.2m-3.1-3.1h6.2'

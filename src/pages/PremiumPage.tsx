@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, isTerminalPaymentStatus } from '../api/client'
 import type { PremiumOrder, PremiumPlan, PremiumPlanOffer } from '../api/gatewayTypes'
+import { Icon } from '../components/Icon'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
 import { parsePayOSReturn } from './payosReturn'
@@ -143,7 +144,8 @@ export function PremiumPage() {
   return (
     <main className="premium-page">
       <section className="premium-hero">
-        <div>
+        <div className="premium-hero-copy">
+          <span className="premium-hero-mark"><Icon name="gift" size={24} /></span>
           <h1>{t('premiumTitle')}</h1>
           <p>{t('premiumSubtitle')}</p>
         </div>
@@ -165,6 +167,7 @@ export function PremiumPage() {
             {order && <div><dt>{t('premium')}</dt><dd>{order.plan === 'MONTHLY' ? t('monthlyPlan') : t('yearlyPlan')} · {currency.format(order.amount)}</dd></div>}
           </dl>
           {order?.status === 'ACTIVATED' && <p className="form-success">{t('paymentActivated')}</p>}
+          {payOSReturn?.status === 'PAID' && order?.status !== 'ACTIVATED' && <p className="premium-activation-note"><span className="spinner" />{t('paymentReceivedActivating')}</p>}
           {orderError && <p className="form-error">{orderError}</p>}
         </section>
       )}

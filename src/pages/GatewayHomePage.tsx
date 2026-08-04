@@ -97,6 +97,11 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
   const [groupsError, setGroupsError] = useState<string | null>(null)
   const [friends, setFriends] = useState<SocialProfile[]>([])
   const [contacts, setContacts] = useState<UserSummary[]>([])
+  // Keep the conversation that produced each contact.  A direct conversation can
+  // remain valid after the friendship relationship changes, so opening a contact
+  // must not try to create a second conversation (which the API correctly rejects
+  // for non-friends/blocked users).
+  const [contactConversationsByUserId, setContactConversationsByUserId] = useState<Record<string, MessengerConversationDto>>({})
   const [contactResults, setContactResults] = useState<UserSummary[]>([])
   const [contactsLoading, setContactsLoading] = useState(true)
   const [contactsSearching, setContactsSearching] = useState(false)
@@ -251,8 +256,16 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
         if (contact && !unique.has(contact.id)) unique.set(contact.id, contact)
       }
       setContacts([...unique.values()])
+      setContactConversationsByUserId(Object.fromEntries(
+        conversations.flatMap((conversation) => {
+          if (conversation.type !== 'DIRECT') return []
+          const contact = conversation.participants.find((participant) => participant.id !== user.userId && !participant.leftAt)
+          return contact ? [[contact.id, conversation] as const] : []
+        }),
+      ))
     } catch {
       setContacts([])
+      setContactConversationsByUserId({})
     } finally {
       setContactsLoading(false)
     }
@@ -540,7 +553,18 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
                 const presence = presenceByUserId[person.id]
                 const online = Boolean(presence?.isOnline)
                 const statusLabel = presence ? formatPresence(presence, t, presenceNow) : null
-                return <button type="button" key={person.id} onClick={() => onMessage ? void onMessage(person.id) : onNavigate?.(`/profile/${person.id}`)}><span className="contact-avatar"><Avatar name={person.displayName} src={person.avatarUrl} size={36} online={online} /></span><span className="contact-copy"><strong>{person.displayName}<VerifiedBadge verified={person.isVerified} size={12} /></strong>{statusLabel && <small>{statusLabel}</small>}</span></button>
+                const existingConversation = contactConversationsByUserId[person.id]
+                return <button type="button" key={person.id} onClick={() => {
+                  if (existingConversation && onConversation) {
+                    onConversation(existingConversation)
+                    return
+                  }
+                  if (onMessage) {
+                    void onMessage(person.id)
+                    return
+                  }
+                  onNavigate?.(`/profile/${person.id}`)
+                }}><span className="contact-avatar"><Avatar name={person.displayName} src={person.avatarUrl} size={36} online={online} /></span><span className="contact-copy"><strong>{person.displayName}<VerifiedBadge verified={person.isVerified} size={12} /></strong>{statusLabel && <small>{statusLabel}</small>}</span></button>
               })}</div>)}
         </section>
         <section className="right-rail-module group-conversations-module" aria-labelledby="group-conversations-title">

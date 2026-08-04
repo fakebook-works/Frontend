@@ -53,6 +53,7 @@ function Harness({
     messages={messages}
     draft=""
     pendingAttachments={[]}
+    pendingUploadPreviews={[]}
     uploading={false}
     apiState="gateway"
     showDetail={false}
@@ -62,6 +63,7 @@ function Harness({
     onDraftChange={() => undefined}
     onAttachFiles={onAttachFiles}
     onRemoveAttachment={() => undefined}
+    onRemovePendingUpload={() => undefined}
     onSubmit={(event) => event.preventDefault()}
     onSendLike={() => undefined}
     onReplyMessage={setReplyTarget}

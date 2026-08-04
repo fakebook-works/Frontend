@@ -16,16 +16,109 @@
   .settings-content { min-width: 0; }
 }
 
+@media (max-width: 959px) {
+  .saved-page-layout {
+    display: block;
+    min-height: calc(100dvh - var(--fb-mobile-nav-height));
+  }
+
+  .saved-page-sidebar {
+    position: relative;
+    top: auto;
+    width: 100%;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--divider);
+    box-shadow: none;
+  }
+
+  .saved-page-sidebar nav {
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 6px 4px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .saved-page-sidebar nav::-webkit-scrollbar { display: none; }
+  .saved-page-sidebar nav > button {
+    width: auto;
+    min-width: max-content;
+    height: var(--destination-compact-option-height);
+    min-height: var(--destination-compact-option-height);
+    flex: 0 0 auto;
+    padding-inline: 10px 14px;
+  }
+
+  .saved-page-content {
+    width: min(100%, 760px);
+    margin-inline: auto;
+    padding: 16px 14px calc(72px + var(--fb-safe-bottom));
+  }
+}
+
+@media (max-width: 600px) {
+  .saved-page-sidebar > header {
+    position: absolute;
+    z-index: 4;
+    top: 2px;
+    right: 7px;
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+  }
+
+  .saved-page-sidebar > header h1 { display: none; }
+  .saved-page-sidebar > header > button { width: 36px; height: 36px; }
+  .saved-page-sidebar nav { padding-right: 48px; }
+  .saved-page-sidebar nav > button {
+    min-width: 46px;
+    height: 42px;
+    min-height: 42px;
+    flex: 1 1 0;
+    grid-template-columns: 36px;
+    justify-content: center;
+    gap: 0;
+    padding: 0 5px;
+  }
+  .saved-page-sidebar nav strong { display: none; }
+}
+
+@media (max-width: 767px) {
+  .saved-page-layout {
+    min-height: 100dvh;
+    padding-top: calc(var(--topbar-h) + var(--fb-safe-top));
+    padding-bottom: 0;
+  }
+
+  .saved-page-sidebar { position: static; }
+  .saved-page-sidebar > header { padding-inline: 12px; }
+  .saved-page-sidebar h1 { font-size: 1.32rem; }
+  .saved-page-sidebar nav { padding-inline: 6px; }
+  .saved-page-sidebar nav > button { gap: 8px; padding-inline: 8px 12px; }
+  .saved-page-sidebar nav strong { font-size: .88rem; font-weight: 560; }
+  .saved-page-content { width: 100%; padding: 12px 8px 14px; }
+  .saved-page-content-head { min-height: 44px; height: auto; margin-bottom: 10px; padding-inline: 4px; }
+  .saved-feed-column { width: 100%; }
+}
+
 @media (max-width: 1179px) and (min-width: 960px) {
   .settings-page { grid-template-columns: 300px minmax(0, 1fr); }
   .settings-sidebar { padding-inline: 11px; }
   .settings-content { padding-inline: clamp(20px, 3.5vw, 48px); }
 
   .friends-page-layout,
+  .saved-page-layout,
   .groups-page,
   .discovery-layout { grid-template-columns: 300px minmax(0, 1fr); }
 
   .friends-page-content,
+  .saved-page-content,
   .groups-main,
   .discovery-content { padding-inline: clamp(16px, 2.4vw, 28px); }
 

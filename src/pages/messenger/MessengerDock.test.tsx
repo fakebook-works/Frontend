@@ -132,6 +132,8 @@ describe('MessengerDock overflow windows', () => {
 
   beforeEach(() => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1440 })
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn((file: File) => `blob:${file.name}`) })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
     window.HTMLElement.prototype.scrollIntoView = vi.fn()
     messengerMocks.conversations.mockReset().mockResolvedValue([])
     messengerMocks.messages.mockReset().mockResolvedValue([])
@@ -239,6 +241,21 @@ describe('MessengerDock overflow windows', () => {
     expect(await screen.findByRole('region', { name: 'Friend 2' })).toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: 'createConversation' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'newMessage' })).toBeVisible()
+  })
+
+  it('hides the floating message composer after the viewer blocks the direct participant', async () => {
+    messengerMocks.createDirectConversation.mockResolvedValue({
+      ...directConversation('2'),
+      viewerHasBlockedDirectUser: true,
+    })
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    expect(within(chat).getByText('messengerBlockedByYou')).toBeInTheDocument()
+    expect(chat.querySelector('.mini-chat-compose')).not.toBeInTheDocument()
+    expect(within(chat).queryByPlaceholderText('Aa')).not.toBeInTheDocument()
   })
 
   it('creates a default-named group after confirming multiple selected friends', async () => {
@@ -903,15 +920,7 @@ describe('MessengerDock overflow windows', () => {
   })
 
   it('shows selected photos inside the composer instead of a detached filename strip', async () => {
-    uploadMocks.uploadMediaFiles.mockResolvedValue([{
-      url: 'http://localhost/media/files/preview.png',
-      type: 'image',
-      contentType: 'image/png',
-      size: 12,
-      name: 'preview.png',
-      assetId: 'preview-asset',
-      state: 'pending',
-    }])
+    uploadMocks.uploadMediaFiles.mockReturnValue(new Promise(() => undefined))
     render(<Harness />)
     fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
     const chat = await screen.findByRole('region', { name: 'Friend 2' })
@@ -923,9 +932,17 @@ describe('MessengerDock overflow windows', () => {
     fireEvent.change(input, { target: { files: [new File(['image'], 'preview.png', { type: 'image/png' })] } })
 
     const preview = await within(chat).findByRole('img', { name: 'preview.png' })
+    expect(preview).toHaveAttribute('src', 'blob:preview.png')
     expect(preview.closest('.mini-compose-body')).toBeInTheDocument()
     expect(within(chat).queryByText('preview.png')).not.toBeInTheDocument()
+    expect(uploadMocks.uploadMediaFiles).not.toHaveBeenCalled()
     expect(within(chat).getByRole('button', { name: 'removeMedia' })).toBeInTheDocument()
+
+    fireEvent.click(within(chat).getByRole('button', { name: 'sendMessage' }))
+
+    await waitFor(() => expect(uploadMocks.uploadMediaFiles).toHaveBeenCalledWith([
+      expect.objectContaining({ name: 'preview.png', type: 'image/png' }),
+    ]))
   })
 
   it('pastes a copied image into the floating chat attachment preview', async () => {
@@ -945,7 +962,7 @@ describe('MessengerDock overflow windows', () => {
       getData: () => 'https://example.com/clipboard.png',
     } })
 
-    await waitFor(() => expect(uploadMocks.uploadMediaFiles).toHaveBeenCalledWith([image]))
+    expect(uploadMocks.uploadMediaFiles).not.toHaveBeenCalled()
     expect(await within(chat).findByRole('img', { name: 'clipboard.png' })).toBeInTheDocument()
   })
 })

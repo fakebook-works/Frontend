@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../../api/client'
 import { messengerApi } from '../../api/messenger'
+import { socialApi } from '../../api/social'
 import type { MessengerPresenceDto, MessengerRealtimeEvent } from '../../api/messenger'
 import type { MediaUpload, MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 import { Icon } from '../../components/Icon'
@@ -12,6 +13,8 @@ import { ForwardMessageDialog } from './ForwardMessageDialog'
 import { GroupConversationManager } from './GroupConversationManager'
 import { MessageThread } from './MessageThread'
 import { NewConversationModal } from './NewConversationModal'
+import { createPendingMediaUploadPreviews, releasePendingMediaUploadPreviews } from './pendingMediaUploadState'
+import type { PendingMediaUploadPreview } from './pendingMediaUploadState'
 import { playIncomingMessageSound } from '../../lib/sounds'
 import { encodeMessengerLike } from './helpers'
 import { groupPresenceSummary } from './helpers'
@@ -51,9 +54,19 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   const [query, setQuery] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [pendingAttachmentsByConversation, setPendingAttachmentsByConversation] = useState<Record<string, MediaUpload[]>>({})
+  const [pendingUploadPreviewsByConversation, setPendingUploadPreviewsByConversation] = useState<Record<string, PendingMediaUploadPreview[]>>({})
+  const pendingUploadPreviewsRef = useRef<Record<string, PendingMediaUploadPreview[]>>({})
   const [uploadingConversationId, setUploadingConversationId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [apiState, setApiState] = useState<'gateway' | 'unavailable'>('gateway')
+
+  useEffect(() => {
+    pendingUploadPreviewsRef.current = pendingUploadPreviewsByConversation
+  }, [pendingUploadPreviewsByConversation])
+
+  useEffect(() => () => {
+    releasePendingMediaUploadPreviews(Object.values(pendingUploadPreviewsRef.current).flat())
+  }, [])
   const [showNewModal, setShowNewModal] = useState(false)
   const [mobileShowThread, setMobileShowThread] = useState(false)
   const [showDetail, setShowDetail] = useState(true)
@@ -133,18 +146,38 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
         ? initialConversationId
         : current ?? items[0]?.id ?? null)
       setApiState('gateway')
+      return items
     } catch {
       if (initial) {
         setConversations([])
         setSelectedId(null)
       }
       setApiState('unavailable')
+      return null
     } finally {
       if (initial) setLoading(false)
     }
   }, [initialConversationId, me.id])
 
   useEffect(() => { void loadConversations(true) }, [loadConversations])
+
+  useEffect(() => {
+    const refreshBlockState = () => {
+      void (async () => {
+        const latest = await loadConversations()
+        const selectedConversation = latest?.find((conversation) => conversation.id === selectedId)
+        if (selectedConversation?.type !== 'GROUP') return
+        try {
+          const items = await messengerApi.messages(selectedConversation.id, me.id)
+          setMessages((current) => ({ ...current, [selectedConversation.id]: items }))
+        } catch {
+          setApiState('unavailable')
+        }
+      })()
+    }
+    window.addEventListener('fakebook:block-state-changed', refreshBlockState)
+    return () => window.removeEventListener('fakebook:block-state-changed', refreshBlockState)
+  }, [loadConversations, me.id, selectedId])
 
   useEffect(() => messengerApi.subscribeInbox((event) => {
     if (seenEventIds.current.has(event.eventId)) return
@@ -346,12 +379,30 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     if (!selected) return
+    if (uploadingConversationId === selected.id) return
     const draft = drafts[selected.id] ?? ''
     const pendingAttachments = pendingAttachmentsByConversation[selected.id] ?? []
-    if (!draft.trim() && pendingAttachments.length === 0) return
+    const localPreviews = pendingUploadPreviewsByConversation[selected.id] ?? []
+    if (!draft.trim() && pendingAttachments.length === 0 && localPreviews.length === 0) return
     const text = draft.trim()
-    const attachments = pendingAttachments
+    let attachments = pendingAttachments
     const replyToMessageId = replyToByConversationId[selected.id] ?? null
+
+    if (localPreviews.length > 0) {
+      setUploadingConversationId(selected.id)
+      try {
+        const uploaded = await api.uploadMediaFiles(localPreviews.map((preview) => preview.file))
+        attachments = [...pendingAttachments, ...uploaded].slice(0, 10)
+        setPendingUploadPreviewsByConversation((current) => ({ ...current, [selected.id]: [] }))
+        releasePendingMediaUploadPreviews(localPreviews)
+      } catch {
+        setApiState('unavailable')
+        return
+      } finally {
+        setUploadingConversationId((currentId) => currentId === selected.id ? null : currentId)
+      }
+    }
+
     stopTyping(selected.id)
     setDrafts((current) => ({ ...current, [selected.id]: '' }))
     setPendingAttachmentsByConversation((current) => ({ ...current, [selected.id]: [] }))
@@ -494,6 +545,17 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
     }
   }
 
+  async function unblockDirectConversation(targetUserId: string) {
+    try {
+      const changed = await socialApi.unblockUser(me.id, targetUserId)
+      if (!changed) throw new Error('Unblock was not applied')
+      await loadConversations()
+      setApiState('gateway')
+    } catch {
+      setApiState('unavailable')
+    }
+  }
+
   async function startGroupConversation(title: string, people: UserSummary[]) {
     setShowNewModal(false)
     try {
@@ -582,22 +644,24 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   async function attachFiles(conversationId: string, files: FileList | File[] | null) {
     if (!files?.length) return
     const current = pendingAttachmentsByConversation[conversationId] ?? []
-    const remaining = Math.max(0, 10 - current.length)
+    const currentPreviews = pendingUploadPreviewsByConversation[conversationId] ?? []
+    const remaining = Math.max(0, 10 - current.length - currentPreviews.length)
     if (remaining === 0) return
     const selectedFiles = Array.from(files).slice(0, remaining)
-    setUploadingConversationId(conversationId)
-    try {
-      const uploaded = await api.uploadMediaFiles(selectedFiles)
-      setPendingAttachmentsByConversation((all) => ({
-        ...all,
-        [conversationId]: [...(all[conversationId] ?? []), ...uploaded].slice(0, 10),
-      }))
-      setApiState('gateway')
-    } catch {
-      setApiState('unavailable')
-    } finally {
-      setUploadingConversationId((currentId) => currentId === conversationId ? null : currentId)
-    }
+    const localPreviews = createPendingMediaUploadPreviews(selectedFiles)
+    setPendingUploadPreviewsByConversation((all) => ({
+      ...all,
+      [conversationId]: [...(all[conversationId] ?? []), ...localPreviews],
+    }))
+  }
+
+  function removePendingUploadPreview(conversationId: string, previewId: string) {
+    const preview = (pendingUploadPreviewsByConversation[conversationId] ?? []).find((item) => item.id === previewId)
+    if (preview) releasePendingMediaUploadPreviews([preview])
+    setPendingUploadPreviewsByConversation((current) => ({
+      ...current,
+      [conversationId]: (current[conversationId] ?? []).filter((item) => item.id !== previewId),
+    }))
   }
 
   function selectConversation(id: string) {
@@ -622,7 +686,7 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   return <>
     <main className={`messenger-shell${mobileShowThread ? ' thread-open' : ''}${showDetail ? ' detail-open' : ''}`} aria-label="Messenger">
       <ConversationList me={me} conversations={conversations} presenceByUserId={presenceByUserId} selectedId={selectedId} query={query} loading={loading} activeTab={activeTab} totalUnread={totalUnread} onSelect={selectConversation} onQueryChange={setQuery} onTabChange={setActiveTab} onNewMessage={() => setShowNewModal(true)} />
-      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={drafts[selected.id] ?? ''} pendingAttachments={pendingAttachmentsByConversation[selected.id] ?? []} uploading={uploadingConversationId === selected.id} apiState={apiState} showDetail={showDetail} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} groupPresenceLabel={selectedGroupPresence?.label} groupOnlineCount={selectedGroupPresence?.onlineCount} typingUserId={typingByConversationId[selected.id] ?? null} replyTarget={replyTarget} onInteract={() => markConversationRead(selected.id)} onDraftChange={(value) => updateDraft(selected.id, value)} onAttachFiles={(files) => void attachFiles(selected.id, files)} onRemoveAttachment={removePendingAttachment} onSubmit={handleSubmit} onSendLike={(level) => void sendLike(level)} onReplyMessage={(message) => setReplyToByConversationId((current) => ({ ...current, [selected.id]: message.id }))} onCancelReply={() => setReplyToByConversationId((current) => ({ ...current, [selected.id]: null }))} onReactMessage={reactToMessage} onRecallMessage={recallMessage} onEditMessage={editChatMessage} onForwardMessage={setForwardingMessage} onOpenProfile={onOpenProfile} onNavigate={onNavigate} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
+      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={drafts[selected.id] ?? ''} pendingAttachments={pendingAttachmentsByConversation[selected.id] ?? []} pendingUploadPreviews={pendingUploadPreviewsByConversation[selected.id] ?? []} uploading={uploadingConversationId === selected.id} apiState={apiState} showDetail={showDetail} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} groupPresenceLabel={selectedGroupPresence?.label} groupOnlineCount={selectedGroupPresence?.onlineCount} typingUserId={typingByConversationId[selected.id] ?? null} replyTarget={replyTarget} onInteract={() => markConversationRead(selected.id)} onDraftChange={(value) => updateDraft(selected.id, value)} onAttachFiles={(files) => void attachFiles(selected.id, files)} onRemoveAttachment={removePendingAttachment} onRemovePendingUpload={(id) => removePendingUploadPreview(selected.id, id)} onSubmit={handleSubmit} onSendLike={(level) => void sendLike(level)} onReplyMessage={(message) => setReplyToByConversationId((current) => ({ ...current, [selected.id]: message.id }))} onCancelReply={() => setReplyToByConversationId((current) => ({ ...current, [selected.id]: null }))} onReactMessage={reactToMessage} onRecallMessage={recallMessage} onEditMessage={editChatMessage} onForwardMessage={setForwardingMessage} onOpenProfile={onOpenProfile} onNavigate={onNavigate} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onUnblockDirect={(targetUserId) => void unblockDirectConversation(targetUserId)} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
       {showDetail && selected && <ConversationDetail me={me} conversation={selected} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} onOpenProfile={onOpenProfile} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onLeave={() => void leaveSelectedConversation()} />}
     </main>
     {showNewModal && <NewConversationModal friends={friends} onStart={startConversation} onCreateGroup={startGroupConversation} onClose={() => setShowNewModal(false)} />}

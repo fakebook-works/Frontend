@@ -123,6 +123,7 @@ describe('PremiumPage', () => {
     render(<PremiumPage />)
 
     expect(await screen.findByText('paymentStatusPENDING')).toBeInTheDocument()
+    expect(screen.getByText('paymentReceivedActivating')).toBeInTheDocument()
     expect(refreshUser).not.toHaveBeenCalled()
   })
 })

@@ -120,6 +120,37 @@ describe('messenger GraphQL adapter', () => {
     expect(result[0]).toMatchObject({ id: 'direct-1', type: 'DIRECT' })
   })
 
+  it('keeps a direct conversation readable when the federated target is hidden by a block', async () => {
+    getProfiles.mockResolvedValue([{
+      id: '1', username: 'me', displayName: 'Me', avatarUrl: null, isVerified: false,
+    }])
+    gatewayGraphQl.mockResolvedValue({
+      myDirectConversations: {
+        items: [{
+          id: 'direct-blocked', type: 'DIRECT', title: null, avatarUrl: null,
+          updatedAt: '2026-07-17T00:00:00Z', currentSequence: '2', lastMessage: null,
+          viewerHasBlockedDirectUser: false, directUserHasBlockedViewer: true,
+          participants: [
+            { userId: '1', role: 'MEMBER', leftAt: null, lastDeliveredSequence: '0', lastReadSequence: '0' },
+            { userId: '2', role: 'MEMBER', leftAt: null, lastDeliveredSequence: '0', lastReadSequence: '0' },
+          ],
+        }],
+      },
+    })
+
+    const result = await directConversations('1', 40)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ id: 'direct-blocked', directUserHasBlockedViewer: true })
+    expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('user {')
+    expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('sender {')
+    expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('systemSubject {')
+    expect(getProfiles).toHaveBeenCalledWith(['1', '2'])
+    expect(result[0].participants).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: '2', displayName: 'Fakebook user' }),
+    ]))
+  })
+
   it('loads presence with lossless friend IDs and sends the current-user heartbeat', async () => {
     gatewayGraphQl
       .mockResolvedValueOnce({ userPresence: [{ userId: '9007199254740993124', isOnline: true, expiresAt: '2026-07-18T00:01:00Z', updatedAt: '2026-07-18T00:00:00Z' }] })
@@ -285,6 +316,9 @@ describe('messenger GraphQL adapter', () => {
   })
 
   it('fetches one realtime message by id without reloading conversation history', async () => {
+    getProfiles.mockResolvedValue([{
+      id: '2', username: 'friend', displayName: 'Friend', avatarUrl: null, isVerified: false,
+    }])
     gatewayGraphQl.mockResolvedValue({
       message: {
         id: 'message-realtime',
@@ -294,7 +328,6 @@ describe('messenger GraphQL adapter', () => {
         text: 'New message',
         createdAt: '2026-07-18T00:00:00Z',
         deleted: false,
-        sender: { id: '2', name: 'Friend', avatar: '', isVerified: false },
         attachments: [],
       },
     })
@@ -302,6 +335,7 @@ describe('messenger GraphQL adapter', () => {
     const result = await message('message-realtime', '1')
 
     expect(gatewayGraphQl.mock.calls[0][0]).toContain('query Message($id: UUID!)')
+    expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('sender {')
     expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ id: 'message-realtime' })
     expect(result).toMatchObject({ id: 'message-realtime', body: 'New message', sender: { id: '2', displayName: 'Friend' } })
   })

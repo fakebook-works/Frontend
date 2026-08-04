@@ -903,19 +903,12 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
 
   useEffect(() => {
     if (tab !== 'groups' || !profile?.id || groupsLoaded) return
-    if (!canEdit) {
-      setProfileGroups([])
-      setProfileManagedGroups([])
-      setGroupsUnavailable(false)
-      setGroupsLoaded(true)
-      return
-    }
     let active = true
     setGroupsLoading(true)
     setGroupsUnavailable(false)
     Promise.allSettled([
-      socialApi.getMemberGroups(profile.id, 60),
-      socialApi.getAdminGroups(profile.id, 60),
+      canEdit ? socialApi.getMemberGroups(profile.id, 60) : socialApi.getProfileMemberGroups(profile.id, 60),
+      canEdit ? socialApi.getAdminGroups(profile.id, 60) : socialApi.getProfileAdminGroups(profile.id, 60),
     ]).then(([joinedResult, managedResult]) => {
       if (!active) return
       setProfileGroups(joinedResult.status === 'fulfilled' ? joinedResult.value.items : [])

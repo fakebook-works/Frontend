@@ -8,6 +8,7 @@ import { socialApi, type SocialContent, type SocialProfile } from '../api/social
 import type { UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { FriendPeopleGlyph, FriendPersonActionGlyph, type FriendPersonAction } from '../components/FriendPeopleGlyph'
+import { GroupMembersIcon } from '../components/GroupMembersIcon'
 import { Icon, ReelIcon, type IconName } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
@@ -22,7 +23,7 @@ import { GatewayHomePage } from './GatewayHomePage'
 import { GroupProfilePage, GroupsPage } from './GroupsPage'
 import { ProfilePage } from './ProfilePage'
 import { ReelsPage } from './ReelsPage'
-import { SavedPage } from './SavedPage'
+import { SavedPage, type SavedSection } from './SavedPage'
 import { SearchPage } from './SearchPage'
 import { SettingsPage } from './SettingsPage'
 import type { SettingsSection } from './SettingsPage'
@@ -484,7 +485,7 @@ export function AuthenticatedApp() {
     {groupRouteId && groupMemberProfileId && <UserInGroupProfilePage groupId={groupRouteId} profileId={groupMemberProfileId} viewerId={user.userId} onBack={() => go(`/groups/${groupRouteId}`)} onNavigate={go} />}
     {profileId && <ProfilePage profile={viewedProfile} loading={profileLoading} error={profileError} canEdit={profileId === user.userId} viewerId={user.userId} initialTab={location.params.get('tab') === 'reels' ? 'reels' : undefined} onEdit={() => go('/settings/profile')} onNavigate={go} onOpenReel={openProfileReel} onMessage={openDirectMessage} />}
     {location.pathname === '/messenger' && <div className="shell-messenger"><MessengerPage me={{ id: user.userId, username: user.email.split('@')[0], displayName, avatarUrl, isVerified: currentProfile?.isVerified }} friends={friends} initialConversationId={location.params.get('conversation')} onOpenProfile={(id) => go(`/profile/${id}`)} onNavigate={go} /></div>}
-    {location.pathname === '/saved' && <SavedPage userId={user.userId} onNavigate={go} />}
+    {location.pathname.startsWith('/saved') && <SavedPage userId={user.userId} section={normalizeSavedSection(pathSegment(location.pathname, 1))} onNavigate={go} />}
     {location.pathname.startsWith('/settings') && <SettingsPage initialSection={settingsSection} />}
     {location.pathname === '/premium' && <SettingsPage initialSection="premium" />}
     {location.pathname === '/premium/payment' && <SettingsPage initialSection="premium" />}
@@ -584,7 +585,7 @@ function NotificationPopover({ items, unreadCount, loading, onOpen, onMarkAll, o
     <div className="notification-popover-list">{loading || (filter === 'unread' && unreadLoading) ? <div className="state-card"><span className="spinner" /></div> : visible.length === 0 ? <p className="muted">{t('noNotifications')}</p> : visible.map((item) => {
       const actorName = item.actor?.displayName ?? t('fakebookUser')
       return <button type="button" key={item.id} className={item.isRead ? '' : 'unread'} onClick={() => openItem(item)}>
-        <span className="notification-avatar-wrap"><Avatar name={actorName} src={item.actor?.avatarUrl} size={48} /><NotificationKindIcon actionType={item.actionType} /></span>
+        <span className="notification-avatar-wrap"><Avatar name={actorName} src={item.actor?.avatarUrl} size={50} /><NotificationKindIcon actionType={item.actionType} /></span>
         <span className="notification-popover-copy"><span><strong>{actorName}<VerifiedBadge verified={item.actor?.isVerified} size={12} /></strong> {notificationText(item.actionType, t)}</span><small>{relativeTime(item.createdAt, locale)}</small></span>
         {!item.isRead && <i />}
       </button>
@@ -600,10 +601,18 @@ function NotificationKindIcon({ actionType }: { actionType: string }) {
   else if (actionType === 'COMMENT') { icon = 'comment'; tone = 'comment' }
   else if (actionType === 'FRIEND_REQUEST') { friendAction = 'add'; tone = 'friend' }
   else if (actionType === 'FRIEND_ACCEPT') { friendAction = 'check'; tone = 'friend' }
-  else if (actionType.startsWith('GROUP_')) { icon = 'groups'; tone = 'group' }
+  else if (actionType.startsWith('GROUP_')) { tone = 'group' }
   else if (actionType === 'SHARE') { icon = 'share'; tone = 'share' }
   else if (actionType === 'TAG' || actionType === 'MENTION') { icon = 'tag'; tone = 'tag' }
-  return <span className={`notification-kind-icon ${tone}`} aria-hidden="true">{friendAction ? <FriendPersonActionGlyph action={friendAction} size={14} /> : <Icon name={icon} size={14} />}</span>
+  return <span className={`notification-kind-icon ${tone}`} aria-hidden="true">
+    <span className="notification-kind-glyph">
+      {friendAction
+        ? <FriendPersonActionGlyph action={friendAction} size={16} />
+        : tone === 'group'
+          ? <GroupMembersIcon size={16} contentOffsetY={0} cutout="var(--notification-kind-bg, #2d88ff)" />
+          : <Icon name={icon} size={16} />}
+    </span>
+  </span>
 }
 
 function AppsMenu({ onNavigate }: { onNavigate: (path: string) => void }) {
@@ -667,6 +676,10 @@ function normalizeReelMode(value: string | null): 'for-you' | 'following' | 'min
   return value === 'following' || value === 'mine' || value === 'saved' || value === 'liked' || value === 'shared' || value === 'watched' ? value : 'for-you'
 }
 
+function normalizeSavedSection(value: string | null): SavedSection {
+  return value === 'posts' || value === 'reels' ? value : 'all'
+}
+
 function primaryDestinationForPath(pathname: string): PrimaryDestination | null {
   if (pathname === '/' || pathname === '/home') return 'home'
   if (pathname.startsWith('/friends')) return 'friends'
@@ -695,7 +708,7 @@ function setDocumentScrollTop(value: number) {
 }
 
 function isKnownPath(pathname: string) {
-  return pathname === '/' || pathname === '/home' || pathname === '/search' || pathname === '/groups' || pathname === '/messenger' || pathname === '/saved' || pathname === '/premium' || pathname === '/premium/payment' || ['/friends', '/reels', '/groups/', '/profile/', '/settings', '/content/', '/help', '/privacy', '/about', '/policies'].some((prefix) => pathname.startsWith(prefix))
+  return pathname === '/' || pathname === '/home' || pathname === '/search' || pathname === '/groups' || pathname === '/messenger' || pathname === '/saved' || pathname.startsWith('/saved/') || pathname === '/premium' || pathname === '/premium/payment' || ['/friends', '/reels', '/groups/', '/profile/', '/settings', '/content/', '/help', '/privacy', '/about', '/policies'].some((prefix) => pathname.startsWith(prefix))
 }
 
 function SettingsSubmenu({ onBack, onOpen }: { onBack: () => void; onOpen: (section: SettingsSection) => void }) {

@@ -566,6 +566,28 @@ describe('SocialGraph Gateway adapter', () => {
     expect(page.items[1]).toMatchObject({ contentId: '82', authorId: '72', groupId: '61' })
   })
 
+  it('loads another profile group memberships through target-scoped Gateway queries', async () => {
+    gatewayGraphQl
+      .mockResolvedValueOnce({ profileMemberGroups: {
+        items: [{ id: '61', avatar: '', background: '', name: 'Joined group', bio: '', privacy: 0, create: '', memberCount: 12, adminCount: 1 }],
+        endCursor: null,
+        hasNextPage: false,
+      } })
+      .mockResolvedValueOnce({ profileAdminGroups: {
+        items: [{ id: '62', avatar: '', background: '', name: 'Managed group', bio: '', privacy: 1, create: '', memberCount: 7, adminCount: 2 }],
+        endCursor: null,
+        hasNextPage: false,
+      } })
+
+    const joined = await socialApi.getProfileMemberGroups('9007199254740993123', 25)
+    const managed = await socialApi.getProfileAdminGroups('9007199254740993123', 25)
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('profileMemberGroups(userId: 9007199254740993123')
+    expect(gatewayGraphQl.mock.calls[1][0]).toContain('profileAdminGroups(userId: 9007199254740993123')
+    expect(joined.items[0]).toMatchObject({ id: '61', name: 'Joined group' })
+    expect(managed.items[0]).toMatchObject({ id: '62', name: 'Managed group' })
+  })
+
   it('creates a group post with stable tagged Snowflake IDs and no client-selected privacy', async () => {
     gatewayGraphQl.mockResolvedValue({ createGroupPost: {
       id: '81', type: 3, content: 'hello', privacy: 1, create: 'now', authorId: '71', media: [],

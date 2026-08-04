@@ -15,16 +15,19 @@ import { PrivacyPage } from './PrivacyPage'
 import { AboutPage } from './AboutPage'
 
 export function LoginPage() {
+  const emailChangeVerification = new URLSearchParams(window.location.search).get('verifyEmail')?.trim().toLowerCase() ?? ''
   const { login, register } = useAuth()
   const { t } = useI18n()
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(emailChangeVerification)
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [screen, setScreen] = useState<'login' | 'signup' | 'help' | 'privacy' | 'about'>('login')
   const [helpTopic, setHelpTopic] = useState('creating-account')
   const [privacyTopic, setPrivacyTopic] = useState('overview')
-  const [challenge, setChallenge] = useState<{ mode: 'email' | 'twoFactor'; email: string } | null>(null)
+  const [challenge, setChallenge] = useState<{ mode: 'email' | 'twoFactor'; email: string } | null>(() =>
+    emailChangeVerification ? { mode: 'email', email: emailChangeVerification } : null,
+  )
   const [resetOpen, setResetOpen] = useState(false)
 
   async function onLogin(e: FormEvent) {

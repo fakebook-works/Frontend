@@ -15,7 +15,7 @@ interface ParticipantGraphQl {
   leftAt: string | null
   lastDeliveredSequence: string
   lastReadSequence: string
-  user: FederatedUserGraphQl | null
+  user?: FederatedUserGraphQl | null
 }
 
 interface FederatedUserGraphQl {
@@ -73,6 +73,8 @@ interface ConversationGraphQl {
   currentSequence: string
   participants: ParticipantGraphQl[]
   lastMessage: MessageGraphQl | null
+  viewerHasBlockedDirectUser?: boolean
+  directUserHasBlockedViewer?: boolean
 }
 
 interface ConversationMessagePageGraphQl {
@@ -115,15 +117,20 @@ const MESSAGE_CORE_FIELDS = `
   attachments { ordinal url assetId mediaType contentType originalName sizeBytes width height durationMs thumbnailUrl }
 `
 
-const MESSAGE_FIELDS = `
-  ${MESSAGE_CORE_FIELDS}
-  sender { id name avatar isVerified }
-  systemSubject { id name avatar isVerified }
-`
+// Do not hydrate the federated User entity inside Messenger operations. SocialGraph
+// intentionally resolves a blocked user reference to null; Fusion currently reports
+// errors for the non-null User fields below that nullable reference, which causes the
+// shared GraphQL client to reject the whole inbox response. IDs remain authoritative,
+// and participantMap performs one bounded, viewer-filtered profile hydration pass.
+const MESSAGE_FIELDS = MESSAGE_CORE_FIELDS
+
+const PROFILE_HYDRATION_BATCH_SIZE = 50
+const MAX_PROFILE_HYDRATION_IDS = 250
 
 const CONVERSATION_FIELDS = `
   id type title avatarUrl updatedAt currentSequence
-  participants { userId role leftAt lastDeliveredSequence lastReadSequence user { id name avatar isVerified } }
+  viewerHasBlockedDirectUser directUserHasBlockedViewer
+  participants { userId role leftAt lastDeliveredSequence lastReadSequence }
   lastMessage { ${MESSAGE_FIELDS} }
 `
 
@@ -177,16 +184,41 @@ function attachmentFromGraphQl(attachment: MessageGraphQl['attachments'][number]
   }
 }
 
-async function participantMap(conversations: ConversationGraphQl[], viewerId: string): Promise<Map<string, UserSummary>> {
-  const ids = [...new Set(conversations.flatMap((conversation) => conversation.participants.map((participant) => String(participant.userId))))]
+async function participantMap(
+  conversations: ConversationGraphQl[],
+  viewerId: string,
+  additionalMessages: MessageGraphQl[] = [],
+): Promise<Map<string, UserSummary>> {
+  const messages = [
+    ...conversations.flatMap((conversation) => conversation.lastMessage ? [conversation.lastMessage] : []),
+    ...additionalMessages,
+  ]
+  const ids = [...new Set([
+    ...conversations.flatMap((conversation) => conversation.participants.map((participant) => String(participant.userId))),
+    ...messages.flatMap((message) => [
+      String(message.senderUserId),
+      ...(message.systemSubjectUserId ? [String(message.systemSubjectUserId)] : []),
+    ]),
+  ])]
   const people = new Map<string, UserSummary>()
   for (const participant of conversations.flatMap((conversation) => conversation.participants)) {
     if (!participant.user) continue
     const id = String(participant.user.id)
     people.set(id, { id, username: participant.user.name, displayName: participant.user.name, avatarUrl: participant.user.avatar || null, isVerified: participant.user.isVerified })
   }
+  for (const message of messages) {
+    for (const user of [message.sender, message.systemSubject]) {
+      if (!user) continue
+      const id = String(user.id)
+      people.set(id, { id, username: user.name, displayName: user.name, avatarUrl: user.avatar || null, isVerified: user.isVerified })
+    }
+  }
   const missingIds = ids.filter((id) => !people.has(id))
-  const profiles = await socialApi.getProfiles(missingIds).catch(() => [])
+  const profileBatches = Array.from(
+    { length: Math.ceil(Math.min(missingIds.length, MAX_PROFILE_HYDRATION_IDS) / PROFILE_HYDRATION_BATCH_SIZE) },
+    (_, index) => missingIds.slice(index * PROFILE_HYDRATION_BATCH_SIZE, (index + 1) * PROFILE_HYDRATION_BATCH_SIZE),
+  )
+  const profiles = (await Promise.all(profileBatches.map((batch) => socialApi.getProfiles(batch).catch(() => [])))).flat()
   for (const profile of profiles) people.set(profile.id, {
     id: profile.id,
     username: profile.username,
@@ -264,6 +296,8 @@ function conversationFromGraphQl(conversation: ConversationGraphQl, people: Map<
     updatedAt: conversation.updatedAt,
     unreadCount: Math.max(0, currentSequence - lastRead),
     lastMessage: conversation.lastMessage ? messageFromGraphQl(conversation.lastMessage, people, viewerId) : null,
+    viewerHasBlockedDirectUser: Boolean(conversation.viewerHasBlockedDirectUser),
+    directUserHasBlockedViewer: Boolean(conversation.directUserHasBlockedViewer),
   }
 }
 
@@ -302,7 +336,7 @@ export async function messages(conversationId: string, viewerId: string, last = 
       { id: conversationId },
     ),
   ])
-  const people = await participantMap([conversationData.conversation], viewerId)
+  const people = await participantMap([conversationData.conversation], viewerId, messageData.conversationMessages.items)
   const otherParticipants = conversationData.conversation.participants
     .filter((participant) => String(participant.userId) !== viewerId && !participant.leftAt)
   const maxLong = (values: string[]) => values.reduce((highest, value) => {
@@ -392,7 +426,8 @@ export async function message(messageId: string, viewerId: string): Promise<Mess
     `query Message($id: UUID!) { message(id: $id) { ${MESSAGE_FIELDS} } }`,
     { id: messageId },
   )
-  return messageFromGraphQl(data.message, new Map(), viewerId)
+  const people = await participantMap([], viewerId, [data.message])
+  return messageFromGraphQl(data.message, people, viewerId)
 }
 
 export async function sendMessage(conversationId: string, viewer: UserSummary, body: SendMessageBody): Promise<MessengerMessageDto> {
@@ -431,7 +466,8 @@ export async function deleteMessage(messageId: string, viewerId: string): Promis
     }`,
     { input: { messageId } },
   )
-  return messageFromGraphQl(data.deleteMessage, new Map(), viewerId)
+  const people = await participantMap([], viewerId, [data.deleteMessage])
+  return messageFromGraphQl(data.deleteMessage, people, viewerId)
 }
 
 export async function editMessage(messageId: string, text: string, viewerId: string): Promise<MessengerMessageDto> {
@@ -441,7 +477,8 @@ export async function editMessage(messageId: string, text: string, viewerId: str
     }`,
     { input: { messageId, text } },
   )
-  return messageFromGraphQl(data.editMessage, new Map(), viewerId)
+  const people = await participantMap([], viewerId, [data.editMessage])
+  return messageFromGraphQl(data.editMessage, people, viewerId)
 }
 
 export async function setMessageReaction(messageId: string, emoji: string | null, viewerId: string): Promise<MessengerMessageDto> {
@@ -451,7 +488,8 @@ export async function setMessageReaction(messageId: string, emoji: string | null
     }`,
     { input: { messageId, emoji } },
   )
-  return messageFromGraphQl(data.setMessageReaction, new Map(), viewerId)
+  const people = await participantMap([], viewerId, [data.setMessageReaction])
+  return messageFromGraphQl(data.setMessageReaction, people, viewerId)
 }
 
 export async function createDirectConversation(targetUserId: string, viewerId: string): Promise<MessengerConversationDto> {

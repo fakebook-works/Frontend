@@ -19,6 +19,8 @@ const socialMocks = vi.hoisted(() => ({
   getSavedContent: vi.fn(),
   getMemberGroups: vi.fn(),
   getAdminGroups: vi.fn(),
+  getProfileMemberGroups: vi.fn(),
+  getProfileAdminGroups: vi.fn(),
   updateProfile: vi.fn(),
   changeUserAvatar: vi.fn(),
   changeUserBackground: vi.fn(),
@@ -111,6 +113,8 @@ describe('ProfilePage messaging', () => {
     socialMocks.getSavedContent.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
     socialMocks.getMemberGroups.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
     socialMocks.getAdminGroups.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
+    socialMocks.getProfileMemberGroups.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
+    socialMocks.getProfileAdminGroups.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
     socialMocks.updateProfile.mockReset().mockResolvedValue(null)
     socialMocks.changeUserAvatar.mockReset().mockResolvedValue(null)
     socialMocks.changeUserBackground.mockReset()
@@ -204,6 +208,11 @@ describe('ProfilePage messaging', () => {
       },
       mutualFriendCount: 2,
     }])
+    socialMocks.getProfileMemberGroups.mockResolvedValue({
+      items: [{ id: 'visitor-group', name: 'Creator Community', avatarUrl: null, backgroundUrl: null, bio: null, privacy: 0, createdAt: '', memberCount: 14, adminCount: 2 }],
+      endCursor: null,
+      hasNextPage: false,
+    })
     const { container } = render(<ProfilePage
       profile={{
         id: 'creator-1', username: 'creator', email: 'creator@example.com', displayName: 'Creator Name', avatarUrl: '/creator.jpg',
@@ -259,6 +268,13 @@ describe('ProfilePage messaging', () => {
     expect(await screen.findByText('Visible Friend')).toBeInTheDocument()
     expect(socialMocks.getProfileFriends).toHaveBeenCalledWith('creator-1', 200)
     expect(searchMocks.searchProfileConnections).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'profileTabGroups' }))
+    expect(await screen.findByText('Creator Community')).toBeInTheDocument()
+    expect(socialMocks.getProfileMemberGroups).toHaveBeenCalledWith('creator-1', 60)
+    expect(socialMocks.getProfileAdminGroups).toHaveBeenCalledWith('creator-1', 60)
+    expect(socialMocks.getMemberGroups).not.toHaveBeenCalled()
+    expect(socialMocks.getAdminGroups).not.toHaveBeenCalled()
   })
 
   it('shows a blue story ring for an unseen friend bucket, opens that friend first and turns gray only after every new card is viewed', async () => {
