@@ -495,10 +495,10 @@ export function AuthenticatedApp() {
     {location.pathname === '/premium' && <SettingsPage initialSection="premium" />}
     {location.pathname === '/premium/payment' && <SettingsPage initialSection="premium" />}
     {location.pathname.startsWith('/content/') && <ContentPage contentId={pathSegment(location.pathname, 1)!} viewerId={user.userId} onNavigate={go} onBack={() => go('/home')} onOpenImage={(post, media, _index, initialPlaybackTime) => setPhotoOverlay({ contentId: post.id, media, initialPost: post, initialPlaybackTime })} onOpenReel={openHomeReel} />}
-    {location.pathname.startsWith('/help') && <HelpPage onBack={() => go('/home')} initialTopic={pathSegment(location.pathname, 1) ?? 'creating-account'} />}
-    {location.pathname.startsWith('/privacy') && <PrivacyPage onBack={() => go('/home')} initialTopic={pathSegment(location.pathname, 1) ?? 'overview'} />}
+    {location.pathname.startsWith('/help') && <HelpPage onBack={() => go('/home')} />}
+    {location.pathname.startsWith('/privacy') && <PrivacyPage onBack={() => go('/home')} />}
     {location.pathname === '/about' && <AboutPage onBack={() => go('/home')} />}
-    {location.pathname.startsWith('/policies') && <PoliciesPage onBack={() => go('/home')} initialTopic={pathSegment(location.pathname, 1) ?? 'terms'} />}
+    {location.pathname.startsWith('/policies') && <PoliciesPage onBack={() => go('/home')} />}
     {!isKnownPath(location.pathname) && <main className="unknown-page"><div className="card state-card"><h1>{t('pageNotFound')}</h1><p>{t('pageNotFoundDesc')}</p><button className="btn-primary" onClick={() => go('/home')}>{t('backToHome')}</button></div></main>}
     {reelOverlay && <ReelsPage
       key={`overlay-reel-${reelOverlay.source}-${reelOverlay.ownerId ?? ''}-${reelOverlay.reelId}`}

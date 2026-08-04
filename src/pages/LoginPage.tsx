@@ -106,12 +106,10 @@ export function LoginPage() {
           setScreen('login')
           setChallenge({ mode: 'email', email: registeredEmail })
         }}
-        onNavigateHelp={(topic) => {
-          setHelpTopic(topic ?? 'creating-account')
+        onNavigateHelp={() => {
           setScreen('help')
         }}
-        onNavigatePrivacy={(topic) => {
-          setPrivacyTopic(topic ?? 'overview')
+        onNavigatePrivacy={() => {
           setScreen('privacy')
         }}
       />
