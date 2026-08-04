@@ -16,12 +16,29 @@ import {
 } from 'react-icons/fa';
 import './HelpPage.css';
 
+interface HelpArticle {
+  id: string;
+  titleVi: string;
+  titleEn: string;
+  contentVi: React.ReactNode;
+  contentEn: React.ReactNode;
+  categoryTitle?: string;
+}
+
+interface HelpCategory {
+  id: string;
+  icon: React.ReactNode;
+  titleVi: string;
+  titleEn: string;
+  articles: HelpArticle[];
+}
+
 const logo = '/brand/fakebook-minimal-cropped.png';
 
-const HelpPage: React.FC<{ onBack?: () => void; initialTopic?: string }> = ({ onBack, initialTopic }) => {
+const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [activeArticle, setActiveArticle] = useState<any | null>(null);
+  const [activeArticle, setActiveArticle] = useState<HelpArticle | null>(null);
   const [isVi, setIsVi] = useState(true);
 
   // Popular topics for the landing grid
@@ -34,11 +51,11 @@ const HelpPage: React.FC<{ onBack?: () => void; initialTopic?: string }> = ({ on
     { title: 'Pages', desc: 'Learn how to create, use, follow and manage a Page.', icon: <FaFileAlt /> }
   ];
 
-  const handleCategoryClick = (cat: any) => {
+  const handleCategoryClick = (cat: HelpCategory) => {
     setActiveCategory(activeCategory === cat.id ? null : cat.id);
   };
 
-  const handleArticleClick = (art: any, cat: any) => {
+  const handleArticleClick = (art: HelpArticle, cat: HelpCategory) => {
     setActiveArticle({ ...art, categoryTitle: isVi ? cat.titleVi : cat.titleEn });
   };
 
@@ -52,8 +69,8 @@ const HelpPage: React.FC<{ onBack?: () => void; initialTopic?: string }> = ({ on
       {/* Header */}
       <header className="help-header">
         <div className="help-header-left">
-          <img src={logo} alt="Fakebook Logo" className="help-logo-icon" onClick={() => onBack ? onBack() : navigate('/')} style={{cursor: 'pointer'}} />
-          <span className="help-logo-text" onClick={(e) => { e.stopPropagation(); onBack ? onBack() : navigate('/'); }} style={{cursor: 'pointer'}}>Help Centre</span>
+          <img src={logo} alt="Fakebook Logo" className="help-logo-icon" onClick={() => { if (onBack) onBack(); else navigate('/'); }} style={{cursor: 'pointer'}} />
+          <span className="help-logo-text" onClick={(e) => { e.stopPropagation(); if (onBack) onBack(); else navigate('/'); }} style={{cursor: 'pointer'}}>Help Centre</span>
         </div>
         
         {/* Only show search in header if in article view */}
@@ -80,7 +97,7 @@ const HelpPage: React.FC<{ onBack?: () => void; initialTopic?: string }> = ({ on
         {/* Sidebar */}
         <aside className="help-sidebar">
           <nav className="help-sidebar-nav">
-            {HELP_CATEGORIES.map((cat: any) => (
+            {HELP_CATEGORIES.map((cat: HelpCategory) => (
               <div key={cat.id} className="help-nav-group">
                 <button 
                   className={`help-nav-cat-btn ${activeCategory === cat.id ? 'active' : ''}`}
@@ -95,7 +112,7 @@ const HelpPage: React.FC<{ onBack?: () => void; initialTopic?: string }> = ({ on
                 
                 {activeCategory === cat.id && (
                   <div className="help-nav-articles">
-                    {cat.articles.map((art: any) => (
+                    {cat.articles.map((art: HelpArticle) => (
                       <button 
                         key={art.id} 
                         className={`help-nav-art-btn ${activeArticle?.id === art.id ? 'active' : ''}`}

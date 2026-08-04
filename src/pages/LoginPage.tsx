@@ -24,8 +24,6 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [screen, setScreen] = useState<'login' | 'signup' | 'help' | 'privacy' | 'about' | 'policies'>('login')
-  const [helpTopic, setHelpTopic] = useState('creating-account')
-  const [privacyTopic, setPrivacyTopic] = useState('overview')
   const [challenge, setChallenge] = useState<{ mode: 'email' | 'twoFactor'; email: string } | null>(() =>
     emailChangeVerification ? { mode: 'email', email: emailChangeVerification } : null,
   )
@@ -70,7 +68,6 @@ export function LoginPage() {
     return (
       <HelpPage
         onBack={() => setScreen('login')}
-        initialTopic={helpTopic}
       />
     )
   }
@@ -79,7 +76,6 @@ export function LoginPage() {
     return (
       <PrivacyPage
         onBack={() => setScreen('login')}
-        initialTopic={privacyTopic}
       />
     )
   }
@@ -168,12 +164,10 @@ export function LoginPage() {
       </div>
       <AuthFooter
         onNavigateSignup={() => setScreen('signup')}
-        onNavigateHelp={(topic) => {
-          setHelpTopic(topic ?? 'creating-account')
+        onNavigateHelp={() => {
           setScreen('help')
         }}
-        onNavigatePrivacy={(topic) => {
-          setPrivacyTopic(topic ?? 'overview')
+        onNavigatePrivacy={() => {
           setScreen('privacy')
         }}
         onNavigateAbout={() => setScreen('about')}

@@ -15,7 +15,7 @@ const PoliciesPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     <div className="policies-wrapper">
       {/* Top Header */}
       <header className="policies-header">
-        <div className="policies-logo-area" onClick={(e) => { e.stopPropagation(); onBack ? onBack() : navigate('/'); }} style={{cursor: 'pointer'}}>
+        <div className="policies-logo-area" onClick={(e) => { e.stopPropagation(); if (onBack) onBack(); else navigate('/'); }} style={{cursor: 'pointer'}}>
           <img src={logo} alt="Fakebook Logo" className="policies-logo" />
         </div>
         <div className="policies-lang-toggle">

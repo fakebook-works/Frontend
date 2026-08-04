@@ -12,7 +12,13 @@ import {
 const logo = '/brand/fakebook-minimal-cropped.png';
 import './PrivacyPage.css';
 
-const PrivacyPage: React.FC<{ onBack?: () => void; initialTopic?: string }> = ({ onBack, initialTopic }) => {
+interface PrivacyNavItem {
+  key: string;
+  labelVi: string;
+  labelEn: string;
+}
+
+const PrivacyPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState('home');
   const [activeArticleId, setActiveArticleId] = useState<string | null>(null);
   const [isPolicyExpanded, setIsPolicyExpanded] = useState(false);
@@ -38,8 +44,8 @@ const PrivacyPage: React.FC<{ onBack?: () => void; initialTopic?: string }> = ({
     <div className="privacy-wrapper">
       {/* Sidebar */}
       <aside className="privacy-sidebar">
-        <div className="privacy-sidebar-header" onClick={() => onBack ? onBack() : navigate('/')} style={{cursor: 'pointer'}}>
-          <img src={logo} alt="Meta" className="privacy-logo" onClick={(e) => { e.stopPropagation(); onBack ? onBack() : navigate('/'); }} style={{cursor: 'pointer'}} />
+        <div className="privacy-sidebar-header" onClick={() => { if (onBack) onBack(); else navigate('/'); }} style={{cursor: 'pointer'}}>
+          <img src={logo} alt="Meta" className="privacy-logo" onClick={(e) => { e.stopPropagation(); if (onBack) onBack(); else navigate('/'); }} style={{cursor: 'pointer'}} />
           <h2>Privacy Centre</h2>
         </div>
         
@@ -75,7 +81,7 @@ const PrivacyPage: React.FC<{ onBack?: () => void; initialTopic?: string }> = ({
             
             {isPolicyExpanded && (
               <div className="p-nav-sublist">
-                {PRIVACY_NAV_ITEMS.map((item: any) => (
+                {PRIVACY_NAV_ITEMS.map((item: PrivacyNavItem) => (
                   <button 
                     key={item.key}
                     className={`p-sub-item ${activeArticleId === item.key ? 'active' : ''}`}

@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
 import { navigate } from '../lib/router';
 import { ABOUT_NAV_ITEMS, ABOUT_ARTICLES } from './data/aboutData';
+
+interface AboutNavItem {
+  key: string;
+  labelVi: string;
+  labelEn: string;
+}
+
 const logo = '/brand/fakebook-minimal-cropped.png';
 import { FaPlay, FaChevronDown, FaGlobe, FaShieldAlt } from 'react-icons/fa';
 import './AboutPage.css';
@@ -111,7 +118,7 @@ const AboutPage: React.FC<{ onBack?: () => void; initialTopic?: string }> = ({ o
       <section className="about-section">
         <h2 className="text-center" style={{marginBottom: 40}}>Detailed Documentation</h2>
         <div className="about-accordion-list">
-          {ABOUT_NAV_ITEMS.map((item: any) => (
+          {ABOUT_NAV_ITEMS.map((item: AboutNavItem) => (
             <div key={item.key} className="about-accordion-item">
               <button 
                 className={`about-accordion-header ${activeArticleId === item.key ? 'open' : ''}`}
