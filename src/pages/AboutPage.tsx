@@ -1,240 +1,158 @@
-import { useI18n } from '../i18n'
-import type { Locale } from '../i18n'
-import {
-  FaUsers,
-  FaHandshake,
-  FaRocket,
-  FaShieldAlt,
-  FaArrowRight,
-  FaBalanceScale,
-  FaEye,
-  FaLock,
-} from 'react-icons/fa'
-import './AboutPage.css'
+import React, { useState } from 'react';
+import { navigate } from '../lib/router';
+import { ABOUT_NAV_ITEMS, ABOUT_ARTICLES } from './data/aboutData';
+const logo = '/brand/fakebook-minimal-cropped.png';
+import { FaPlay, FaChevronDown, FaGlobe, FaShieldAlt } from 'react-icons/fa';
+import './AboutPage.css';
 
-export interface AboutPageProps {
-  onBack?: () => void
-  initialSection?: string
-}
+const AboutPage: React.FC<{ onBack?: () => void; initialTopic?: string }> = ({ onBack }) => {
+  const [activeArticleId, setActiveArticleId] = useState<string | null>(null);
+  const [isVi, setIsVi] = useState(true);
 
-export function AboutPage({ onBack }: AboutPageProps) {
-  const { locale, setLocale } = useI18n()
-  const isVi = locale === 'vi'
 
-  const t = (en: string, vi: string) => (isVi ? vi : en)
 
   return (
-    <div className="about-page-wrapper">
-      <header className="about-header-meta">
-        <button type="button" className="about-header-logo" onClick={onBack}>
-          <img src="/brand/fakebook-minimal-cropped.png" alt="Fakebook" />
-          <span>Group 36</span>
-        </button>
+    <div className="about-wrapper">
+      {/* Top Nav */}
+      <nav className="about-nav">
+        <div className="about-nav-left">
+          <img src={logo} alt="Fakebook" className="about-logo" onClick={() => onBack ? onBack() : navigate('/')} style={{cursor: 'pointer', height: 32}} />
+          <span className="about-nav-brand">About Group 36</span>
+          <div className="about-nav-links">
+            <a href="#products" style={{textDecoration: 'none', color: 'inherit'}}><button>What we build</button></a>
+            <a href="#news" style={{textDecoration: 'none', color: 'inherit'}}><button>News</button></a>
+          </div>
+        </div>
+        <div className="about-nav-right">
+          <button onClick={() => setIsVi(!isVi)}>{isVi ? 'Tiếng Việt' : 'English'}</button>
+        </div>
+      </nav>
 
-        <nav className="about-header-nav">
-          <button type="button">{t('Who we are', 'Ai là chúng tôi')}</button>
-          <button type="button">{t('What we build', 'Những gì chúng tôi xây dựng')}</button>
-          <button type="button">{t('Responsibility', 'Trách nhiệm')}</button>
-          <select
-            className="about-lang-select"
-            value={locale}
-            onChange={(e) => setLocale(e.target.value as Locale)}
-            aria-label="Language selector"
-          >
-            <option value="en">English (UK)</option>
-            <option value="vi">Tiếng Việt</option>
-          </select>
-        </nav>
-      </header>
-
-      {/* Hero */}
+      {/* Hero Section */}
       <section className="about-hero">
-        <h1>
-          {t(
-            'Fakebook builds technologies that help people connect, find communities, and grow businesses.',
-            'Fakebook xây dựng công nghệ giúp mọi người kết nối, tìm cộng đồng và phát triển doanh nghiệp.'
-          )}
-        </h1>
-        <p>
-          {t(
-            'We are moving beyond 2D screens toward immersive experiences like augmented and virtual reality that can help build the next evolution of social technology.',
-            'Chúng tôi đang vượt qua các màn hình 2D hướng đến trải nghiệm sống động như thực tế ảo và tăng cường để giúp xây dựng sự phát triển tiếp theo của công nghệ xã hội.'
-          )}
-        </p>
+        <div className="about-hero-bg">
+          <img src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?ixlib=rb-4.0.3&auto=format&fit=crop&w=2000&q=80" alt="People running" />
+        </div>
+        <div className="about-hero-content">
+          <h1>We're building the future<br/>of human connection.</h1>
+          <button className="play-btn"><FaPlay style={{fontSize: 12, marginRight: 8}}/> Play video</button>
+        </div>
       </section>
 
-      {/* Values */}
+      {/* News Section */}
+      <section id="news" className="about-section text-center">
+        <h2>Catch up on the latest news</h2>
+        <div className="news-grid">
+          <div className="news-card">
+            <div style={{ height: '200px', background: '#e7f3ff', color: '#1877f2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '64px', borderRadius: '12px 12px 0 0' }}>
+              <FaGlobe />
+            </div>
+            <p>Introducing new ways to connect with friends globally.</p>
+          </div>
+          <div className="news-card">
+            <div style={{ height: '200px', background: '#e7f3ff', color: '#1877f2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '64px', borderRadius: '12px 12px 0 0' }}>
+              <FaShieldAlt />
+            </div>
+            <p>Safety updates for teen accounts on Fakebook.</p>
+          </div>
+        </div>
+      </section>
+
+
+      {/* Connect Section */}
+      <section id="products" className="about-section text-center">
+        <h2>Connect in new ways with our products</h2>
+        <button className="pill-btn primary">Explore our products</button>
+        <div className="connect-video">
+          <img src="https://images.unsplash.com/photo-1551818255-e6e10975bc17?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80" alt="Video thumbnail" />
+        </div>
+      </section>
+
+      {/* Play a role */}
       <section className="about-section">
-        <div className="about-container-inner">
-          <h2>{t('Our values', 'Giá trị của chúng tôi')}</h2>
-          <p>
-            {t(
-              'These core values guide how we build our products and how we work together.',
-              'Các giá trị cốt lõi này hướng dẫn cách chúng tôi xây dựng sản phẩm và cách làm việc cùng nhau.'
-            )}
-          </p>
-          <div className="about-values-grid">
-            <div className="about-value-card">
-              <div className="about-value-icon"><FaUsers /></div>
-              <h3>{t('Give people a voice', 'Trao quyền cho mọi người')}</h3>
-              <p>
-                {t(
-                  'We give people a voice by building new ways for people to express themselves across the Fakebook family of apps.',
-                  'Chúng tôi trao quyền cho mọi người bằng cách xây dựng các cách mới để mọi người thể hiện bản thân trên toàn bộ các ứng dụng Fakebook.'
-                )}
-              </p>
+        <div className="role-layout">
+          <div className="role-left">
+            <h2>Play a role in building<br/>the future</h2>
+            <p>We're looking for people who want to<br/>make a difference.</p>
+            <button className="pill-btn primary">Explore careers</button>
+          </div>
+          <div className="role-right">
+            <div className="role-item">
+              <h3>Culture at Group 36</h3>
+              <p>Find out what it's like to work with us.</p>
             </div>
-            <div className="about-value-card">
-              <div className="about-value-icon"><FaHandshake /></div>
-              <h3>{t('Build community', 'Xây dựng cộng đồng')}</h3>
-              <p>
-                {t(
-                  'We help people connect with friends, family, and communities by building tools that help create a sense of community.',
-                  'Chúng tôi giúp mọi người kết nối với bạn bè, gia đình và cộng đồng bằng cách xây dựng công cụ giúp tạo cảm giác cộng đồng.'
-                )}
-              </p>
+            <div className="role-item">
+              <h3>Careers in tech</h3>
+              <p>Explore engineering and design roles.</p>
             </div>
-            <div className="about-value-card">
-              <div className="about-value-icon"><FaRocket /></div>
-              <h3>{t('Encourage innovation', 'Khuyến khích đổi mới')}</h3>
-              <p>
-                {t(
-                  'We encourage innovation by constantly pushing the boundaries of what is possible with technology.',
-                  'Chúng tôi khuyến khích đổi mới bằng cách liên tục đẩy ranh giới của những gì có thể với công nghệ.'
-                )}
-              </p>
+            <div className="role-item">
+              <h3>Internships</h3>
+              <p>Start your career with our global program.</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Stats */}
-      <section className="about-stats-section">
-        <div className="about-stats-grid">
-          <div className="about-stat-item">
-            <h3>3B+</h3>
-            <p>{t('Monthly active users', 'Người dùng hoạt động hàng tháng')}</p>
+      {/* Leadership */}
+      <section className="about-section bg-light">
+        <div className="leadership-layout">
+          <div className="leadership-text">
+            <h2>Meet our leadership</h2>
+            <p>Learn about the people leading our company into the future.</p>
+            <button className="pill-btn primary">Meet our leaders</button>
           </div>
-          <div className="about-stat-item">
-            <h3>200+</h3>
-            <p>{t('Countries and regions', 'Quốc gia và khu vực')}</p>
-          </div>
-          <div className="about-stat-item">
-            <h3>50K+</h3>
-            <p>{t('Employees', 'Nhân viên')}</p>
-          </div>
-          <div className="about-stat-item">
-            <h3>20+</h3>
-            <p>{t('Products and services', 'Sản phẩm và dịch vụ')}</p>
+          <div className="leadership-img">
+            <img src="/leader.png" alt="Leadership" />
           </div>
         </div>
       </section>
 
-      {/* Products */}
-      <section className="about-section about-section-alt">
-        <div className="about-container-inner">
-          <h2>{t('What we build', 'Những gì chúng tôi xây dựng')}</h2>
-          <p>
-            {t(
-              'Our products help people connect and share, build communities, and grow businesses.',
-              'Sản phẩm của chúng tôi giúp mọi người kết nối và chia sẻ, xây dựng cộng đồng và phát triển doanh nghiệp.'
-            )}
-          </p>
-          <div className="about-products-grid">
-            <div className="about-product-card">
-              <div className="about-product-visual fb">F</div>
-              <div className="about-product-body">
-                <h3>Fakebook</h3>
-                <p>
-                  {t(
-                    'A place to bring people together. Discover new interests, groups, and friends every day.',
-                    'Nơi mang mọi người đến với nhau. Khám phá sở thích, nhóm và bạn bè mới mỗi ngày.'
-                  )}
-                </p>
-                <button type="button" className="about-product-link">
-                  {t('Learn more', 'Tìm hiểu thêm')} <FaArrowRight />
-                </button>
-              </div>
-            </div>
-            <div className="about-product-card">
-              <div className="about-product-visual msgr">M</div>
-              <div className="about-product-body">
-                <h3>Messenger</h3>
-                <p>
-                  {t(
-                    'Bringing people together, one message at a time. Share texts, photos, and video calls for free.',
-                    'Gắn kết mọi người, một tin nhắn mỗi lần. Chia sẻ tin nhắn, ảnh và gọi video miễn phí.'
-                  )}
-                </p>
-                <button type="button" className="about-product-link">
-                  {t('Learn more', 'Tìm hiểu thêm')} <FaArrowRight />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Responsibility */}
+      {/* Markdown Content Section (Our Detailed Documentation) */}
       <section className="about-section">
-        <div className="about-container-inner">
-          <h2>{t('Our responsibility', 'Trách nhiệm của chúng tôi')}</h2>
-          <p>
-            {t(
-              'We are committed to building a safe and inclusive platform for everyone.',
-              'Chúng tôi cam kết xây dựng một nền tảng an toàn và hòa nhập cho tất cả mọi người.'
-            )}
-          </p>
-          <div className="about-responsibility-grid">
-            <div className="about-responsibility-card">
-              <div className="about-responsibility-icon"><FaShieldAlt /></div>
-              <div>
-                <h4>{t('Safety', 'An toàn')}</h4>
-                <p>{t('Building technology that keeps people safe on our platforms.', 'Xây dựng công nghệ giữ mọi người an toàn trên nền tảng.')}</p>
-              </div>
+        <h2 className="text-center" style={{marginBottom: 40}}>Detailed Documentation</h2>
+        <div className="about-accordion-list">
+          {ABOUT_NAV_ITEMS.map((item: any) => (
+            <div key={item.key} className="about-accordion-item">
+              <button 
+                className={`about-accordion-header ${activeArticleId === item.key ? 'open' : ''}`}
+                onClick={() => setActiveArticleId(activeArticleId === item.key ? null : item.key)}
+              >
+                {isVi ? item.labelVi : item.labelEn}
+                <FaChevronDown className="about-chevron" />
+              </button>
+              {activeArticleId === item.key && (
+                <div className="about-accordion-body markdown-content">
+                  {isVi 
+                    ? ABOUT_ARTICLES.find(a => a.id === item.key + '-content')?.contentVi 
+                    : ABOUT_ARTICLES.find(a => a.id === item.key + '-content')?.contentEn}
+                </div>
+              )}
             </div>
-            <div className="about-responsibility-card">
-              <div className="about-responsibility-icon"><FaEye /></div>
-              <div>
-                <h4>{t('Privacy', 'Quyền riêng tư')}</h4>
-                <p>{t('Building products that protect people\'s privacy and give them control.', 'Xây dựng sản phẩm bảo vệ quyền riêng tư và trao quyền kiểm soát.')}</p>
-              </div>
-            </div>
-            <div className="about-responsibility-card">
-              <div className="about-responsibility-icon"><FaBalanceScale /></div>
-              <div>
-                <h4>{t('Equity and inclusion', 'Công bằng và hòa nhập')}</h4>
-                <p>{t('Promoting equity and inclusion in everything we do.', 'Thúc đẩy công bằng và hòa nhập trong mọi việc chúng tôi làm.')}</p>
-              </div>
-            </div>
-            <div className="about-responsibility-card">
-              <div className="about-responsibility-icon"><FaLock /></div>
-              <div>
-                <h4>{t('Data security', 'Bảo mật dữ liệu')}</h4>
-                <p>{t('Protecting the data of billions of people who use our products.', 'Bảo vệ dữ liệu của hàng tỷ người sử dụng sản phẩm.')}</p>
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
       </section>
 
       {/* Footer */}
       <footer className="about-footer">
-        <div className="about-footer-inner">
-          <div className="about-footer-logo">
-            <img src="/brand/fakebook-minimal-cropped.png" alt="Fakebook" />
-            <span>Group 36</span>
+        <div className="about-footer-cols">
+          <div className="col">
+            <h4>Products</h4>
+            <p><a href="https://fakebook.tech" target="_blank" rel="noopener noreferrer" style={{color: 'inherit', textDecoration: 'none'}}>Fakebook</a></p>
           </div>
-          <div className="about-footer-links">
-            <a href="#">{t('Privacy Policy', 'Chính sách quyền riêng tư')}</a>
-            <a href="#">{t('Terms of Service', 'Điều khoản dịch vụ')}</a>
-            <a href="#">{t('Community Standards', 'Tiêu chuẩn cộng đồng')}</a>
-            <a href="#">{t('Cookie Policy', 'Chính sách Cookie')}</a>
-            <a href="#">{t('Help Centre', 'Trung tâm hỗ trợ')}</a>
+          <div className="col">
+            <h4>Resources</h4>
+            <p onClick={() => navigate('/privacy')} style={{cursor: 'pointer'}}>Privacy Centre</p>
+            <p onClick={() => navigate('/help')} style={{cursor: 'pointer'}}>Help Centre</p>
+            <p onClick={() => navigate('/policies')} style={{cursor: 'pointer'}}>Policies</p>
           </div>
-          <p>&copy; {new Date().getFullYear()} Fakebook, Inc.</p>
+        </div>
+        <div className="about-footer-bottom">
+          <img src={logo} alt="Meta" style={{height: 32, cursor: 'pointer'}} onClick={() => onBack ? onBack() : navigate('/')} />
+          <span>© 2026 Group 36</span>
         </div>
       </footer>
     </div>
-  )
-}
+  );
+};
+
+export { AboutPage };

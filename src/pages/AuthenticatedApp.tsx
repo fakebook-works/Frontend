@@ -54,7 +54,7 @@ const PostPhotoViewer = lazy(() => import('../components/PostPhotoViewer').then(
 export function AuthenticatedApp() {
   const { user, logout } = useAuth()
   const authenticatedUserId = user?.userId
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const [location, navigate] = useAppLocation()
   const isHomeRoute = location.pathname === '/' || location.pathname === '/home'
   const isFriendsRoute = location.pathname.startsWith('/friends')
@@ -462,12 +462,17 @@ export function AuthenticatedApp() {
           <button ref={menuTriggerRef} type="button" className="shell-avatar-button" aria-haspopup="dialog" aria-expanded={menuOpen} aria-label={displayName} onClick={() => { setMenuOpen((open) => !open); setMenuView('root') }}><Avatar name={displayName} src={avatarUrl} size={36} /></button>
           {menuOpen && <div className={`account-dropdown account-dropdown-${menuView}`} role="dialog" aria-label={t('accountMenu')}>
             {menuView === 'root' ? <>
-              <div className="account-profile-card"><button type="button" onClick={() => go(`/profile/${user.userId}`)}><Avatar name={displayName} src={avatarUrl} size={58} /><span><strong>{displayName}<VerifiedBadge verified={currentProfile?.isVerified} /></strong><small>{user.email}</small></span></button><button type="button" className="view-profile-link" onClick={() => go(`/profile/${user.userId}`)}>{t('seeYourProfile')}</button></div>
+              <div className="account-profile-card"><button type="button" onClick={() => go(`/profile/${user.userId}`)}><Avatar name={displayName} src={avatarUrl} size={58} /><span><strong style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span><VerifiedBadge verified={currentProfile?.isVerified} /></strong><small>{user.email}</small></span></button><button type="button" className="view-profile-link" onClick={() => go(`/profile/${user.userId}`)}>{t('seeYourProfile')}</button></div>
               <MenuItem icon="gift" label={t('premium')} detail={t('premiumMenuDesc')} onClick={() => go('/settings/premium')} />
               <MenuItem icon="settings" label={t('settingsPrivacy')} detail={t('settingsMenuDesc')} onClick={() => setMenuView('settings')} />
               <MenuItem icon="settings" label={t('settingsAppearance')} onClick={() => go('/settings/appearance')} />
               <MenuItem icon="logout" label={t('logout')} onClick={() => void logout()} />
-              <p className="account-menu-footer">{t('footerLinks')}</p>
+              <p className="account-menu-footer">
+                <a href="/privacy" onClick={(e) => { e.preventDefault(); go('/privacy') }} style={{ color: 'inherit', textDecoration: 'none' }}>{t('footerPrivacy') || (locale === 'vi' ? 'Quyền riêng tư' : 'Privacy')}</a> ·{' '}
+                <a href="/policies/terms" onClick={(e) => { e.preventDefault(); go('/policies/terms') }} style={{ color: 'inherit', textDecoration: 'none' }}>{t('footerTerms') || (locale === 'vi' ? 'Điều khoản' : 'Terms')}</a> ·{' '}
+                <a href="/policies/cookies" onClick={(e) => { e.preventDefault(); go('/policies/cookies') }} style={{ color: 'inherit', textDecoration: 'none' }}>{t('footerCookies') || (locale === 'vi' ? 'Cookie' : 'Cookies')}</a> ·{' '}
+                Fakebook © 2026
+              </p>
             </> : <SettingsSubmenu onBack={() => setMenuView('root')} onOpen={(section) => go(`/settings/${section}`)} />}
           </div>}
         </div>

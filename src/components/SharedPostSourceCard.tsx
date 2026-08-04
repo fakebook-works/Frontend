@@ -80,7 +80,7 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource,
             <span className="post-author-name"><strong>{isGroupSource && sharedGroup ? sharedGroup.name : source.author?.name || t('fakebookUser')}<VerifiedBadge verified={!isGroupSource && source.author?.isVerified} size={12} /></strong></span>
           </div>
           {(timestamp || hasPrivacy) && <span className="post-head-meta">
-            {isGroupSource && source.author && <><span className="shared-source-group-author">{source.author.name}</span><i>·</i></>}
+            {isGroupSource && source.author && <><span className="shared-source-group-author">{source.author.name}<VerifiedBadge verified={source.author.isVerified} size={12} /></span><i>·</i></>}
             {timestamp && <HoverTooltip label={timestamp.detail} className="post-meta-hover post-time-hover"><time dateTime={source.create ?? undefined}>{timestamp.display}</time></HoverTooltip>}
             {timestamp && hasPrivacy && <i>·</i>}
             {hasPrivacy && <HoverTooltip label={privacyLabel} className="post-meta-hover post-privacy-hover"><span aria-label={privacyLabel}><PostPrivacyIcon privacy={privacy} size={13} group={isGroupSource} /></span></HoverTooltip>}

@@ -13,6 +13,7 @@ import { birthDateBounds, isAllowedBirthDate } from './birthDate'
 import { HelpPage } from './HelpPage'
 import { PrivacyPage } from './PrivacyPage'
 import { AboutPage } from './AboutPage'
+import { PoliciesPage } from './PoliciesPage'
 
 export function LoginPage() {
   const emailChangeVerification = new URLSearchParams(window.location.search).get('verifyEmail')?.trim().toLowerCase() ?? ''
@@ -22,7 +23,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [screen, setScreen] = useState<'login' | 'signup' | 'help' | 'privacy' | 'about'>('login')
+  const [screen, setScreen] = useState<'login' | 'signup' | 'help' | 'privacy' | 'about' | 'policies'>('login')
   const [helpTopic, setHelpTopic] = useState('creating-account')
   const [privacyTopic, setPrivacyTopic] = useState('overview')
   const [challenge, setChallenge] = useState<{ mode: 'email' | 'twoFactor'; email: string } | null>(() =>
@@ -86,6 +87,14 @@ export function LoginPage() {
   if (screen === 'about') {
     return (
       <AboutPage
+        onBack={() => setScreen('login')}
+      />
+    )
+  }
+
+  if (screen === 'policies') {
+    return (
+      <PoliciesPage
         onBack={() => setScreen('login')}
       />
     )
@@ -168,6 +177,7 @@ export function LoginPage() {
           setScreen('privacy')
         }}
         onNavigateAbout={() => setScreen('about')}
+        onNavigatePolicies={() => setScreen('policies')}
       />
       {resetOpen && <PasswordResetModal initialEmail={email} onClose={() => setResetOpen(false)} />}
     </div>
@@ -185,12 +195,14 @@ export function AuthFooter({
   onNavigateHelp,
   onNavigatePrivacy,
   onNavigateAbout,
+  onNavigatePolicies,
 }: {
   onNavigateLogin?: () => void
   onNavigateSignup?: () => void
   onNavigateHelp?: (topic?: string) => void
   onNavigatePrivacy?: (topic?: string) => void
   onNavigateAbout?: () => void
+  onNavigatePolicies?: () => void
 } = {}) {
   const { locale, setLocale } = useI18n()
 
@@ -242,7 +254,7 @@ export function AuthFooter({
             </button>
           </li>
           <li>
-            <button type="button" onClick={() => onNavigatePrivacy?.('terms')}>
+            <button type="button" onClick={onNavigatePolicies}>
               Terms
             </button>
           </li>
