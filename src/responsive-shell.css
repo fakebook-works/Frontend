@@ -35,16 +35,16 @@
   .shared-post-source { min-width: 0; }
 
   .app-shell-topbar {
-    grid-template-columns: minmax(205px, 1fr) minmax(380px, 610px) minmax(205px, 1fr);
-    padding-right: max(10px, var(--fb-safe-right));
-    padding-left: max(10px, var(--fb-safe-left));
+    grid-template-columns: var(--sidebar-w) minmax(360px, 1fr) var(--sidebar-w);
+    padding-right: 16px;
+    padding-left: 16px;
   }
 
   .gateway-home {
     width: 100%;
-    padding-right: var(--fb-responsive-gutter);
-    padding-left: var(--fb-responsive-gutter);
-    gap: clamp(18px, 2.2vw, 34px);
+    padding-left: 8px;
+    padding-right: 16px;
+    gap: 32px;
   }
 }
 

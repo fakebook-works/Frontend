@@ -1225,11 +1225,8 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       <header className="messenger-popover-head">
         <div><h2>{t('chats')}</h2>{error && <small>{error}</small>}</div>
         <div className="messenger-popover-actions">
-          <div className="messenger-popover-menu-wrap">
-            <button type="button" aria-label={t('messengerSettings')} onClick={() => setPanelMenuOpen((open) => !open)}><Icon name="more" size={19} /></button>
-            {panelMenuOpen && <div className="messenger-popover-menu"><button type="button" onClick={() => { setPanelMenuOpen(false); setShowNewModal(true) }}><Icon name="edit" size={17} />{t('newMessage')}</button><button type="button" onClick={() => onOpenAll()}><Icon name="expand" size={17} />{t('openMessenger')}</button></div>}
-          </div>
-          <button type="button" aria-label={t('openMessenger')} onClick={() => onOpenAll()}><Icon name="expand" size={19} /></button>
+
+          <button type="button" aria-label={t('openMessenger')} onClick={() => onOpenAll()} disabled style={{ opacity: 0.5 }}><Icon name="expand" size={19} /></button>
           <button type="button" aria-label={t('newMessage')} onClick={() => setShowNewModal(true)}><Icon name="edit" size={19} /></button>
         </div>
       </header>

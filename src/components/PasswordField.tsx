@@ -15,6 +15,7 @@ export function PasswordField({ showLabel, hideLabel, className, ...inputProps }
       <button
         type="button"
         className="password-toggle"
+        tabIndex={-1}
         aria-label={visible ? hideLabel : showLabel}
         aria-pressed={visible}
         onClick={() => setVisible((current) => !current)}

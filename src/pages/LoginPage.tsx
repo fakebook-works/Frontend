@@ -4,19 +4,26 @@ import { ApiError } from '../api/client'
 import { api } from '../api/client'
 import type { RegisterBody } from '../api/client'
 import { useAuth } from '../lib/auth'
-import { languageOptions, useI18n } from '../i18n'
+import { useI18n } from '../i18n'
+import type { Locale } from '../i18n'
 import { PasswordField } from '../components/PasswordField'
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter'
 import { birthDateBounds, isAllowedBirthDate } from './birthDate'
 
+import { HelpPage } from './HelpPage'
+import { PrivacyPage } from './PrivacyPage'
+import { AboutPage } from './AboutPage'
+
 export function LoginPage() {
   const { login, register } = useAuth()
-  const { t, locale, setLocale } = useI18n()
+  const { t } = useI18n()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [screen, setScreen] = useState<'login' | 'signup'>('login')
+  const [screen, setScreen] = useState<'login' | 'signup' | 'help' | 'privacy' | 'about'>('login')
+  const [helpTopic, setHelpTopic] = useState('creating-account')
+  const [privacyTopic, setPrivacyTopic] = useState('overview')
   const [challenge, setChallenge] = useState<{ mode: 'email' | 'twoFactor'; email: string } | null>(null)
   const [resetOpen, setResetOpen] = useState(false)
 
@@ -55,12 +62,52 @@ export function LoginPage() {
     )
   }
 
+  if (screen === 'help') {
+    return (
+      <HelpPage
+        onBack={() => setScreen('login')}
+        initialTopic={helpTopic}
+      />
+    )
+  }
+
+  if (screen === 'privacy') {
+    return (
+      <PrivacyPage
+        onBack={() => setScreen('login')}
+        initialTopic={privacyTopic}
+      />
+    )
+  }
+
+  if (screen === 'about') {
+    return (
+      <AboutPage
+        onBack={() => setScreen('login')}
+      />
+    )
+  }
+
   if (screen === 'signup') {
-    return <RegisterPage onBack={() => setScreen('login')} onRegister={register} onNeedsVerification={(registeredEmail) => {
-      setEmail(registeredEmail)
-      setScreen('login')
-      setChallenge({ mode: 'email', email: registeredEmail })
-    }} />
+    return (
+      <RegisterPage
+        onBack={() => setScreen('login')}
+        onRegister={register}
+        onNeedsVerification={(registeredEmail) => {
+          setEmail(registeredEmail)
+          setScreen('login')
+          setChallenge({ mode: 'email', email: registeredEmail })
+        }}
+        onNavigateHelp={(topic) => {
+          setHelpTopic(topic ?? 'creating-account')
+          setScreen('help')
+        }}
+        onNavigatePrivacy={(topic) => {
+          setPrivacyTopic(topic ?? 'overview')
+          setScreen('privacy')
+        }}
+      />
+    )
   }
 
   return (
@@ -92,18 +139,124 @@ export function LoginPage() {
               hideLabel={t('hidePassword')}
             />
             {error && <p className="form-error">{error}</p>}
-            <button type="submit" className="btn-primary lg" disabled={busy || !email.trim() || !password}>
+            <button type="submit" className="btn-primary lg" disabled={busy}>
               {busy ? t('loginLoggingIn') : t('loginLogIn')}
             </button>
             <button type="button" className="auth-forgot" onClick={() => setResetOpen(true)}>{t('forgottenPassword')}</button>
             <div className="auth-divider" />
             <button type="button" className="btn-create" onClick={() => setScreen('signup')}>{t('createAccount')}</button>
+            <div className="auth-card-meta" aria-label="Group 36">
+              <svg width="22" height="14" viewBox="0 0 24 14" fill="currentColor">
+                <path d="M16.91 0C14.73 0 13.06 1.09 12 2.37C10.94 1.09 9.27 0 7.09 0C3.17 0 0 3.14 0 7C0 10.86 3.17 14 7.09 14C9.27 14 10.94 12.91 12 11.63C13.06 12.91 14.73 14 16.91 14C20.83 14 24 10.86 24 7C24 3.14 20.83 0 16.91 0ZM7.09 11.55C4.54 11.55 2.45 9.5 2.45 7C2.45 4.5 4.54 2.45 7.09 2.45C9.07 2.45 10.74 3.66 11.64 5.37C11.39 5.86 11.25 6.41 11.25 7C11.25 7.59 11.39 8.14 11.64 8.63C10.74 10.34 9.07 11.55 7.09 11.55ZM16.91 11.55C14.93 11.55 13.26 10.34 12.36 8.63C12.61 8.14 12.75 7.59 12.75 7C12.75 6.41 12.61 5.86 12.36 5.37C13.26 3.66 14.93 2.45 16.91 2.45C19.46 2.45 21.55 4.5 19.46 11.55 16.91 11.55Z" />
+              </svg>
+              <span>Group 36</span>
+            </div>
           </form>
         </div>
       </div>
-      <footer className="auth-footer"><div className="auth-languages">{languageOptions.slice(0, 8).map((option) => <button type="button" className={locale === option.locale ? 'active' : ''} key={option.locale} onClick={() => setLocale(option.locale)}>{option.label}</button>)}</div></footer>
+      <AuthFooter
+        onNavigateSignup={() => setScreen('signup')}
+        onNavigateHelp={(topic) => {
+          setHelpTopic(topic ?? 'creating-account')
+          setScreen('help')
+        }}
+        onNavigatePrivacy={(topic) => {
+          setPrivacyTopic(topic ?? 'overview')
+          setScreen('privacy')
+        }}
+        onNavigateAbout={() => setScreen('about')}
+      />
       {resetOpen && <PasswordResetModal initialEmail={email} onClose={() => setResetOpen(false)} />}
     </div>
+  )
+}
+
+const SUPPORTED_FOOTER_LANGUAGES: { locale: Locale; label: string }[] = [
+  { locale: 'en', label: 'English (UK)' },
+  { locale: 'vi', label: 'Tiếng Việt' },
+]
+
+export function AuthFooter({
+  onNavigateLogin,
+  onNavigateSignup,
+  onNavigateHelp,
+  onNavigatePrivacy,
+  onNavigateAbout,
+}: {
+  onNavigateLogin?: () => void
+  onNavigateSignup?: () => void
+  onNavigateHelp?: (topic?: string) => void
+  onNavigatePrivacy?: (topic?: string) => void
+  onNavigateAbout?: () => void
+} = {}) {
+  const { locale, setLocale } = useI18n()
+
+  return (
+    <footer className="auth-footer">
+      <div className="auth-footer-inner">
+        <ul className="auth-languages" aria-label="Languages">
+          {SUPPORTED_FOOTER_LANGUAGES.map((option) => (
+            <li key={option.locale}>
+              <button
+                type="button"
+                className={locale === option.locale ? 'active' : ''}
+                onClick={() => setLocale(option.locale)}
+              >
+                {option.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <ul className="auth-footer-links-list" aria-label="Facebook Links">
+          <li>
+            <button type="button" onClick={onNavigateSignup}>
+              Sign up
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={onNavigateLogin}>
+              Log in
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={() => onNavigatePrivacy?.('policy-intro')}>
+              Privacy Policy
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={() => onNavigatePrivacy?.('overview')}>
+              Privacy Centre
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={onNavigateAbout}>
+              About
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={() => onNavigatePrivacy?.('cookies')}>
+              Cookies
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={() => onNavigatePrivacy?.('terms')}>
+              Terms
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={() => onNavigateHelp?.('creating-account')}>
+              Help
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={() => onNavigateHelp?.('non-users')}>
+              Contact uploading and non-users
+            </button>
+          </li>
+        </ul>
+        <div className="auth-copyright">Group 36 © 2026</div>
+      </div>
+    </footer>
   )
 }
 
@@ -111,12 +264,18 @@ function RegisterPage({
   onBack,
   onRegister,
   onNeedsVerification,
+  onNavigateHelp,
+  onNavigatePrivacy,
+  onNavigateAbout,
 }: {
   onBack: () => void
   onRegister: (body: RegisterBody) => Promise<{ success: boolean; message: string | null }>
   onNeedsVerification: (email: string) => void
+  onNavigateHelp?: (topic?: string) => void
+  onNavigatePrivacy?: (topic?: string) => void
+  onNavigateAbout?: () => void
 }) {
-  const { t, locale, setLocale } = useI18n()
+  const { t, locale } = useI18n()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -131,12 +290,12 @@ function RegisterPage({
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    if (password.length < 8) {
-      setError(t('passwordMinimum'))
+    if (!name.trim()) {
+      setError(locale === 'vi' ? 'Vui lòng nhập họ và tên.' : 'Please enter your full name.')
       return
     }
-    if (password !== confirmPassword) {
-      setError(t('passwordMismatch'))
+    if (!birthdate) {
+      setError(locale === 'vi' ? 'Vui lòng chọn ngày sinh.' : 'Please select your date of birth.')
       return
     }
     if (!isAllowedBirthDate(birthdate)) {
@@ -145,6 +304,22 @@ function RegisterPage({
     }
     if (!gender) {
       setError(t('genderRequired'))
+      return
+    }
+    if (!email.trim()) {
+      setError(locale === 'vi' ? 'Vui lòng nhập email.' : 'Please enter your email.')
+      return
+    }
+    if (password.length < 8) {
+      setError(t('passwordMinimum'))
+      return
+    }
+    if (password !== confirmPassword) {
+      setError(t('passwordMismatch'))
+      return
+    }
+    if (!location.trim()) {
+      setError(locale === 'vi' ? 'Vui lòng nhập vị trí.' : 'Please enter your location.')
       return
     }
     setBusy(true)
@@ -174,31 +349,70 @@ function RegisterPage({
     <div className="signup-page">
       <main className="signup-main">
         <section className="signup-card" aria-labelledby="register-title">
-          <button type="button" className="signup-back" onClick={onBack} aria-label={t('backToLogin')}>‹</button>
+          <button type="button" className="signup-back" onClick={onBack} aria-label={t('backToLogin')}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
           <div className="signup-brand"><img src="/brand/fakebook-minimal-cropped.png" alt="" /><span>Fakebook</span></div>
           <header className="register-head"><h1 id="register-title">{t('signupTitle')}</h1><p>{t('signupProfileNote')}</p></header>
           <form className="register-form" onSubmit={submit} noValidate>
           <label className="signup-field"><span>{t('fullName')}</span><input placeholder={t('fullName')} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" autoFocus required /></label>
           <div className="register-grid">
-            <label><span>{t('birthDateLabel')}</span><input type="date" min={dateBounds.min} max={dateBounds.max} value={birthdate} onChange={(e) => setBirthdate(e.target.value)} required /></label>
-            <label><span>{t('genderLabel')}</span><select value={gender} onChange={(e) => setGender(e.target.value)} required><option value="">{t('selectGender')}</option><option value="female">{t('genderFemale')}</option><option value="male">{t('genderMale')}</option></select></label>
+            <label><span>{t('birthDateLabel')}</span><input type="date" className={birthdate ? 'has-value' : 'is-empty'} min={dateBounds.min} max={dateBounds.max} value={birthdate} onChange={(e) => setBirthdate(e.target.value)} required /></label>
+            <label><span>{t('genderLabel')}</span><select className={gender ? 'has-value' : 'is-empty'} value={gender} onChange={(e) => setGender(e.target.value)} required><option value="">{t('selectGender')}</option><option value="female">{t('genderFemale')}</option><option value="male">{t('genderMale')}</option></select></label>
           </div>
           <label className="signup-field"><span>{t('emailAddress')}</span><input type="email" placeholder={t('emailAddress')} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required /></label>
           <label className="signup-field"><span>{t('newPasswordLabel')}</span><PasswordField placeholder={t('newPassword')} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" showLabel={t('showPassword')} hideLabel={t('hidePassword')} required /></label>
           <PasswordStrengthMeter password={password} labels={{ weak: t('passwordStrengthWeak'), fair: t('passwordStrengthFair'), good: t('passwordStrengthGood'), strong: t('passwordStrengthStrong') }} />
           <label className="signup-field"><span>{t('confirmPassword')}</span><PasswordField placeholder={t('confirmPassword')} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" showLabel={t('showPassword')} hideLabel={t('hidePassword')} required /></label>
           <label className="signup-field"><span>{t('locationLabel')}</span><input placeholder={t('locationLabel')} value={location} onChange={(e) => setLocation(e.target.value)} autoComplete="address-level2" required /></label>
-          <div className="signup-legal-copy"><p>{t('signupContactNote')}</p><p>{t('signupPrivacyNote')}</p><p>{t('signupTermsNote')}</p></div>
+          <div className="signup-legal-copy">
+            <p>{t('signupContactNote')}</p>
+            <p>{t('signupPrivacyNote')}</p>
+            <p>
+              {locale === 'vi' ? (
+                <>
+                  Khi tiếp tục, bạn đồng ý với{' '}
+                  <button type="button" tabIndex={-1} className="auth-legal-link" onClick={() => onNavigatePrivacy?.('terms')}>
+                    Điều khoản
+                  </button>
+                  ,{' '}
+                  <button type="button" tabIndex={-1} className="auth-legal-link" onClick={() => onNavigatePrivacy?.('overview')}>
+                    Chính sách quyền riêng tư
+                  </button>{' '}
+                  và{' '}
+                  <button type="button" tabIndex={-1} className="auth-legal-link" onClick={() => onNavigatePrivacy?.('cookies')}>
+                    Chính sách cookie
+                  </button>
+                  .
+                </>
+              ) : (
+                <>
+                  By continuing, you agree to the{' '}
+                  <button type="button" tabIndex={-1} className="auth-legal-link" onClick={() => onNavigatePrivacy?.('terms')}>
+                    Terms
+                  </button>
+                  ,{' '}
+                  <button type="button" tabIndex={-1} className="auth-legal-link" onClick={() => onNavigatePrivacy?.('overview')}>
+                    Privacy Policy
+                  </button>{' '}
+                  and{' '}
+                  <button type="button" tabIndex={-1} className="auth-legal-link" onClick={() => onNavigatePrivacy?.('cookies')}>
+                    Cookies Policy
+                  </button>
+                  .
+                </>
+              )}
+            </p>
+          </div>
           {error && <p className="form-error">{error}</p>}
-          <button type="submit" className="btn-create lg" disabled={busy || !name.trim() || !email.trim() || !password || !confirmPassword || !gender || !birthdate || !location.trim()}>{busy ? t('creating') : t('signUp')}</button>
+          <button type="submit" className="btn-create lg" disabled={busy}>{busy ? t('creating') : t('signUp')}</button>
           <button type="button" className="signup-login-link" onClick={onBack}>{t('alreadyHaveAccount')}</button>
           </form>
         </section>
       </main>
-      <footer className="signup-footer">
-        <div className="auth-languages">{languageOptions.slice(0, 8).map((option) => <button type="button" className={locale === option.locale ? 'active' : ''} key={option.locale} onClick={() => setLocale(option.locale)}>{option.label}</button>)}</div>
-        <p>{t('footerLinks')}</p>
-      </footer>
+      <AuthFooter onNavigateLogin={onBack} onNavigateHelp={onNavigateHelp} onNavigatePrivacy={onNavigatePrivacy} onNavigateAbout={onNavigateAbout} />
     </div>
   )
 }
