@@ -81,6 +81,23 @@ describe('PremiumPage', () => {
     await waitFor(() => expect(refreshUser).toHaveBeenCalledTimes(1))
   })
 
+  it('reconciles a restored pending order with PayOS instead of waiting for a webhook forever', async () => {
+    window.localStorage.setItem('fb.pendingPremiumOrder:9007199254740993123', 'order-8')
+    apiMocks.premiumOrder.mockResolvedValue({
+      orderCode: 'order-8', plan: 'MONTHLY', amount: 52000, status: 'PENDING',
+      createdAt: '2026-07-15T12:00:00Z', expiresAt: '2026-07-15T12:30:00Z', paidAt: null, targetValidDate: null,
+    })
+    apiMocks.reconcilePremiumCheckout.mockResolvedValue({
+      orderCode: 'order-8', plan: 'MONTHLY', amount: 52000, status: 'PAID',
+      createdAt: '2026-07-15T12:00:00Z', expiresAt: '2026-07-15T12:30:00Z', paidAt: '2026-07-15T12:02:00Z', targetValidDate: null,
+    })
+
+    render(<PremiumPage />)
+
+    await waitFor(() => expect(apiMocks.reconcilePremiumCheckout).toHaveBeenCalledWith('order-8'))
+    expect(await screen.findByText('paymentStatusPAID')).toBeInTheDocument()
+  })
+
   it('shows a retry state when Payment plans are unavailable', async () => {
     apiMocks.premiumPlans.mockRejectedValue(new Error('offline'))
     render(<PremiumPage />)

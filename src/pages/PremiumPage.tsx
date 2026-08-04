@@ -9,6 +9,10 @@ import { parsePayOSReturn } from './payosReturn'
 const POLL_INTERVAL_MS = 5_000
 const MAX_POLL_ATTEMPTS = 24
 
+function canReconcileProvider(status: PremiumOrder['status']) {
+  return status === 'CREATED' || status === 'PENDING'
+}
+
 function storageKey(userId: string) {
   return `fb.pendingPremiumOrder:${userId}`
 }
@@ -42,6 +46,8 @@ export function PremiumPage() {
   const [reconcilingReturn, setReconcilingReturn] = useState(payOSReturn !== null)
   const [orderBusy, setOrderBusy] = useState(false)
   const [orderError, setOrderError] = useState<string | null>(null)
+  const [pollingExhausted, setPollingExhausted] = useState(false)
+  const [pollNonce, setPollNonce] = useState(0)
 
   const loadPlans = useCallback(async () => {
     setPlansLoading(true)
@@ -55,11 +61,13 @@ export function PremiumPage() {
     }
   }, [t])
 
-  const loadOrder = useCallback(async (code: string, foreground = true) => {
+  const loadOrder = useCallback(async (code: string, foreground = true, reconcileProvider = false) => {
     if (foreground) setOrderBusy(true)
     setOrderError(null)
     try {
-      const current = await api.premiumOrder(code)
+      const current = reconcileProvider
+        ? await api.reconcilePremiumCheckout(code)
+        : await api.premiumOrder(code)
       setOrder(current)
       if (current.status === 'ACTIVATED') await refreshUser()
       return current
@@ -96,12 +104,20 @@ export function PremiumPage() {
     let cancelled = false
     let attempts = 0
     let timer: number | null = null
+    setPollingExhausted(false)
 
     const check = async () => {
       if (cancelled) return
       attempts += 1
-      const current = await loadOrder(orderCode, attempts === 1)
-      if (cancelled || (current && isTerminalPaymentStatus(current.status)) || attempts >= MAX_POLL_ATTEMPTS) return
+      let current = await loadOrder(orderCode, attempts === 1)
+      if (!cancelled && current && canReconcileProvider(current.status) && (attempts === 1 || attempts % 6 === 0)) {
+        current = await loadOrder(orderCode, false, true)
+      }
+      if (cancelled || (current && isTerminalPaymentStatus(current.status))) return
+      if (attempts >= MAX_POLL_ATTEMPTS) {
+        setPollingExhausted(true)
+        return
+      }
       timer = window.setTimeout(() => void check(), POLL_INTERVAL_MS)
     }
 
@@ -110,7 +126,7 @@ export function PremiumPage() {
       cancelled = true
       if (timer !== null) window.clearTimeout(timer)
     }
-  }, [loadOrder, orderCode, reconcilingReturn])
+  }, [loadOrder, orderCode, pollNonce, reconcilingReturn])
 
   const premiumActive = useMemo(() => {
     if (!user?.validDate) return false
@@ -159,7 +175,11 @@ export function PremiumPage() {
         <section className="card pending-order">
           <div className="service-heading">
             <div><h2>{t('pendingOrder')}</h2></div>
-            <button type="button" className="btn-soft sm" disabled={orderBusy} onClick={() => void loadOrder(orderCode)}>{orderBusy ? t('checkingPayment') : t('refreshPaymentStatus')}</button>
+            <button type="button" className="btn-soft sm" disabled={orderBusy} onClick={() => {
+              setPollingExhausted(false)
+              setPollNonce((value) => value + 1)
+              void loadOrder(orderCode, true, true)
+            }}>{orderBusy ? t('checkingPayment') : t('refreshPaymentStatus')}</button>
           </div>
           <dl>
             <div><dt>{t('orderCode')}</dt><dd>{orderCode}</dd></div>
@@ -167,7 +187,11 @@ export function PremiumPage() {
             {order && <div><dt>{t('premium')}</dt><dd>{order.plan === 'MONTHLY' ? t('monthlyPlan') : t('yearlyPlan')} · {currency.format(order.amount)}</dd></div>}
           </dl>
           {order?.status === 'ACTIVATED' && <p className="form-success">{t('paymentActivated')}</p>}
-          {payOSReturn?.status === 'PAID' && order?.status !== 'ACTIVATED' && <p className="premium-activation-note"><span className="spinner" />{t('paymentReceivedActivating')}</p>}
+          {payOSReturn?.status === 'PAID' && order?.status !== 'ACTIVATED' && (
+            pollingExhausted
+              ? <p className="premium-activation-note">{t('paymentActivationDelayed')}</p>
+              : <p className="premium-activation-note"><span className="spinner" />{t('paymentReceivedActivating')}</p>
+          )}
           {orderError && <p className="form-error">{orderError}</p>}
         </section>
       )}
