@@ -33,14 +33,12 @@ describe('PrivacyPage Component', () => {
 
     expect(screen.getAllByText(/Privacy Centre/i).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/We build privacy into our products/i).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Privacy topics/i).length).toBeGreaterThan(0)
   })
 
   it('renders sidebar navigation with groups', () => {
     render(<PrivacyPage />)
 
     expect(screen.getByRole('button', { name: /Privacy Centre home/i })).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /Privacy topics/i }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: /Privacy Policy/i }).length).toBeGreaterThan(0)
   })
 

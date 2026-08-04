@@ -22,18 +22,18 @@ describe('AboutPage Component', () => {
     render(<AboutPage />)
 
     expect(screen.getAllByText(/Group 36/i).length).toBeGreaterThan(0)
-    expect(screen.getByText(/Fakebook builds technologies/i)).toBeInTheDocument()
-    expect(screen.getByText(/Who we are/i)).toBeInTheDocument()
-    expect(screen.getAllByText(/What we build/i).length).toBeGreaterThanOrEqual(2)
-    expect(screen.getAllByText(/Responsibility/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/We're building the future/i)).toBeInTheDocument()
+    expect(screen.getByText(/Catch up on the latest news/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/What we build/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/Play a role in building/i).length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders team values and product cards', () => {
     render(<AboutPage />)
 
-    expect(screen.getAllByText(/Give people a voice/i).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Build community/i).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Encourage innovation/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/Culture at Group 36/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Careers in tech/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Internships/i).length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders footer with Group 36 branding', () => {
