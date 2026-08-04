@@ -186,7 +186,7 @@ export function PremiumPage() {
             <div><dt>{t('paymentStatus')}</dt><dd className={order ? `payment-state state-${order.status.toLowerCase()}` : 'payment-state'}>{order ? t(`paymentStatus${order.status}`) : t('checkingPayment')}</dd></div>
             {order && <div><dt>{t('premium')}</dt><dd>{order.plan === 'MONTHLY' ? t('monthlyPlan') : t('yearlyPlan')} · {currency.format(order.amount)}</dd></div>}
           </dl>
-          {order?.status === 'ACTIVATED' && <p className="form-success">{t('paymentActivated')}</p>}
+          {order?.status === 'ACTIVATED' && <p className="form-success" style={{ marginTop: 16 }}>{t('paymentActivated')}</p>}
           {payOSReturn?.status === 'PAID' && order?.status !== 'ACTIVATED' && (
             pollingExhausted
               ? <p className="premium-activation-note">{t('paymentActivationDelayed')}</p>
@@ -208,7 +208,7 @@ export function PremiumPage() {
                 <strong>{currency.format(plan.amount)}</strong>
                 <p>{t('planDuration', { count: plan.durationMonths })}</p>
                 <ul className="plan-benefits"><li>{t('premiumVerifiedBenefit')}</li><li>{t('premiumSupportBenefit')}</li></ul>
-                <button type="button" className={plan.code === 'YEARLY' ? 'btn-primary block' : 'btn-soft block'} disabled={checkoutBusy !== null} onClick={() => void checkout(plan.code)}>
+                <button type="button" className={plan.code === 'YEARLY' ? 'btn-primary block' : 'btn-soft block'} disabled={checkoutBusy !== null || premiumActive} onClick={() => void checkout(plan.code)}>
                   {checkoutBusy === plan.code ? t('creatingCheckout') : t('startCheckout')}
                 </button>
                 <small>{t('checkoutRedirectNote')}</small>

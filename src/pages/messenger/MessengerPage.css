@@ -3018,8 +3018,19 @@ body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-new-but
   height: 36px;
   flex: 1;
   background: var(--circle);
+  align-items: center;
+  border-radius: 18px;
 }
-.new-conversation-compose .mini-compose-input input { min-width: 0; font-size: .83rem; }
+.new-conversation-compose .mini-compose-input input {
+  min-width: 0;
+  font-size: .91rem;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 0;
+  height: 100%;
+}
 .new-conversation-compose .mini-compose-btn:disabled {
   color: var(--secondary);
   opacity: .5;

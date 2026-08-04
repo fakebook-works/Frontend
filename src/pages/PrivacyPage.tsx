@@ -103,7 +103,6 @@ const PrivacyPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
           <button onClick={() => setIsVi(!isVi)} className="lang-btn">
             {isVi ? 'Tiếng Việt' : 'English (UK)'}
           </button>
-          <button className="close-btn" onClick={() => navigate('/')}>×</button>
         </div>
 
         <div className="privacy-content-scroll">

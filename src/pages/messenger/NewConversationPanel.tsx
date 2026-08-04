@@ -66,6 +66,6 @@ export function NewConversationPanel({ friends, creatorName, onStart, onCreateGr
         return <button type="button" key={friend.id} className={`msg-new-row${selected ? ' selected' : ''}`} aria-pressed={selected} onClick={() => togglePerson(friend)}><Avatar name={friend.displayName} src={friend.avatarUrl} size={36} /><span className="msg-new-row-info"><strong>{friend.displayName}</strong><small>@{friend.username}</small></span><span className="msg-new-check" aria-hidden="true">{selected && <Icon name="check" size={14} />}</span></button>
       })}
     </div>
-    <form className="new-conversation-compose" onSubmit={(event) => { event.preventDefault(); void submit() }}><label className="mini-compose-input"><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('searchFriends')} /></label><button type="submit" className="mini-compose-btn send ready" aria-label={t('confirmConversation')} disabled={selectedPeople.size === 0 || submitting}><Icon name="send" size={21} /></button></form>
+    <div className="new-conversation-compose"><label className="mini-compose-input"><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('searchFriends')} onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault() }} /></label><button type="button" className="mini-compose-btn send ready" aria-label={t('confirmConversation')} disabled={selectedPeople.size === 0 || submitting} onClick={() => void submit()}><Icon name="send" size={21} /></button></div>
   </section>
 }
