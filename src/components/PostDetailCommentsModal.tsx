@@ -18,6 +18,7 @@ import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
 import { Avatar } from './Avatar'
 import { GroupPostAvatar } from './GroupPostAvatar'
 import { HoverTooltip } from './HoverTooltip'
+import { PostContent } from './PostContent'
 import { Icon } from './Icon'
 import { MentionContent } from './MentionContent'
 import { LinkPreview } from './LinkPreview'
@@ -1027,7 +1028,7 @@ function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, on
       <PostOptionsMenu post={post} viewerId={viewerId} owned={viewerId === post.author.id} onPostHidden={onHidden} />
     </header>
     {privacyError && <p className="form-error post-relationship-error">{privacyError}</p>}
-    {decodedContent.text && <p className={`gateway-post-content${postBackground ? ' has-background' : ''}`} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={post.mentions} onNavigate={onNavigate} /></p>}
+    {decodedContent.text && <PostContent content={decodedContent.text} mentions={post.mentions ?? []} className={`gateway-post-content${postBackground ? ' has-background' : ''}`} style={postBackground ? { background: postBackground.background } : undefined} onNavigate={onNavigate} />}
     {!hideMedia && <PostMediaGallery media={post.media} preferredAspectRatio={post.__typename === 'ReelDetail' ? post.aspectRatio : null} focalPointX={post.__typename === 'ReelDetail' ? post.focalPointX : null} focalPointY={post.__typename === 'ReelDetail' ? post.focalPointY : null} onOpenImage={post.__typename === 'ReelDetail' ? onOpenReel ? () => onOpenReel(post) : undefined : onOpenImage ? (media, index, initialPlaybackTime) => onOpenImage(post, media, index, initialPlaybackTime) : undefined} />}
     {!hideMedia && post.sharedSource && <SharedPostSourceCard source={post.sharedSource} locale={locale} onNavigate={onNavigate} onOpenImage={onOpenImage && post.sharedSource.type !== 4 ? (source, media, index, initialPlaybackTime) => onOpenImage(sharedSourceAsPost(source, post), media, index, initialPlaybackTime) : undefined} onOpenReel={post.sharedSource.type === 4 ? (source) => {
       const reel = sharedPostSourceToGatewayReel(source)

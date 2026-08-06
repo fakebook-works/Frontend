@@ -359,6 +359,24 @@ export function StoryViewerPage({
     return () => { cancelled = true }
   }, [effectivePaused, mediaReady, playbackKey, playsAsVideo])
 
+  // When the browser has already cached the video, onLoadedData/onCanPlay may
+  // fire before React attaches the handlers. Guard against that by checking
+  // readyState synchronously after the video element mounts (playbackKey
+  // changes with each new story, so this runs exactly once per story).
+  useEffect(() => {
+    if (!playsAsVideo) return
+    const video = videoRef.current
+    if (!video) return
+    // HAVE_CURRENT_DATA (2) or higher means the browser can play at least one frame.
+    if (video.readyState >= 2) {
+      handleVideoReady(video, true)
+    } else if (video.readyState >= 1 && Number.isFinite(video.duration) && video.duration > 0) {
+      // HAVE_METADATA (1): duration known but no frame data yet — set duration only.
+      handleVideoMetadata()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playbackKey, playsAsVideo])
+
   useEffect(() => {
     if (!playsAsVideo || !mediaReady) return
     const video = videoRef.current

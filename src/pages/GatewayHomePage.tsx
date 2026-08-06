@@ -10,7 +10,7 @@ import { Avatar } from '../components/Avatar'
 import { GroupPostAvatar } from '../components/GroupPostAvatar'
 import { HoverTooltip } from '../components/HoverTooltip'
 import { MentionSuggestions } from '../components/MentionSuggestions'
-import { MentionContent } from '../components/MentionContent'
+import { PostContent } from '../components/PostContent'
 import { MentionDraftOverlay } from '../components/MentionDraftOverlay'
 import { FriendsShortcutIcon, GroupsShortcutIcon, Icon, LiveVideoIcon, ReelIcon, SavedShortcutIcon } from '../components/Icon'
 import { PostMediaGallery } from '../components/PostMediaGallery'
@@ -424,20 +424,11 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
     }
   }, [])
 
-  useEffect(() => {
-    const rails = [leftRailRef.current, rightRailRef.current].filter((rail): rail is HTMLElement => rail !== null)
-    const keepWheelInsideRail = (event: WheelEvent) => {
-      if (window.innerWidth <= 860 || event.ctrlKey) return
-      const rail = event.currentTarget as HTMLElement
-      const deltaScale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rail.clientHeight : 1
-      event.preventDefault()
-      event.stopPropagation()
-      rail.scrollTop += event.deltaY * deltaScale
-    }
-
-    rails.forEach((rail) => rail.addEventListener('wheel', keepWheelInsideRail, { passive: false }))
-    return () => rails.forEach((rail) => rail.removeEventListener('wheel', keepWheelInsideRail))
-  }, [user?.userId])
+  // Rail scroll containment is handled by CSS overscroll-behavior-y: contain.
+  // The old non-passive wheel listener caused scroll jank because
+  // event.preventDefault() inside a { passive: false } listener blocks the
+  // browser’s compositor from starting a scroll frame until JS finishes,
+  // making the whole page feel choppy when scrolling over the sidebars.
 
   if (!user) return null
 
@@ -536,7 +527,10 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
           )}
             {!feedLoading && !feedError && posts.length > 0 && (
               <div ref={feedSentinelRef} className="feed-more feed-auto-loader" aria-live="polite">
-                {feedMoreBusy && <span className="spinner" aria-label={t('loadingMore')} />}
+                {feedMoreBusy && <>
+                  <HomeFeedSkeleton label={t('loadingMore')} />
+                  <HomeFeedSkeleton label={t('loadingMore')} />
+                </>}
                 {!feedHasMore && <p className="muted">{t('endOfFeed')}</p>}
               </div>
             )}
@@ -1380,7 +1374,7 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel
         </div>
       </header>
       {(relationshipError || privacyError) && <p className="form-error post-relationship-error">{relationshipError || privacyError}</p>}
-      {decodedContent.text && <p className={postBackground ? 'gateway-post-content has-background' : 'gateway-post-content'} style={postBackground ? { background: postBackground.background } : undefined}><MentionContent content={decodedContent.text} mentions={current.mentions} onNavigate={onNavigate} /></p>}
+      {decodedContent.text && <PostContent content={decodedContent.text} mentions={current.mentions ?? []} className={postBackground ? 'gateway-post-content has-background' : 'gateway-post-content'} style={postBackground ? { background: postBackground.background } : undefined} onNavigate={onNavigate} />}
       <PostMediaGallery media={current.media} preferredAspectRatio={current.__typename === 'ReelDetail' ? current.aspectRatio : null} focalPointX={current.__typename === 'ReelDetail' ? current.focalPointX : null} focalPointY={current.__typename === 'ReelDetail' ? current.focalPointY : null} onOpenImage={viewerId && current.__typename === 'ReelDetail' ? () => openReelViewer(current) : viewerId && current.__typename !== 'ReelDetail' ? (media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: current.id, mediaId: media.id, mediaUrl: media.url, initialPost: current, initialPlaybackTime }) : undefined} />
       {current.sharedSource && <SharedPostSourceCard source={current.sharedSource} locale={locale} onNavigate={onNavigate} onOpenSource={current.sharedSource.type === 1 && current.sharedSource.group ? undefined : (sourceId) => setSharedDetailId(sourceId)} onOpenImage={viewerId && current.sharedSource.type !== 4 ? (source, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: source.id, mediaId: media.id, mediaUrl: media.url, initialPlaybackTime }) : undefined} onOpenReel={viewerId && current.sharedSource.type === 4 ? (source) => {
         const reel = sharedPostSourceToGatewayReel(source)

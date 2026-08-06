@@ -1530,7 +1530,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
               </div>}
             </div>
             <div className="profile-destination-title">
-              <h1>{profile.displayName}<VerifiedBadge verified={profile.isVerified} size={24} /></h1>
+              <h1>{profile.displayName}<VerifiedBadge verified={profile.isVerified} size={24} marginLeft={2} /></h1>
               <div className="self-profile-summary-copy">
                 {profileStats.length > 0 && <div className="self-profile-summary-line self-profile-stats">{profileStats.map((item) => <span key={item.id}>{item.label}</span>)}</div>}
                 {!canEdit && relationship.followsViewer && <p className="self-profile-summary-line visitor-profile-follows-you">{t('followsYou')}</p>}

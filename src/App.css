@@ -584,6 +584,22 @@ select {
   line-height: 1.52;
   white-space: pre-wrap;
 }
+.post-content-toggle {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--secondary);
+  font-size: inherit;
+  font-weight: 600;
+  line-height: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.post-content-toggle:hover {
+  text-decoration: underline;
+}
 .gateway-media {
   display: grid;
   border-top: 1px solid var(--divider);
@@ -2882,6 +2898,7 @@ select {
 .messenger-messages {
   flex: 1;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 16px 18px 12px;
 }
@@ -3840,7 +3857,12 @@ select {
   .self-profile-page > .self-profile-cover-card + .self-profile-destination-grid.tab-posts { margin-top: 0; }
   .self-profile-destination-grid.tab-posts { height: calc(100vh - var(--topbar-h) - var(--self-profile-content-gap)); height: calc(100dvh - var(--topbar-h) - var(--self-profile-content-gap)); min-height: 0; grid-template-columns: minmax(0, var(--self-profile-left-column-width, calc(100% - var(--home-center-width, 620px) - var(--self-profile-content-gap) - 6px))) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-items: stretch; overflow: hidden; }
   .self-profile-destination-grid.tab-posts > .self-profile-left-column,
-  .self-profile-destination-grid.tab-posts > .profile-post-list { align-self: stretch; min-height: 0; height: 100%; align-content: start; grid-auto-rows: max-content; overflow-x: hidden; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: contain; scroll-behavior: auto;   padding-top: var(--self-profile-content-gap); will-change: scroll-position; }
+  .self-profile-destination-grid.tab-posts > .profile-post-list { align-self: stretch; min-height: 0; height: 100%; align-content: start; grid-auto-rows: max-content; overflow-x: hidden; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: contain; scroll-behavior: auto;   padding-top: var(--self-profile-content-gap); will-change: scroll-position;
+    /* Hide scrollbar track on profile side columns */
+    scrollbar-width: none;
+  }
+  .self-profile-destination-grid.tab-posts > .self-profile-left-column::-webkit-scrollbar,
+  .self-profile-destination-grid.tab-posts > .profile-post-list::-webkit-scrollbar { display: none; }
   .self-profile-destination-grid.tab-posts > .profile-post-list { width: 100%; max-width: none; justify-self: end; }
   .self-profile-left-column { gap: var(--self-profile-content-gap); }
   .self-profile-side-card { padding: 18px; border-radius: 12px; }
@@ -7875,6 +7897,11 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
     --home-rail-left-extension: 10px;
     width: calc(100% + var(--home-rail-left-extension));
     margin-left: calc(0px - var(--home-rail-left-extension));
+    /* Override default padding-left:8px → 2px so the icon axis aligns with
+       the fk brand icon in the topbar:
+       icon-center = home-PL(17) - extension(10) + rail-PL(2) + btn-PL(10) + 18 = 37px
+       fk-center   = topbar-PL(16) + brand-ML(8) - translateX(5) + 18 = 37px ✓ */
+    padding-left: 2px;
   }
   .gateway-left-rail .home-shortcuts button,
   .gateway-left-rail .group-shortcuts button {
@@ -7883,7 +7910,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
     padding-left: var(--home-rail-left-extension);
     border-radius: 8px;
   }
-  .gateway-left-rail .service-heading { padding-left: calc(8px + var(--home-rail-left-extension)); }
+  .gateway-left-rail .service-heading { padding-left: calc(2px + var(--home-rail-left-extension)); }
 }
 .shortcut-icon {
   width: 36px;
@@ -8895,7 +8922,9 @@ body.reels-page-scroll {
   
 }
 
-/* Home desktop: the feed uses page scroll while both rails stick immediately. */
+/* Home desktop: the feed uses page scroll while both rails stick immediately.
+   Rail wheel-scroll containment is done via overscroll-behavior-y in CSS
+   (the old non-passive JS wheel listener was removed to fix scroll jank). */
 @media (min-width: 861px) {
   body.home-page-scroll .gateway-left-rail,
   body.home-page-scroll .gateway-right-rail {
@@ -8905,9 +8934,11 @@ body.reels-page-scroll {
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior-y: contain;
-    
-    
+    /* Hide the scrollbar track — content is still scrollable */
+    scrollbar-width: none;
   }
+  body.home-page-scroll .gateway-left-rail::-webkit-scrollbar,
+  body.home-page-scroll .gateway-right-rail::-webkit-scrollbar { display: none; }
   body.home-page-scroll .gateway-left-rail {
     top: calc(var(--topbar-h) + 18px);
     height: calc(100vh - var(--topbar-h) - 18px);
@@ -8953,11 +8984,15 @@ body.reels-page-scroll {
   align-self: start;
   height: calc(100dvh - var(--topbar-h));
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  /* Hide scrollbar track */
+  scrollbar-width: none;
   padding: 0 8px 28px;
   border-right: 1px solid color-mix(in srgb, var(--divider) 88%, transparent);
   background: var(--card);
-  
 }
+.groups-sidebar::-webkit-scrollbar { display: none; }
 .groups-sidebar > header {
   height: var(--topbar-h);
   min-height: var(--topbar-h);

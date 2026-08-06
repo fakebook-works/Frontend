@@ -257,7 +257,7 @@ describe('GatewayHomePage', () => {
     expect(apiMocks.visitedGroups).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps desktop wheel movement inside the hovered side rail', async () => {
+  it('uses CSS overscroll-behavior to contain wheel movement inside the side rails without blocking the event', async () => {
     vi.stubGlobal('innerWidth', 1440)
     const { container } = render(<GatewayHomePage />)
     await screen.findByText('noRecommendedPosts')
@@ -267,10 +267,16 @@ describe('GatewayHomePage', () => {
     const leftWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 120 })
     const rightWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 80 })
 
-    expect(leftRail.dispatchEvent(leftWheel)).toBe(false)
-    expect(rightRail.dispatchEvent(rightWheel)).toBe(false)
-    expect(leftRail.scrollTop).toBe(120)
-    expect(rightRail.scrollTop).toBe(80)
+    // The non-passive JS wheel listener was removed to fix scroll jank.
+    // Scroll containment is now handled by CSS overscroll-behavior-y: contain
+    // (applied via the home-page-scroll body class). Native wheel events must
+    // NOT be cancelled so the browser compositor can start scroll frames early.
+    expect(leftRail.dispatchEvent(leftWheel)).toBe(true)
+    expect(rightRail.dispatchEvent(rightWheel)).toBe(true)
+
+    // The home-page-scroll class must be present for the CSS rule to apply.
+    expect(document.body.classList.contains('home-page-scroll')).toBe(true)
+    expect(document.documentElement.classList.contains('home-page-scroll')).toBe(true)
   })
 
   it('uses a structured feed skeleton while the initial Home request is pending', async () => {
