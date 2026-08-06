@@ -1,0 +1,2047 @@
+{
+  "communities": {
+    "0": [
+      "src_api_gatewaytypes_gatewaymention",
+      "src_api_notifications_appnotification",
+      "src_api_social_friendsuggestion",
+      "src_api_social_groupsuggestion",
+      "src_api_social_socialcomment",
+      "src_api_social_socialcommenteditrevision",
+      "src_api_social_socialcontent",
+      "src_api_types_messengerparticipantdto",
+      "src_api_types_usersummary",
+      "src_lib_commentpageprefetch_commentpage"
+    ],
+    "1": [
+      "src_api_gatewaytypes_gatewaymedia",
+      "src_api_gatewaytypes_gatewaypost",
+      "src_api_gatewaytypes_sharedstory",
+      "src_api_social_contentengagement",
+      "src_api_social_socialphoto",
+      "src_components_postdetailcommentsmodal_postdetailcommentsmodalprops",
+      "src_components_postphotoviewer_postphotoviewermediaentry",
+      "src_components_postphotoviewer_postphotoviewerprops",
+      "src_lib_profilepostgrid_profilepostmonthgroup"
+    ],
+    "2": [
+      "src_api_messenger_messengerconversationmedia",
+      "src_api_messenger_sendmessagebody",
+      "src_api_types_mediaupload",
+      "src_pages_messenger_pendingmediauploadstate_pendingmediauploadpreview"
+    ],
+    "3": [
+      "src_api_client_authactionresult",
+      "src_api_client_registrationresult"
+    ],
+    "4": [
+      "src_api_client_resetpasswordbody",
+      "src_api_client_verifyemailbody"
+    ],
+    "5": [
+      "src_api_social_socialprofile",
+      "src_api_types_userprofile"
+    ],
+    "6": [
+      "src_api_types_messengerconversationdto",
+      "src_pages_messenger_messengerdock_messengerdockhandle"
+    ],
+    "7": [
+      "src_components_icon_iconname",
+      "src_lib_format_privacymeta"
+    ],
+    "8": [
+      "src_components_postprivacycontrol_postprivacyoption",
+      "src_components_postprivacyicon_postprivacy"
+    ],
+    "9": [
+      "src_pages_messenger_mediagallery_mediaattachment",
+      "src_pages_messenger_mediagallery_mediavieweritem"
+    ],
+    "10": [
+      "src_api_client_apierror"
+    ],
+    "11": [
+      "src_api_client_authsession"
+    ],
+    "12": [
+      "src_api_client_authuser"
+    ],
+    "13": [
+      "src_api_client_clearauth"
+    ],
+    "14": [
+      "src_api_client_gatewaygraphql"
+    ],
+    "15": [
+      "src_api_client_getauth"
+    ],
+    "16": [
+      "src_api_client_graphqllongliteral"
+    ],
+    "17": [
+      "src_api_client_isterminalpaymentstatus"
+    ],
+    "18": [
+      "src_api_client_loginbody"
+    ],
+    "19": [
+      "src_api_client_loginresult"
+    ],
+    "20": [
+      "src_api_client_nextpagecursor"
+    ],
+    "21": [
+      "src_api_client_parsegraphqlenvelope"
+    ],
+    "22": [
+      "src_api_client_persistauth"
+    ],
+    "23": [
+      "src_api_client_refreshauthsession"
+    ],
+    "24": [
+      "src_api_client_registerbody"
+    ],
+    "25": [
+      "src_api_client_resolveuploadedmediaurl"
+    ],
+    "26": [
+      "src_api_client_storedauth"
+    ],
+    "27": [
+      "src_api_client_subscribeapievents"
+    ],
+    "28": [
+      "src_api_client_subscribeauth"
+    ],
+    "29": [
+      "src_api_client_validatedcheckouturl"
+    ],
+    "30": [
+      "src_api_client_visiblerecommendationposts"
+    ],
+    "31": [
+      "src_api_gatewaytypes_createdcontent"
+    ],
+    "32": [
+      "src_api_gatewaytypes_creategatewaypostinput"
+    ],
+    "33": [
+      "src_api_gatewaytypes_creategatewaystoryinput"
+    ],
+    "34": [
+      "src_api_gatewaytypes_feedpost"
+    ],
+    "35": [
+      "src_api_gatewaytypes_feedpostsharestory"
+    ],
+    "36": [
+      "src_api_gatewaytypes_gatewayauthor"
+    ],
+    "37": [
+      "src_api_gatewaytypes_gatewaymediainput"
+    ],
+    "38": [
+      "src_api_gatewaytypes_gatewaystory"
+    ],
+    "39": [
+      "src_api_gatewaytypes_gatewaytaggeduser"
+    ],
+    "40": [
+      "src_api_gatewaytypes_grouppost"
+    ],
+    "41": [
+      "src_api_gatewaytypes_normalstory"
+    ],
+    "42": [
+      "src_api_gatewaytypes_paymentorderstatus"
+    ],
+    "43": [
+      "src_api_gatewaytypes_premiumcheckout"
+    ],
+    "44": [
+      "src_api_gatewaytypes_premiumorder"
+    ],
+    "45": [
+      "src_api_gatewaytypes_premiumplan"
+    ],
+    "46": [
+      "src_api_gatewaytypes_premiumplanoffer"
+    ],
+    "47": [
+      "src_api_gatewaytypes_recommendationitem"
+    ],
+    "48": [
+      "src_api_gatewaytypes_reelpost"
+    ],
+    "49": [
+      "src_api_gatewaytypes_reelsharestory"
+    ],
+    "50": [
+      "src_api_gatewaytypes_sharedpostsource"
+    ],
+    "51": [
+      "src_api_gatewaytypes_sharedstorysource"
+    ],
+    "52": [
+      "src_api_gatewaytypes_storybucket"
+    ],
+    "53": [
+      "src_api_gatewaytypes_storypage"
+    ],
+    "54": [
+      "src_api_gatewaytypes_visitedgroup"
+    ],
+    "55": [
+      "src_api_gatewaytypes_visitedgrouppage"
+    ],
+    "56": [
+      "src_api_locationsearch_locationsuggestion"
+    ],
+    "57": [
+      "src_api_locationsearch_searchlocations"
+    ],
+    "58": [
+      "src_api_messenger_addconversationmembers"
+    ],
+    "59": [
+      "src_api_messenger_conversationimages"
+    ],
+    "60": [
+      "src_api_messenger_conversationmedia"
+    ],
+    "61": [
+      "src_api_messenger_conversations"
+    ],
+    "62": [
+      "src_api_messenger_createdirectconversation"
+    ],
+    "63": [
+      "src_api_messenger_creategroupconversation"
+    ],
+    "64": [
+      "src_api_messenger_deletegroupconversation"
+    ],
+    "65": [
+      "src_api_messenger_deletemessage"
+    ],
+    "66": [
+      "src_api_messenger_directconversations"
+    ],
+    "67": [
+      "src_api_messenger_editmessage"
+    ],
+    "68": [
+      "src_api_messenger_heartbeatpresence"
+    ],
+    "69": [
+      "src_api_messenger_leaveconversation"
+    ],
+    "70": [
+      "src_api_messenger_markdelivered"
+    ],
+    "71": [
+      "src_api_messenger_markread"
+    ],
+    "72": [
+      "src_api_messenger_message"
+    ],
+    "73": [
+      "src_api_messenger_messages"
+    ],
+    "74": [
+      "src_api_messenger_messengerconversationimage"
+    ],
+    "75": [
+      "src_api_messenger_messengerpresencedto"
+    ],
+    "76": [
+      "src_api_messenger_messengerrealtimeevent"
+    ],
+    "77": [
+      "src_api_messenger_presence"
+    ],
+    "78": [
+      "src_api_messenger_removeconversationmember"
+    ],
+    "79": [
+      "src_api_messenger_sendmessage"
+    ],
+    "80": [
+      "src_api_messenger_setconversationmemberrole"
+    ],
+    "81": [
+      "src_api_messenger_setmessagereaction"
+    ],
+    "82": [
+      "src_api_messenger_settyping"
+    ],
+    "83": [
+      "src_api_messenger_subscribeconversations"
+    ],
+    "84": [
+      "src_api_messenger_subscribeinbox"
+    ],
+    "85": [
+      "src_api_messenger_subscribepresence"
+    ],
+    "86": [
+      "src_api_messenger_updategroupconversation"
+    ],
+    "87": [
+      "src_api_notifications_markallread"
+    ],
+    "88": [
+      "src_api_notifications_markread"
+    ],
+    "89": [
+      "src_api_notifications_notificationpage"
+    ],
+    "90": [
+      "src_api_notifications_notifications"
+    ],
+    "91": [
+      "src_api_notifications_subscribenotifications"
+    ],
+    "92": [
+      "src_api_realtime_gatewaysubscription"
+    ],
+    "93": [
+      "src_api_realtime_parsesseframes"
+    ],
+    "94": [
+      "src_api_realtime_subscribegatewaygraphql"
+    ],
+    "95": [
+      "src_api_search_fastsearch"
+    ],
+    "96": [
+      "src_api_search_fastsearchgroups"
+    ],
+    "97": [
+      "src_api_search_groupscopedsearchresult"
+    ],
+    "98": [
+      "src_api_search_profileconnectionsearchtype"
+    ],
+    "99": [
+      "src_api_search_quickgroupsearchitem"
+    ],
+    "100": [
+      "src_api_search_quicksearchitem"
+    ],
+    "101": [
+      "src_api_search_recordsearchresultview"
+    ],
+    "102": [
+      "src_api_search_search"
+    ],
+    "103": [
+      "src_api_search_searchdirectcontacts"
+    ],
+    "104": [
+      "src_api_search_searchfriends"
+    ],
+    "105": [
+      "src_api_search_searchgroup"
+    ],
+    "106": [
+      "src_api_search_searchgroupscope"
+    ],
+    "107": [
+      "src_api_search_searchpageresult"
+    ],
+    "108": [
+      "src_api_search_searchpost"
+    ],
+    "109": [
+      "src_api_search_searchprofile"
+    ],
+    "110": [
+      "src_api_search_searchprofileconnections"
+    ],
+    "111": [
+      "src_api_search_searchreel"
+    ],
+    "112": [
+      "src_api_search_searchtab"
+    ],
+    "113": [
+      "src_api_social_acceptfriendrequest"
+    ],
+    "114": [
+      "src_api_social_addgroupadmin"
+    ],
+    "115": [
+      "src_api_social_addgroupmember"
+    ],
+    "116": [
+      "src_api_social_approvegroupjoinrequest"
+    ],
+    "117": [
+      "src_api_social_blockuser"
+    ],
+    "118": [
+      "src_api_social_cancelfriendrequest"
+    ],
+    "119": [
+      "src_api_social_canceljoingrouprequest"
+    ],
+    "120": [
+      "src_api_social_changegroupavatar"
+    ],
+    "121": [
+      "src_api_social_changegroupbackground"
+    ],
+    "122": [
+      "src_api_social_changeuseravatar"
+    ],
+    "123": [
+      "src_api_social_changeuserbackground"
+    ],
+    "124": [
+      "src_api_social_createcomment"
+    ],
+    "125": [
+      "src_api_social_creategroup"
+    ],
+    "126": [
+      "src_api_social_creategrouppost"
+    ],
+    "127": [
+      "src_api_social_createreel"
+    ],
+    "128": [
+      "src_api_social_deletecontent"
+    ],
+    "129": [
+      "src_api_social_deletegroup"
+    ],
+    "130": [
+      "src_api_social_followuser"
+    ],
+    "131": [
+      "src_api_social_friendprofilewithmutualcount"
+    ],
+    "132": [
+      "src_api_social_friendshipstate"
+    ],
+    "133": [
+      "src_api_social_getadmingroups"
+    ],
+    "134": [
+      "src_api_social_getcommentedithistory"
+    ],
+    "135": [
+      "src_api_social_getcomments"
+    ],
+    "136": [
+      "src_api_social_getcontentengagement"
+    ],
+    "137": [
+      "src_api_social_getcontentviewcounts"
+    ],
+    "138": [
+      "src_api_social_getfriendprofileswithmutualcounts"
+    ],
+    "139": [
+      "src_api_social_getfriendsuggestions"
+    ],
+    "140": [
+      "src_api_social_getgroup"
+    ],
+    "141": [
+      "src_api_social_getgroupadmins"
+    ],
+    "142": [
+      "src_api_social_getgroupfriendmemberpreviews"
+    ],
+    "143": [
+      "src_api_social_getgroupfriendmembers"
+    ],
+    "144": [
+      "src_api_social_getgroupjoinrequests"
+    ],
+    "145": [
+      "src_api_social_getgroupmedia"
+    ],
+    "146": [
+      "src_api_social_getgroupmembers"
+    ],
+    "147": [
+      "src_api_social_getgroupmembershipstate"
+    ],
+    "148": [
+      "src_api_social_getgroupmembershipstates"
+    ],
+    "149": [
+      "src_api_social_getgroupphotocandidates"
+    ],
+    "150": [
+      "src_api_social_getgroupphotos"
+    ],
+    "151": [
+      "src_api_social_getgroupposts"
+    ],
+    "152": [
+      "src_api_social_getgroups"
+    ],
+    "153": [
+      "src_api_social_getgroupsuggestions"
+    ],
+    "154": [
+      "src_api_social_getgroupuserphotos"
+    ],
+    "155": [
+      "src_api_social_getgroupuserposts"
+    ],
+    "156": [
+      "src_api_social_getlikedusers"
+    ],
+    "157": [
+      "src_api_social_getmembergroups"
+    ],
+    "158": [
+      "src_api_social_getmentionedusers"
+    ],
+    "159": [
+      "src_api_social_getmyfeedphotocandidates"
+    ],
+    "160": [
+      "src_api_social_getpendinggroupjoins"
+    ],
+    "161": [
+      "src_api_social_getprofile"
+    ],
+    "162": [
+      "src_api_social_getprofileadmingroups"
+    ],
+    "163": [
+      "src_api_social_getprofileavatarsource"
+    ],
+    "164": [
+      "src_api_social_getprofileconnections"
+    ],
+    "165": [
+      "src_api_social_getprofilefriends"
+    ],
+    "166": [
+      "src_api_social_getprofilemembergroups"
+    ],
+    "167": [
+      "src_api_social_getprofileposts"
+    ],
+    "168": [
+      "src_api_social_getprofilereels"
+    ],
+    "169": [
+      "src_api_social_getprofilerelationshipstate"
+    ],
+    "170": [
+      "src_api_social_getprofilerelationshipstates"
+    ],
+    "171": [
+      "src_api_social_getprofiles"
+    ],
+    "172": [
+      "src_api_social_getrecommendedreels"
+    ],
+    "173": [
+      "src_api_social_getreelcollection"
+    ],
+    "174": [
+      "src_api_social_getrelationprofiles"
+    ],
+    "175": [
+      "src_api_social_getsavedcontent"
+    ],
+    "176": [
+      "src_api_social_getstoryviewers"
+    ],
+    "177": [
+      "src_api_social_gettaggedusers"
+    ],
+    "178": [
+      "src_api_social_getuserphotos"
+    ],
+    "179": [
+      "src_api_social_groupmembershipstate"
+    ],
+    "180": [
+      "src_api_social_invitegroupuser"
+    ],
+    "181": [
+      "src_api_social_leavegroup"
+    ],
+    "182": [
+      "src_api_social_likecontent"
+    ],
+    "183": [
+      "src_api_social_mentionuser"
+    ],
+    "184": [
+      "src_api_social_profileavatarsource"
+    ],
+    "185": [
+      "src_api_social_profileconnectiontype"
+    ],
+    "186": [
+      "src_api_social_profilerelationshipstate"
+    ],
+    "187": [
+      "src_api_social_recordgroupvisit"
+    ],
+    "188": [
+      "src_api_social_rejectfriendrequest"
+    ],
+    "189": [
+      "src_api_social_rejectgroupjoinrequest"
+    ],
+    "190": [
+      "src_api_social_removegroupadmin"
+    ],
+    "191": [
+      "src_api_social_removegroupavatar"
+    ],
+    "192": [
+      "src_api_social_removegroupbackground"
+    ],
+    "193": [
+      "src_api_social_removegroupmember"
+    ],
+    "194": [
+      "src_api_social_removeuseravatar"
+    ],
+    "195": [
+      "src_api_social_removeuserbackground"
+    ],
+    "196": [
+      "src_api_social_requestjoingroup"
+    ],
+    "197": [
+      "src_api_social_savecontent"
+    ],
+    "198": [
+      "src_api_social_savedcontentitem"
+    ],
+    "199": [
+      "src_api_social_sendfriendrequest"
+    ],
+    "200": [
+      "src_api_social_sharepost"
+    ],
+    "201": [
+      "src_api_social_socialgroup"
+    ],
+    "202": [
+      "src_api_social_socialpage"
+    ],
+    "203": [
+      "src_api_social_taguser"
+    ],
+    "204": [
+      "src_api_social_unblockuser"
+    ],
+    "205": [
+      "src_api_social_unfollowuser"
+    ],
+    "206": [
+      "src_api_social_unfriend"
+    ],
+    "207": [
+      "src_api_social_unlikecontent"
+    ],
+    "208": [
+      "src_api_social_unsavecontent"
+    ],
+    "209": [
+      "src_api_social_updatecomment"
+    ],
+    "210": [
+      "src_api_social_updategroup"
+    ],
+    "211": [
+      "src_api_social_updatepost"
+    ],
+    "212": [
+      "src_api_social_updatepostvalues"
+    ],
+    "213": [
+      "src_api_social_updateprofile"
+    ],
+    "214": [
+      "src_api_social_watchcontent"
+    ],
+    "215": [
+      "src_api_types_mediatype"
+    ],
+    "216": [
+      "src_api_types_messengermessagedto"
+    ],
+    "217": [
+      "src_api_types_messengermessageeditrevisiondto"
+    ],
+    "218": [
+      "src_api_types_messengermessagereactiondto"
+    ],
+    "219": [
+      "src_components_anchoredmenuportal_anchoredmenuportal"
+    ],
+    "220": [
+      "src_components_avatar_avatar"
+    ],
+    "221": [
+      "src_components_composermediapreview_composermediapreview"
+    ],
+    "222": [
+      "src_components_contentactions_contentactions"
+    ],
+    "223": [
+      "src_components_contentactions_contentdetailoverlay"
+    ],
+    "224": [
+      "src_components_contentactions_sharemodal"
+    ],
+    "225": [
+      "src_components_createreelmodal_createreelmodal"
+    ],
+    "226": [
+      "src_components_friendpeopleglyph_friendpeopleglyph"
+    ],
+    "227": [
+      "src_components_friendpeopleglyph_friendpersonaction"
+    ],
+    "228": [
+      "src_components_friendpeopleglyph_friendpersonactionglyph"
+    ],
+    "229": [
+      "src_components_friendpeopleglyph_friendpersonglyph"
+    ],
+    "230": [
+      "src_components_friendpeopleglyph_friendpersonshape"
+    ],
+    "231": [
+      "src_components_groupmembersicon_groupmembershipicon"
+    ],
+    "232": [
+      "src_components_groupmembersicon_groupmembersicon"
+    ],
+    "233": [
+      "src_components_grouppostavatar_grouppostavatar"
+    ],
+    "234": [
+      "src_components_hovertooltip_hovertooltip"
+    ],
+    "235": [
+      "src_components_icon_friendsshortcuticon"
+    ],
+    "236": [
+      "src_components_icon_groupsshortcuticon"
+    ],
+    "237": [
+      "src_components_icon_icon"
+    ],
+    "238": [
+      "src_components_icon_livevideoicon"
+    ],
+    "239": [
+      "src_components_icon_reelicon"
+    ],
+    "240": [
+      "src_components_icon_savedshortcuticon"
+    ],
+    "241": [
+      "src_components_imagecropmodal_imagecropmodal"
+    ],
+    "242": [
+      "src_components_linkpreview_linkpreview"
+    ],
+    "243": [
+      "src_components_mentioncontent_mentioncontent"
+    ],
+    "244": [
+      "src_components_mentioncontent_richtextcontent"
+    ],
+    "245": [
+      "src_components_mentiondraftoverlay_mentiondraftoverlay"
+    ],
+    "246": [
+      "src_components_mentionsuggestions_mentionsuggestions"
+    ],
+    "247": [
+      "src_components_passwordfield_passwordfield"
+    ],
+    "248": [
+      "src_components_passwordstrengthmeter_passwordstrengthmeter"
+    ],
+    "249": [
+      "src_components_postcontent_postcontent"
+    ],
+    "250": [
+      "src_components_postdetailcommentsmodal_postdetailcommentsmodal"
+    ],
+    "251": [
+      "src_components_postmediagallery_postmediagallery"
+    ],
+    "252": [
+      "src_components_postoptionsmenu_postoptionsmenu"
+    ],
+    "253": [
+      "src_components_postphotoviewer_postphotoviewer"
+    ],
+    "254": [
+      "src_components_postprivacycontrol_postprivacycontrol"
+    ],
+    "255": [
+      "src_components_postprivacyicon_postprivacyicon"
+    ],
+    "256": [
+      "src_components_postvideoplayer_postvideoplayer"
+    ],
+    "257": [
+      "src_components_profilepostgrid_profilegridmediatarget"
+    ],
+    "258": [
+      "src_components_profilepostgrid_profilepostgridcard"
+    ],
+    "259": [
+      "src_components_profilepostgrid_profilepostgridicon"
+    ],
+    "260": [
+      "src_components_profilepostgrid_profilepostlisticon"
+    ],
+    "261": [
+      "src_components_sharedpostsourcecard_sharedpostsourcecard"
+    ],
+    "262": [
+      "src_components_sharedstoryminipreview_sharedstoryminipreview"
+    ],
+    "263": [
+      "src_components_sidebarsettingsicon_sidebarsettingsicon"
+    ],
+    "264": [
+      "src_components_storycontrolicon_storycontrolicon"
+    ],
+    "265": [
+      "src_components_storycontrolicon_storycontroliconname"
+    ],
+    "266": [
+      "src_components_storycreatormodal_storycreatormodal"
+    ],
+    "267": [
+      "src_components_storyimagemedia_storyimagemedia"
+    ],
+    "268": [
+      "src_components_storymediapreview_storymediapreview"
+    ],
+    "269": [
+      "src_components_storyvideopreview_storyvideopreview"
+    ],
+    "270": [
+      "src_components_storyviewerpage_storyviewerpage"
+    ],
+    "271": [
+      "src_components_tagpeoplepicker_tagpeoplepicker"
+    ],
+    "272": [
+      "src_components_verifiedbadge_verifiedbadge"
+    ],
+    "273": [
+      "src_i18n_formatmessage"
+    ],
+    "274": [
+      "src_i18n_getinitiallocale"
+    ],
+    "275": [
+      "src_i18n_i18nprovider"
+    ],
+    "276": [
+      "src_i18n_islocale"
+    ],
+    "277": [
+      "src_i18n_locale"
+    ],
+    "278": [
+      "src_i18n_usei18n"
+    ],
+    "279": [
+      "src_lib_auth_authprovider"
+    ],
+    "280": [
+      "src_lib_auth_useauth"
+    ],
+    "281": [
+      "src_lib_bodyinteractionlock_acquirebodyinteractionlock"
+    ],
+    "282": [
+      "src_lib_bodyinteractionlock_modalinteractionguard"
+    ],
+    "283": [
+      "src_lib_bodyinteractionlock_resetbodyinteractionlocksfortests"
+    ],
+    "284": [
+      "src_lib_bodyinteractionlock_usebodyinteractionlock"
+    ],
+    "285": [
+      "src_lib_clipboardmedia_clipboardimagefiles"
+    ],
+    "286": [
+      "src_lib_commentpageprefetch_clearallprefetchedcommentpagesfortests"
+    ],
+    "287": [
+      "src_lib_commentpageprefetch_clearprefetchedcommentpage"
+    ],
+    "288": [
+      "src_lib_commentpageprefetch_loadcommentpage"
+    ],
+    "289": [
+      "src_lib_commentpageprefetch_prefetchcommentpage"
+    ],
+    "290": [
+      "src_lib_commentpageprefetch_readcachedcommentpage"
+    ],
+    "291": [
+      "src_lib_format_firstname"
+    ],
+    "292": [
+      "src_lib_format_groupvisitrelativetime"
+    ],
+    "293": [
+      "src_lib_format_initials"
+    ],
+    "294": [
+      "src_lib_format_reactionmeta"
+    ],
+    "295": [
+      "src_lib_format_relativetime"
+    ],
+    "296": [
+      "src_lib_format_timeago"
+    ],
+    "297": [
+      "src_lib_groupmembershipevents_groupmembershipchangeddetail"
+    ],
+    "298": [
+      "src_lib_groupmembershipevents_leftgroupidfromevent"
+    ],
+    "299": [
+      "src_lib_groupmembershipevents_notifygroupleft"
+    ],
+    "300": [
+      "src_lib_hashtags_hashtagtextsegment"
+    ],
+    "301": [
+      "src_lib_hashtags_parsehashtagtext"
+    ],
+    "302": [
+      "src_lib_imagecrop_covercroprect"
+    ],
+    "303": [
+      "src_lib_imagecrop_cropimagefile"
+    ],
+    "304": [
+      "src_lib_imagecrop_croprect"
+    ],
+    "305": [
+      "src_lib_medialayout_adaptivemedialayout"
+    ],
+    "306": [
+      "src_lib_medialayout_adaptivemedialayoutkind"
+    ],
+    "307": [
+      "src_lib_medialayout_classifymediadimensions"
+    ],
+    "308": [
+      "src_lib_medialayout_getadaptivemedialayout"
+    ],
+    "309": [
+      "src_lib_medialayout_getmediaaspectratio"
+    ],
+    "310": [
+      "src_lib_medialayout_getsinglemediapresentation"
+    ],
+    "311": [
+      "src_lib_medialayout_isvalidmediadimensions"
+    ],
+    "312": [
+      "src_lib_medialayout_mediadimensions"
+    ],
+    "313": [
+      "src_lib_medialayout_mediaorientation"
+    ],
+    "314": [
+      "src_lib_mentions_activemention"
+    ],
+    "315": [
+      "src_lib_mentions_activementionat"
+    ],
+    "316": [
+      "src_lib_mentions_applymentionselection"
+    ],
+    "317": [
+      "src_lib_mentions_deletementionatselection"
+    ],
+    "318": [
+      "src_lib_mentions_extractmentionuserids"
+    ],
+    "319": [
+      "src_lib_mentions_mentioncontentsegment"
+    ],
+    "320": [
+      "src_lib_mentions_mentiondeletionresult"
+    ],
+    "321": [
+      "src_lib_mentions_mentiondisplayuser"
+    ],
+    "322": [
+      "src_lib_mentions_mentiondraftsegment"
+    ],
+    "323": [
+      "src_lib_mentions_mentionentity"
+    ],
+    "324": [
+      "src_lib_mentions_mentiontoken"
+    ],
+    "325": [
+      "src_lib_mentions_parsementioncontent"
+    ],
+    "326": [
+      "src_lib_mentions_parsementiondraft"
+    ],
+    "327": [
+      "src_lib_mentions_reconcilementionentities"
+    ],
+    "328": [
+      "src_lib_mentions_serializementioncontent"
+    ],
+    "329": [
+      "src_lib_notifications_notificationtarget"
+    ],
+    "330": [
+      "src_lib_notifications_notificationtext"
+    ],
+    "331": [
+      "src_lib_ownstoryunseen_forgetownunseenstory"
+    ],
+    "332": [
+      "src_lib_ownstoryunseen_reconcileownunseenstories"
+    ],
+    "333": [
+      "src_lib_ownstoryunseen_rememberownunseenstory"
+    ],
+    "334": [
+      "src_lib_password_getpasswordstrength"
+    ],
+    "335": [
+      "src_lib_password_passwordstrength"
+    ],
+    "336": [
+      "src_lib_postcontent_decodepostcontent"
+    ],
+    "337": [
+      "src_lib_postcontent_encodepostcontent"
+    ],
+    "338": [
+      "src_lib_postcontent_getpostbackgroundpreset"
+    ],
+    "339": [
+      "src_lib_postcontent_ispostbackgroundid"
+    ],
+    "340": [
+      "src_lib_postcontent_postbackgroundid"
+    ],
+    "341": [
+      "src_lib_posttime_formatposttimestamp"
+    ],
+    "342": [
+      "src_lib_posttime_posttimestamp"
+    ],
+    "343": [
+      "src_lib_privacy_defaultpostprivacykey"
+    ],
+    "344": [
+      "src_lib_privacy_ispostprivacy"
+    ],
+    "345": [
+      "src_lib_privacy_postprivacy"
+    ],
+    "346": [
+      "src_lib_privacy_readdefaultpostprivacy"
+    ],
+    "347": [
+      "src_lib_privacy_writedefaultpostprivacy"
+    ],
+    "348": [
+      "src_lib_profilepostgrid_groupprofilepostsbymonth"
+    ],
+    "349": [
+      "src_lib_reelcrop_calculatereelcropoutputsize"
+    ],
+    "350": [
+      "src_lib_reelcrop_calculatereelcroprect"
+    ],
+    "351": [
+      "src_lib_reelcrop_cropreelvideofile"
+    ],
+    "352": [
+      "src_lib_reelcrop_reelcroperror"
+    ],
+    "353": [
+      "src_lib_reelcrop_reelcropisrequired"
+    ],
+    "354": [
+      "src_lib_reelcrop_reelcropoptions"
+    ],
+    "355": [
+      "src_lib_reelcrop_reelcroprect"
+    ],
+    "356": [
+      "src_lib_reelentry_gatewayreelpost"
+    ],
+    "357": [
+      "src_lib_reelentry_gatewayreeltosocialcontent"
+    ],
+    "358": [
+      "src_lib_reelentry_sharedpostsourcetogatewayreel"
+    ],
+    "359": [
+      "src_lib_reelpresentation_clampreelfocalpoint"
+    ],
+    "360": [
+      "src_lib_reelpresentation_ratiofromslider"
+    ],
+    "361": [
+      "src_lib_reelpresentation_sliderfromratio"
+    ],
+    "362": [
+      "src_lib_router_applocation"
+    ],
+    "363": [
+      "src_lib_router_groupmemberroute"
+    ],
+    "364": [
+      "src_lib_router_navigate"
+    ],
+    "365": [
+      "src_lib_router_pathsegment"
+    ],
+    "366": [
+      "src_lib_router_useapplocation"
+    ],
+    "367": [
+      "src_lib_sounds_playincomingmessagesound"
+    ],
+    "368": [
+      "src_lib_sounds_playlikesound"
+    ],
+    "369": [
+      "src_lib_sounds_unlocksoundeffects"
+    ],
+    "370": [
+      "src_lib_storycontent_decodestorycontent"
+    ],
+    "371": [
+      "src_lib_storycontent_encodestorycontent"
+    ],
+    "372": [
+      "src_lib_storycontent_isstorybackground"
+    ],
+    "373": [
+      "src_lib_storyimage_createeditedstoryimage"
+    ],
+    "374": [
+      "src_lib_storyimage_storyimageeditoptions"
+    ],
+    "375": [
+      "src_lib_storyimagebounds_detectstoryimagecontentbounds"
+    ],
+    "376": [
+      "src_lib_storyimagebounds_storyimagebounds"
+    ],
+    "377": [
+      "src_lib_textareacaret_textareacaretcoordinates"
+    ],
+    "378": [
+      "src_lib_toast_toastprovider"
+    ],
+    "379": [
+      "src_lib_urlmedia_extractweburls"
+    ],
+    "380": [
+      "src_lib_urlmedia_isdirectimageurl"
+    ],
+    "381": [
+      "src_lib_urlmedia_remoteimagefilefromurl"
+    ],
+    "382": [
+      "src_lib_urlmedia_tosafeweburl"
+    ],
+    "383": [
+      "src_lib_usefriendsearch_usefriendsearch"
+    ],
+    "384": [
+      "src_lib_useimageambientcolor_dominantambientcolor"
+    ],
+    "385": [
+      "src_lib_useimageambientcolor_useimageambientcolor"
+    ],
+    "386": [
+      "src_lib_useinlineimagecrop_inlineimagecroptarget"
+    ],
+    "387": [
+      "src_lib_useinlineimagecrop_useinlineimagecrop"
+    ],
+    "388": [
+      "src_lib_usemediadimensions_usemediadimensions"
+    ],
+    "389": [
+      "src_lib_useprofilecolumnscroll_useprofilecolumnscroll"
+    ],
+    "390": [
+      "src_lib_useprofilecolumnscroll_useprofilepagescrollmode"
+    ],
+    "391": [
+      "src_lib_videoaudio_detectvideohasaudio"
+    ],
+    "392": [
+      "src_pages_accountsecuritypage_accountsecuritypage"
+    ],
+    "393": [
+      "src_pages_authenticatedapp_authenticatedapp"
+    ],
+    "394": [
+      "src_pages_birthdate_birthdatebounds"
+    ],
+    "395": [
+      "src_pages_birthdate_isallowedbirthdate"
+    ],
+    "396": [
+      "src_pages_friendspage_friendsection"
+    ],
+    "397": [
+      "src_pages_friendspage_friendspage"
+    ],
+    "398": [
+      "src_pages_gatewayhomepage_gatewayhomepage"
+    ],
+    "399": [
+      "src_pages_gatewayhomepage_gatewaypostcard"
+    ],
+    "400": [
+      "src_pages_gatewayhomepage_legacystoryviewermodal"
+    ],
+    "401": [
+      "src_pages_gatewayhomepage_postcomposer"
+    ],
+    "402": [
+      "src_pages_groupprofilepage_groupprofilepage"
+    ],
+    "403": [
+      "src_pages_groupspage_groupspage"
+    ],
+    "404": [
+      "src_pages_loginpage_authfooter"
+    ],
+    "405": [
+      "src_pages_loginpage_loginpage"
+    ],
+    "406": [
+      "src_pages_messenger_conversationdetail_conversationdetail"
+    ],
+    "407": [
+      "src_pages_messenger_conversationlist_conversationlist"
+    ],
+    "408": [
+      "src_pages_messenger_emojibutton_emojibutton"
+    ],
+    "409": [
+      "src_pages_messenger_forwardmessagedialog_forwardmessagedialog"
+    ],
+    "410": [
+      "src_pages_messenger_groupconversationmanager_groupconversationmanager"
+    ],
+    "411": [
+      "src_pages_messenger_helpers_conversationavatar"
+    ],
+    "412": [
+      "src_pages_messenger_helpers_conversationname"
+    ],
+    "413": [
+      "src_pages_messenger_helpers_encodemessengerlike"
+    ],
+    "414": [
+      "src_pages_messenger_helpers_formatpresence"
+    ],
+    "415": [
+      "src_pages_messenger_helpers_formattime"
+    ],
+    "416": [
+      "src_pages_messenger_helpers_grouppresencesummary"
+    ],
+    "417": [
+      "src_pages_messenger_helpers_messagegroupposition"
+    ],
+    "418": [
+      "src_pages_messenger_helpers_messagevisualbreaks"
+    ],
+    "419": [
+      "src_pages_messenger_helpers_messengerconversationpreview"
+    ],
+    "420": [
+      "src_pages_messenger_helpers_messengerlikelevel"
+    ],
+    "421": [
+      "src_pages_messenger_helpers_messengermessagepreview"
+    ],
+    "422": [
+      "src_pages_messenger_helpers_shouldshowavatar"
+    ],
+    "423": [
+      "src_pages_messenger_helpers_shouldshowtimestamp"
+    ],
+    "424": [
+      "src_pages_messenger_helpers_systemmessagelabel"
+    ],
+    "425": [
+      "src_pages_messenger_holdlikebutton_holdlikebutton"
+    ],
+    "426": [
+      "src_pages_messenger_mediagallery_formatmediasize"
+    ],
+    "427": [
+      "src_pages_messenger_mediagallery_mediaattachmentpreview"
+    ],
+    "428": [
+      "src_pages_messenger_mediagallery_mediadisplayname"
+    ],
+    "429": [
+      "src_pages_messenger_mediagallery_mediagallery"
+    ],
+    "430": [
+      "src_pages_messenger_mediagallery_mediakind"
+    ],
+    "431": [
+      "src_pages_messenger_mediagallery_messengermediaimage"
+    ],
+    "432": [
+      "src_pages_messenger_mediagallery_resolvemediakind"
+    ],
+    "433": [
+      "src_pages_messenger_messageeditstate_messageedithistory"
+    ],
+    "434": [
+      "src_pages_messenger_messageeditstate_messageeditingbar"
+    ],
+    "435": [
+      "src_pages_messenger_messageeditstate_messageeditmarker"
+    ],
+    "436": [
+      "src_pages_messenger_messageinteractions_messageactionrail"
+    ],
+    "437": [
+      "src_pages_messenger_messageinteractions_messagehovertimestamp"
+    ],
+    "438": [
+      "src_pages_messenger_messageinteractions_messagereactionsummary"
+    ],
+    "439": [
+      "src_pages_messenger_messageinteractions_messagereplypreview"
+    ],
+    "440": [
+      "src_pages_messenger_messageinteractiontime_formatmessagehovertime"
+    ],
+    "441": [
+      "src_pages_messenger_messagesenderavatar_messagesenderavatar"
+    ],
+    "442": [
+      "src_pages_messenger_messagethread_messagethread"
+    ],
+    "443": [
+      "src_pages_messenger_messengeraudioplayer_messengeraudioplayer"
+    ],
+    "444": [
+      "src_pages_messenger_messengerlikeicon_messengerlikeicon"
+    ],
+    "445": [
+      "src_pages_messenger_messengerpage_messengerpage"
+    ],
+    "446": [
+      "src_pages_messenger_newconversationmodal_newconversationmodal"
+    ],
+    "447": [
+      "src_pages_messenger_newconversationpanel_newconversationpanel"
+    ],
+    "448": [
+      "src_pages_messenger_pendingmediauploadstate_creatependingmediauploadpreviews"
+    ],
+    "449": [
+      "src_pages_messenger_pendingmediauploadstate_releasependingmediauploadpreviews"
+    ],
+    "450": [
+      "src_pages_messenger_stickerbutton_stickerbutton"
+    ],
+    "451": [
+      "src_pages_messenger_systemmessageline_systemmessageline"
+    ],
+    "452": [
+      "src_pages_payosreturn_parsepayosreturn"
+    ],
+    "453": [
+      "src_pages_payosreturn_payosreturn"
+    ],
+    "454": [
+      "src_pages_premiumpage_premiumpage"
+    ],
+    "455": [
+      "src_pages_profilepage_profilepage"
+    ],
+    "456": [
+      "src_pages_reelspage_clearreelscachefortesting"
+    ],
+    "457": [
+      "src_pages_reelspage_fitreelframe"
+    ],
+    "458": [
+      "src_pages_reelspage_reelspage"
+    ],
+    "459": [
+      "src_pages_reelspage_reelviewerverticalgap"
+    ],
+    "460": [
+      "src_pages_reelspage_shrinkreelframetoviewport"
+    ],
+    "461": [
+      "src_pages_savedpage_savedpage"
+    ],
+    "462": [
+      "src_pages_savedpage_savedsection"
+    ],
+    "463": [
+      "src_pages_searchpage_searchpage"
+    ],
+    "464": [
+      "src_pages_settingspage_settingspage"
+    ],
+    "465": [
+      "src_pages_settingspage_settingssection"
+    ],
+    "466": [
+      "src_pages_useringroupprofilepage_useringroupprofilepage"
+    ],
+    "467": [
+      "src_theme_theme"
+    ],
+    "468": [
+      "src_theme_themeprovider"
+    ],
+    "469": [
+      "src_theme_usetheme"
+    ],
+    "470": [
+      "vite_config_alloweddevhosts"
+    ],
+    "471": [
+      "vite_config_proxytargetfromgatewayurl"
+    ]
+  },
+  "cohesion": {
+    "0": 0.2222222222222222,
+    "1": 0.25,
+    "2": 0.5,
+    "3": 1.0,
+    "4": 1.0,
+    "5": 1.0,
+    "6": 1.0,
+    "7": 1.0,
+    "8": 1.0,
+    "9": 1.0,
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0,
+    "13": 1.0,
+    "14": 1.0,
+    "15": 1.0,
+    "16": 1.0,
+    "17": 1.0,
+    "18": 1.0,
+    "19": 1.0,
+    "20": 1.0,
+    "21": 1.0,
+    "22": 1.0,
+    "23": 1.0,
+    "24": 1.0,
+    "25": 1.0,
+    "26": 1.0,
+    "27": 1.0,
+    "28": 1.0,
+    "29": 1.0,
+    "30": 1.0,
+    "31": 1.0,
+    "32": 1.0,
+    "33": 1.0,
+    "34": 1.0,
+    "35": 1.0,
+    "36": 1.0,
+    "37": 1.0,
+    "38": 1.0,
+    "39": 1.0,
+    "40": 1.0,
+    "41": 1.0,
+    "42": 1.0,
+    "43": 1.0,
+    "44": 1.0,
+    "45": 1.0,
+    "46": 1.0,
+    "47": 1.0,
+    "48": 1.0,
+    "49": 1.0,
+    "50": 1.0,
+    "51": 1.0,
+    "52": 1.0,
+    "53": 1.0,
+    "54": 1.0,
+    "55": 1.0,
+    "56": 1.0,
+    "57": 1.0,
+    "58": 1.0,
+    "59": 1.0,
+    "60": 1.0,
+    "61": 1.0,
+    "62": 1.0,
+    "63": 1.0,
+    "64": 1.0,
+    "65": 1.0,
+    "66": 1.0,
+    "67": 1.0,
+    "68": 1.0,
+    "69": 1.0,
+    "70": 1.0,
+    "71": 1.0,
+    "72": 1.0,
+    "73": 1.0,
+    "74": 1.0,
+    "75": 1.0,
+    "76": 1.0,
+    "77": 1.0,
+    "78": 1.0,
+    "79": 1.0,
+    "80": 1.0,
+    "81": 1.0,
+    "82": 1.0,
+    "83": 1.0,
+    "84": 1.0,
+    "85": 1.0,
+    "86": 1.0,
+    "87": 1.0,
+    "88": 1.0,
+    "89": 1.0,
+    "90": 1.0,
+    "91": 1.0,
+    "92": 1.0,
+    "93": 1.0,
+    "94": 1.0,
+    "95": 1.0,
+    "96": 1.0,
+    "97": 1.0,
+    "98": 1.0,
+    "99": 1.0,
+    "100": 1.0,
+    "101": 1.0,
+    "102": 1.0,
+    "103": 1.0,
+    "104": 1.0,
+    "105": 1.0,
+    "106": 1.0,
+    "107": 1.0,
+    "108": 1.0,
+    "109": 1.0,
+    "110": 1.0,
+    "111": 1.0,
+    "112": 1.0,
+    "113": 1.0,
+    "114": 1.0,
+    "115": 1.0,
+    "116": 1.0,
+    "117": 1.0,
+    "118": 1.0,
+    "119": 1.0,
+    "120": 1.0,
+    "121": 1.0,
+    "122": 1.0,
+    "123": 1.0,
+    "124": 1.0,
+    "125": 1.0,
+    "126": 1.0,
+    "127": 1.0,
+    "128": 1.0,
+    "129": 1.0,
+    "130": 1.0,
+    "131": 1.0,
+    "132": 1.0,
+    "133": 1.0,
+    "134": 1.0,
+    "135": 1.0,
+    "136": 1.0,
+    "137": 1.0,
+    "138": 1.0,
+    "139": 1.0,
+    "140": 1.0,
+    "141": 1.0,
+    "142": 1.0,
+    "143": 1.0,
+    "144": 1.0,
+    "145": 1.0,
+    "146": 1.0,
+    "147": 1.0,
+    "148": 1.0,
+    "149": 1.0,
+    "150": 1.0,
+    "151": 1.0,
+    "152": 1.0,
+    "153": 1.0,
+    "154": 1.0,
+    "155": 1.0,
+    "156": 1.0,
+    "157": 1.0,
+    "158": 1.0,
+    "159": 1.0,
+    "160": 1.0,
+    "161": 1.0,
+    "162": 1.0,
+    "163": 1.0,
+    "164": 1.0,
+    "165": 1.0,
+    "166": 1.0,
+    "167": 1.0,
+    "168": 1.0,
+    "169": 1.0,
+    "170": 1.0,
+    "171": 1.0,
+    "172": 1.0,
+    "173": 1.0,
+    "174": 1.0,
+    "175": 1.0,
+    "176": 1.0,
+    "177": 1.0,
+    "178": 1.0,
+    "179": 1.0,
+    "180": 1.0,
+    "181": 1.0,
+    "182": 1.0,
+    "183": 1.0,
+    "184": 1.0,
+    "185": 1.0,
+    "186": 1.0,
+    "187": 1.0,
+    "188": 1.0,
+    "189": 1.0,
+    "190": 1.0,
+    "191": 1.0,
+    "192": 1.0,
+    "193": 1.0,
+    "194": 1.0,
+    "195": 1.0,
+    "196": 1.0,
+    "197": 1.0,
+    "198": 1.0,
+    "199": 1.0,
+    "200": 1.0,
+    "201": 1.0,
+    "202": 1.0,
+    "203": 1.0,
+    "204": 1.0,
+    "205": 1.0,
+    "206": 1.0,
+    "207": 1.0,
+    "208": 1.0,
+    "209": 1.0,
+    "210": 1.0,
+    "211": 1.0,
+    "212": 1.0,
+    "213": 1.0,
+    "214": 1.0,
+    "215": 1.0,
+    "216": 1.0,
+    "217": 1.0,
+    "218": 1.0,
+    "219": 1.0,
+    "220": 1.0,
+    "221": 1.0,
+    "222": 1.0,
+    "223": 1.0,
+    "224": 1.0,
+    "225": 1.0,
+    "226": 1.0,
+    "227": 1.0,
+    "228": 1.0,
+    "229": 1.0,
+    "230": 1.0,
+    "231": 1.0,
+    "232": 1.0,
+    "233": 1.0,
+    "234": 1.0,
+    "235": 1.0,
+    "236": 1.0,
+    "237": 1.0,
+    "238": 1.0,
+    "239": 1.0,
+    "240": 1.0,
+    "241": 1.0,
+    "242": 1.0,
+    "243": 1.0,
+    "244": 1.0,
+    "245": 1.0,
+    "246": 1.0,
+    "247": 1.0,
+    "248": 1.0,
+    "249": 1.0,
+    "250": 1.0,
+    "251": 1.0,
+    "252": 1.0,
+    "253": 1.0,
+    "254": 1.0,
+    "255": 1.0,
+    "256": 1.0,
+    "257": 1.0,
+    "258": 1.0,
+    "259": 1.0,
+    "260": 1.0,
+    "261": 1.0,
+    "262": 1.0,
+    "263": 1.0,
+    "264": 1.0,
+    "265": 1.0,
+    "266": 1.0,
+    "267": 1.0,
+    "268": 1.0,
+    "269": 1.0,
+    "270": 1.0,
+    "271": 1.0,
+    "272": 1.0,
+    "273": 1.0,
+    "274": 1.0,
+    "275": 1.0,
+    "276": 1.0,
+    "277": 1.0,
+    "278": 1.0,
+    "279": 1.0,
+    "280": 1.0,
+    "281": 1.0,
+    "282": 1.0,
+    "283": 1.0,
+    "284": 1.0,
+    "285": 1.0,
+    "286": 1.0,
+    "287": 1.0,
+    "288": 1.0,
+    "289": 1.0,
+    "290": 1.0,
+    "291": 1.0,
+    "292": 1.0,
+    "293": 1.0,
+    "294": 1.0,
+    "295": 1.0,
+    "296": 1.0,
+    "297": 1.0,
+    "298": 1.0,
+    "299": 1.0,
+    "300": 1.0,
+    "301": 1.0,
+    "302": 1.0,
+    "303": 1.0,
+    "304": 1.0,
+    "305": 1.0,
+    "306": 1.0,
+    "307": 1.0,
+    "308": 1.0,
+    "309": 1.0,
+    "310": 1.0,
+    "311": 1.0,
+    "312": 1.0,
+    "313": 1.0,
+    "314": 1.0,
+    "315": 1.0,
+    "316": 1.0,
+    "317": 1.0,
+    "318": 1.0,
+    "319": 1.0,
+    "320": 1.0,
+    "321": 1.0,
+    "322": 1.0,
+    "323": 1.0,
+    "324": 1.0,
+    "325": 1.0,
+    "326": 1.0,
+    "327": 1.0,
+    "328": 1.0,
+    "329": 1.0,
+    "330": 1.0,
+    "331": 1.0,
+    "332": 1.0,
+    "333": 1.0,
+    "334": 1.0,
+    "335": 1.0,
+    "336": 1.0,
+    "337": 1.0,
+    "338": 1.0,
+    "339": 1.0,
+    "340": 1.0,
+    "341": 1.0,
+    "342": 1.0,
+    "343": 1.0,
+    "344": 1.0,
+    "345": 1.0,
+    "346": 1.0,
+    "347": 1.0,
+    "348": 1.0,
+    "349": 1.0,
+    "350": 1.0,
+    "351": 1.0,
+    "352": 1.0,
+    "353": 1.0,
+    "354": 1.0,
+    "355": 1.0,
+    "356": 1.0,
+    "357": 1.0,
+    "358": 1.0,
+    "359": 1.0,
+    "360": 1.0,
+    "361": 1.0,
+    "362": 1.0,
+    "363": 1.0,
+    "364": 1.0,
+    "365": 1.0,
+    "366": 1.0,
+    "367": 1.0,
+    "368": 1.0,
+    "369": 1.0,
+    "370": 1.0,
+    "371": 1.0,
+    "372": 1.0,
+    "373": 1.0,
+    "374": 1.0,
+    "375": 1.0,
+    "376": 1.0,
+    "377": 1.0,
+    "378": 1.0,
+    "379": 1.0,
+    "380": 1.0,
+    "381": 1.0,
+    "382": 1.0,
+    "383": 1.0,
+    "384": 1.0,
+    "385": 1.0,
+    "386": 1.0,
+    "387": 1.0,
+    "388": 1.0,
+    "389": 1.0,
+    "390": 1.0,
+    "391": 1.0,
+    "392": 1.0,
+    "393": 1.0,
+    "394": 1.0,
+    "395": 1.0,
+    "396": 1.0,
+    "397": 1.0,
+    "398": 1.0,
+    "399": 1.0,
+    "400": 1.0,
+    "401": 1.0,
+    "402": 1.0,
+    "403": 1.0,
+    "404": 1.0,
+    "405": 1.0,
+    "406": 1.0,
+    "407": 1.0,
+    "408": 1.0,
+    "409": 1.0,
+    "410": 1.0,
+    "411": 1.0,
+    "412": 1.0,
+    "413": 1.0,
+    "414": 1.0,
+    "415": 1.0,
+    "416": 1.0,
+    "417": 1.0,
+    "418": 1.0,
+    "419": 1.0,
+    "420": 1.0,
+    "421": 1.0,
+    "422": 1.0,
+    "423": 1.0,
+    "424": 1.0,
+    "425": 1.0,
+    "426": 1.0,
+    "427": 1.0,
+    "428": 1.0,
+    "429": 1.0,
+    "430": 1.0,
+    "431": 1.0,
+    "432": 1.0,
+    "433": 1.0,
+    "434": 1.0,
+    "435": 1.0,
+    "436": 1.0,
+    "437": 1.0,
+    "438": 1.0,
+    "439": 1.0,
+    "440": 1.0,
+    "441": 1.0,
+    "442": 1.0,
+    "443": 1.0,
+    "444": 1.0,
+    "445": 1.0,
+    "446": 1.0,
+    "447": 1.0,
+    "448": 1.0,
+    "449": 1.0,
+    "450": 1.0,
+    "451": 1.0,
+    "452": 1.0,
+    "453": 1.0,
+    "454": 1.0,
+    "455": 1.0,
+    "456": 1.0,
+    "457": 1.0,
+    "458": 1.0,
+    "459": 1.0,
+    "460": 1.0,
+    "461": 1.0,
+    "462": 1.0,
+    "463": 1.0,
+    "464": 1.0,
+    "465": 1.0,
+    "466": 1.0,
+    "467": 1.0,
+    "468": 1.0,
+    "469": 1.0,
+    "470": 1.0,
+    "471": 1.0
+  },
+  "gods": [
+    {
+      "id": "src_api_types_usersummary",
+      "label": "UserSummary",
+      "degree": 6
+    },
+    {
+      "id": "src_api_gatewaytypes_gatewaymedia",
+      "label": "GatewayMedia",
+      "degree": 5
+    },
+    {
+      "id": "src_api_gatewaytypes_gatewaypost",
+      "label": "GatewayPost",
+      "degree": 4
+    },
+    {
+      "id": "src_api_social_socialcomment",
+      "label": "SocialComment",
+      "degree": 4
+    },
+    {
+      "id": "src_api_gatewaytypes_gatewaymention",
+      "label": "GatewayMention",
+      "degree": 3
+    },
+    {
+      "id": "src_api_social_socialcontent",
+      "label": "SocialContent",
+      "degree": 3
+    },
+    {
+      "id": "src_api_types_mediaupload",
+      "label": "MediaUpload",
+      "degree": 3
+    },
+    {
+      "id": "src_components_postdetailcommentsmodal_postdetailcommentsmodalprops",
+      "label": "PostDetailCommentsModalProps",
+      "degree": 3
+    },
+    {
+      "id": "src_components_postphotoviewer_postphotoviewerprops",
+      "label": "PostPhotoViewerProps",
+      "degree": 2
+    },
+    {
+      "id": "src_components_postphotoviewer_postphotoviewermediaentry",
+      "label": "PostPhotoViewerMediaEntry",
+      "degree": 2
+    }
+  ],
+  "surprises": [
+    {
+      "source": "SocialComment",
+      "target": "GatewayMedia",
+      "source_files": [
+        "src/api/social.ts",
+        "src/api/gatewayTypes.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "SocialContent",
+      "target": "GatewayMedia",
+      "source_files": [
+        "src/api/social.ts",
+        "src/api/gatewayTypes.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "SocialPhoto",
+      "target": "GatewayMedia",
+      "source_files": [
+        "src/api/social.ts",
+        "src/api/gatewayTypes.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "peripheral node `SocialPhoto` unexpectedly reaches hub `GatewayMedia`"
+    },
+    {
+      "source": "PostPhotoViewerMediaEntry",
+      "target": "GatewayMedia",
+      "source_files": [
+        "src/components/PostPhotoViewer.tsx",
+        "src/api/gatewayTypes.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "peripheral node `PostPhotoViewerMediaEntry` unexpectedly reaches hub `GatewayMedia`"
+    },
+    {
+      "source": "AppNotification",
+      "target": "UserSummary",
+      "source_files": [
+        "src/api/notifications.ts",
+        "src/api/types.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "peripheral node `AppNotification` unexpectedly reaches hub `UserSummary`"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `GatewayMedia` connect `Community 1` to `Community 0`?",
+      "why": "High betweenness centrality (0.001) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `SocialComment` connect `Community 0` to `Community 1`?",
+      "why": "High betweenness centrality (0.000) - this node is a cross-community bridge."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `StoredAuth`, `AuthUser`, `AuthSession` to the rest of the system?",
+      "why": "489 weakly-connected nodes found - possible documentation gaps or missing edges."
+    }
+  ]
+}

@@ -1,22 +1,51 @@
 # Fakebook Frontend
 
-React + TypeScript frontend for Fakebook, built with Vite.
+React + TypeScript frontend cho Fakebook, được xây dựng bằng Vite. Kiến trúc dự án được phân tách rõ ràng thành các module giao tiếp thông qua Gateway GraphQL.
 
-## Requirements
+## 🗺️ Cấu trúc dự án (Graphify Insights)
 
-- Node.js 20 or newer
+Dự án này sử dụng kiến trúc phân tầng. Dưới đây là các cụm (communities) chính trong codebase:
+
+- `src/api/`: Chứa các GraphQL client và REST client giao tiếp với Gateway (e.g., `social.ts`, `messenger.ts`, `search.ts`).
+- `src/pages/`: Các trang giao diện chính (Routing) như `ProfilePage`, `GroupProfilePage`, `MessengerPage`, v.v. Các trang này chịu trách nhiệm fetch dữ liệu và render layout.
+- `src/components/`: Các UI component có thể tái sử dụng (như `Avatar`, `Icon`, `PostContent`, `VerifiedBadge`).
+- `src/lib/`: Các tiện ích, hook và logic dùng chung (như `useI18n`, `format.ts`, `useImageAmbientColor`).
+- `src/theme.tsx` & `App.css`: Quản lý design system và responsive layout.
+
+### 🕸️ Khám phá mã nguồn với Graphify
+
+Dự án này đã được tích hợp **Graphify** để phân tích kiến trúc và mối liên hệ giữa các file. Graphify giúp tạo ra một Knowledge Graph trực quan để theo dõi luồng dữ liệu (Data Flow) và sự phụ thuộc (Dependencies).
+
+**Cách xem bản đồ kiến trúc:**
+1. Mở file `graphify-out/graph.html` bằng bất kỳ trình duyệt nào (không cần server).
+2. Tại đây bạn có thể xem các Node (đại diện cho file/thành phần) và Edge (đại diện cho sự phụ thuộc).
+3. Sử dụng tính năng tìm kiếm trong Graphify HTML để tìm một Component hoặc API cụ thể và xem nó được gọi từ đâu.
+
+**Cách cập nhật Graphify khi có code mới:**
+Bạn có thể cập nhật bản đồ trực tiếp bằng lệnh:
+```sh
+graphify . --update
+```
+Hoặc xuất lại bản đồ HTML:
+```sh
+graphify export html
+```
+
+---
+
+## 🚀 Setup & Cài đặt
+
+### Yêu cầu hệ thống
+- Node.js 20 hoặc mới hơn
 - npm
 
-## Setup
-
-Install dependencies:
-
+### Cài đặt dependencies
 ```sh
 npm install
 ```
 
-Create or update environment files as needed:
-
+### Cấu hình Môi trường (.env)
+Tạo hoặc cập nhật các biến môi trường:
 ```sh
 VITE_API_GATEWAY_URL=/api
 VITE_GRAPHQL_GATEWAY_URL=/graphql
@@ -25,63 +54,49 @@ VITE_GRAPHQL_TIMEOUT_MS=20000
 VITE_IP_GEOLOCATION_URL=https://ipwho.is/
 ```
 
-For local development, keep browser URLs relative and configure Vite's private proxy targets:
-
+Đối với phát triển local (Local Development), cấu hình Vite proxies:
 ```sh
 VITE_DEV_GATEWAY_TARGET=http://localhost:2001
 VITE_DEV_UPLOAD_TARGET=http://localhost:4001
 VITE_DEV_ALLOWED_HOST=fakebook.example.ts.net
 ```
 
-Realtime notifications and Messenger events use authenticated GraphQL-over-SSE subscriptions through the same `VITE_GRAPHQL_GATEWAY_URL` endpoint. Messenger loads only server conversations (there is no synthetic fallback), creates direct conversations idempotently for friends, and also supports selecting multiple friends to create a group conversation. The top-bar dock keeps at most three floating chat windows; a profile's Message action opens the canonical direct conversation.
+---
 
-All active authentication, social, search, recommendation, messaging, notification, and payment flows use typed Gateway GraphQL documents. The retired REST feed/friend/post/messenger screens and clients have been removed; direct HTTP is reserved for authenticated media upload to Upload Server.
+## 📡 Media Flow & Upload
+Frontend tải trực tiếp file lên Upload Server thông qua xác thực `POST /media/upload`. Upload Server trả về một media URL. URL này sau đó được gửi qua Gateway (`createFeedPost` hoặc `createNormalStory`). SocialGraph lưu trữ URL và trả về cho UI để hiển thị.
 
-## Application routes
-
-The authenticated shell uses browser History routing for `/home`, `/search`, `/friends`, `/reels`, `/groups`, `/profile/:id`, `/messenger`, `/saved`, `/settings/:section`, `/premium`, `/premium/payment`, and `/content/:id`. Notifications open in a top-bar panel rather than a dedicated route. All browser-owned social data is requested through Gateway GraphQL; media upload remains the intentional direct Upload Server flow.
-
-## Media flow
-
-The frontend uploads files directly to Upload Server with authenticated `POST /media/upload`. Upload Server returns a media URL. The frontend then sends that URL through Gateway in `createFeedPost` or `createNormalStory`; SocialGraph stores the URL and returns it in feed/story queries for rendering.
-
-During local development Vite proxies the relative media edge to the canonical Upload Server port:
-
+Proxy dùng cho môi trường Dev:
 ```sh
 VITE_UPLOAD_SERVER_URL=/media
 VITE_DEV_UPLOAD_TARGET=http://localhost:4001
 ```
 
-Keeping the browser-facing value relative also works for remote access through the configured Tailscale edge instead of leaking a client-side `localhost` URL.
+---
 
-## Scripts
+## 📜 Lệnh khởi chạy (Scripts)
 
-Start the development server:
-
+Khởi chạy môi trường phát triển (Development):
 ```sh
 npm run dev
 ```
 
-Build the app:
-
+Build ứng dụng cho Production:
 ```sh
 npm run build
 ```
 
-Run lint checks:
-
+Chạy kiểm tra cú pháp (Linting):
 ```sh
 npm run lint
 ```
 
-Run tests:
-
+Chạy Unit Tests (đã phủ xanh 100%):
 ```sh
 npm test
 ```
 
-Preview the production build:
-
+Preview bản build production ở local:
 ```sh
 npm run preview
 ```
