@@ -31,22 +31,22 @@ describe('PrivacyPage Component', () => {
   it('renders Privacy Centre home by default', () => {
     render(<PrivacyPage />)
 
-    expect(screen.getAllByText(/Privacy Centre/i).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/We build privacy into our products/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/privacyCentreTitle/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/privacyBuildTitle/i).length).toBeGreaterThan(0)
   })
 
   it('renders sidebar navigation with groups', () => {
     render(<PrivacyPage />)
 
-    expect(screen.getByRole('button', { name: /Privacy Centre home/i })).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /Privacy Policy/i }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /privacyCentreHome/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /privacyPolicyTitle/i }).length).toBeGreaterThan(0)
   })
 
   it('navigates to topic when sidebar item is clicked', () => {
     render(<PrivacyPage />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Privacy Centre home/i }))
-    expect(screen.getAllByText(/Privacy Centre/i).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: /privacyCentreHome/i }))
+    expect(screen.getAllByText(/privacyCentreTitle/i).length).toBeGreaterThan(0)
   })
 
   it('navigates from LoginPage footer Privacy Policy link to PrivacyPage', () => {
@@ -55,6 +55,6 @@ describe('PrivacyPage Component', () => {
     const privacyPolicyBtn = screen.getByRole('button', { name: /^Privacy Policy$/i })
     fireEvent.click(privacyPolicyBtn)
 
-    expect(screen.getAllByText(/Privacy Centre/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/privacyCentreTitle/i).length).toBeGreaterThan(0)
   })
 })

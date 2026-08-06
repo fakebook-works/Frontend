@@ -21,24 +21,24 @@ describe('AboutPage Component', () => {
   it('renders About header with Group 36 branding and sections', () => {
     render(<AboutPage />)
 
-    expect(screen.getAllByText(/Group 36/i).length).toBeGreaterThan(0)
-    expect(screen.getByText(/We're building the future/i)).toBeInTheDocument()
-    expect(screen.getByText(/Catch up on the latest news/i)).toBeInTheDocument()
-    expect(screen.getAllByText(/What we build/i).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText(/Play a role in building/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/aboutGroupTitle/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/aboutHeroTitle/i)).toBeInTheDocument()
+    expect(screen.getByText(/^aboutNews$/i)).toBeInTheDocument()
+    expect(screen.getByText(/aboutNewsTitle/i)).toBeInTheDocument()
+    expect(screen.getByText(/aboutLeadershipTitle/i)).toBeInTheDocument()
   })
 
-  it('renders team values and product cards', () => {
+  it('renders docs section and footer links', () => {
     render(<AboutPage />)
 
-    expect(screen.getAllByText(/Culture at Group 36/i).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Careers in tech/i).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Internships/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/aboutDocsTitle/i)).toBeInTheDocument()
+    expect(screen.getByText(/aboutProducts/i)).toBeInTheDocument()
+    expect(screen.getByText(/aboutResources/i)).toBeInTheDocument()
   })
 
   it('renders footer with Group 36 branding', () => {
     render(<AboutPage />)
 
-    expect(screen.getAllByText(/Group 36/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/aboutGroupTitle/i).length).toBeGreaterThan(0)
   })
 })

@@ -490,6 +490,8 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
   const [posts, setPosts] = useState<GatewayPost[]>([])
   const [postsLoading, setPostsLoading] = useState(false)
   const [postsUnavailable, setPostsUnavailable] = useState(false)
+  const [postCursor, setPostCursor] = useState<string | null>(null)
+  const [postsHaveMore, setPostsHaveMore] = useState(false)
   const [tab, setTab] = useState<ProfileTab>(() => initialTab ?? 'posts')
   const [profileFriends, setProfileFriends] = useState<SocialProfile[]>([])
   const [profileFriendMutualCounts, setProfileFriendMutualCounts] = useState<Record<string, number>>({})
@@ -553,6 +555,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
   const profileContentGridRef = useRef<HTMLDivElement>(null)
   const profileInfoColumnRef = useRef<HTMLElement>(null)
   const profilePostColumnRef = useRef<HTMLElement>(null)
+  const postsSentinelRef = useRef<HTMLDivElement>(null)
   const coverPreviewPlacement = useMemo(() => getCoverPreviewPlacement(
     coverImageSize.width,
     coverImageSize.height,
@@ -834,9 +837,43 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
     let active = true
     setPostsLoading(true)
     setPostsUnavailable(false)
-    socialApi.getProfilePosts(profile.id, 20).then((page) => active && setPosts(page.items)).catch(() => active && setPostsUnavailable(true)).finally(() => active && setPostsLoading(false))
+    setPostCursor(null)
+    setPostsHaveMore(false)
+    socialApi.getProfilePosts(profile.id, 20).then((page) => {
+      if (!active) return
+      setPosts(page.items)
+      setPostCursor(page.endCursor)
+      setPostsHaveMore(page.hasNextPage)
+    }).catch(() => active && setPostsUnavailable(true)).finally(() => active && setPostsLoading(false))
     return () => { active = false }
   }, [profile?.id])
+
+  const loadMoreProfilePosts = useCallback(async (cursor: string) => {
+    if (!profile?.id || postsLoading) return
+    setPostsLoading(true)
+    try {
+      const page = await socialApi.getProfilePosts(profile.id, 20, cursor)
+      setPosts((current) => [...current, ...page.items.filter((p) => !current.some((c) => c.id === p.id))])
+      setPostCursor(page.endCursor)
+      setPostsHaveMore(page.hasNextPage)
+    } catch {
+      // silently ignore load-more errors
+    } finally {
+      setPostsLoading(false)
+    }
+  }, [profile?.id, postsLoading])
+
+  // Auto-load more posts when sentinel scrolls into view
+  useEffect(() => {
+    const sentinel = postsSentinelRef.current
+    if (!sentinel || postsLoading || !postsHaveMore || !postCursor) return
+    const cursor = postCursor
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) void loadMoreProfilePosts(cursor)
+    }, { root: profilePageRef.current, rootMargin: '200px' })
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [postsLoading, postsHaveMore, postCursor, loadMoreProfilePosts])
 
   useEffect(() => {
     if (!profile?.id || canEdit) {
@@ -1391,7 +1428,29 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
   const coverAmbientColor = useImageAmbientColor(coverCropTarget?.previewUrl ?? profile?.backgroundUrl)
 
   if (loading) return <ProfilePageSkeleton />
-  if (!profile) return <main className="profile-destination"><div className="card state-card"><h2>{t('profileUnavailable')}</h2><p>{error || t('profileLoadError')}</p></div></main>
+  if (!profile) return (
+    <main className={`profile-destination self-profile-page${embedded ? ' embedded-profile-page' : ''}`}>
+      <section className="profile-cover-card self-profile-cover-card">
+        <div className="self-profile-header-shell">
+          <div className="profile-cover" />
+          <div className="profile-destination-header">
+            <div className="self-profile-avatar-wrap visitor-profile-avatar-wrap">
+              <Avatar name="?" size={138} />
+            </div>
+            <div className="profile-destination-title">
+              <h1>{t('profileUnavailable')}</h1>
+            </div>
+          </div>
+        </div>
+      </section>
+      <div className="profile-destination-grid self-profile-destination-grid">
+        <div className="card state-card privacy-wall profile-unavailable">
+          <h2>{t('profileUnavailable')}</h2>
+          <p>{error || t('profileLoadError')}</p>
+        </div>
+      </div>
+    </main>
+  )
 
   const openReelViewer = (ownerId: string, reelId: string, reel?: SocialContent) => {
     if (onOpenReel) onOpenReel(ownerId, reelId, reel)
@@ -1606,7 +1665,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
             <div className="self-profile-post-view-tabs"><button type="button" className={postView === 'list' ? 'active' : ''} onClick={() => setPostView('list')}><ProfilePostListIcon /><span>{t('profileListView')}</span></button><button type="button" className={postView === 'grid' ? 'active' : ''} onClick={() => setPostView('grid')}><ProfilePostGridIcon /><span>{t('profileGridView')}</span></button></div>
           </section>}
 
-          {tab === 'posts' && (postsLoading ? <div className="card state-card"><span className="spinner" /></div> : filteredPosts.length > 0 ? postView === 'grid' ? <div className="self-profile-post-months">{profilePostMonthGroups.map((group) => <section className="card self-profile-post-month" key={group.id}><h3>{group.label}</h3><div className="self-profile-post-grid">{group.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} onOpenDetail={() => setProfileDetailPostId(post.id)} onOpenMedia={(item) => void openProfileMediaViewer(item)} onOpenReel={post.__typename === 'ReelDetail' ? () => openReelViewer(profile.id, post.id, gatewayReelToSocialContent(post)) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenReel={(reel) => openReelViewer(profile.id, reel.id, gatewayReelToSocialContent(reel))} />) : <div className="card state-card"><h2>{postsUnavailable ? t('unableToLoad') : t('profileNoPosts')}</h2><p>{postsUnavailable ? t('profilePostsLoadError') : canEdit ? t('yourPostsEmpty') : t('userPostsEmpty', { name: profile.displayName.split(' ')[0] })}</p></div>)}
+          {tab === 'posts' && (postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : filteredPosts.length > 0 ? postView === 'grid' ? <div className="self-profile-post-months">{profilePostMonthGroups.map((group) => <section className="card self-profile-post-month" key={group.id}><h3>{group.label}</h3><div className="self-profile-post-grid">{group.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} onOpenDetail={() => setProfileDetailPostId(post.id)} onOpenMedia={(item) => void openProfileMediaViewer(item)} onOpenReel={post.__typename === 'ReelDetail' ? () => openReelViewer(profile.id, post.id, gatewayReelToSocialContent(post)) : undefined} />)}</div></section>)}</div> : <>{filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenReel={(reel) => openReelViewer(profile.id, reel.id, gatewayReelToSocialContent(reel))} />)}<div ref={postsSentinelRef} className="feed-more feed-auto-loader" aria-live="polite">{postsLoading && postsHaveMore && <span className="spinner" />}{!postsHaveMore && posts.length > 0 && <p className="muted">{t('endOfFeed')}</p>}</div></> : <div className="card state-card"><h2>{postsUnavailable ? t('unableToLoad') : t('profileNoPosts')}</h2><p>{postsUnavailable ? t('profilePostsLoadError') : canEdit ? t('yourPostsEmpty') : t('userPostsEmpty', { name: profile.displayName.split(' ')[0] })}</p></div>)}
           {tab === 'about' && <ProfileAboutPanel profile={profile} canEdit={canEdit} />}
           {tab === 'friends' && <ProfileConnectionsTab profile={profile} viewerId={viewerId} canManage={canEdit} onNavigate={onNavigate} />}
           {tab === 'photos' && <ProfileMediaTab profile={profile} canEdit={canEdit} friends={profileFriends} onOpenMedia={(item, entries) => void openProfileMediaViewer(item, entries)} onPostCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}

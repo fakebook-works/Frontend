@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest'
 import { Activity } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fitReelFrame, reelViewerVerticalGap, ReelsPage, shrinkReelFrameToViewport } from './ReelsPage'
+import { fitReelFrame, reelViewerVerticalGap, ReelsPage, shrinkReelFrameToViewport, __clearReelsCacheForTesting } from './ReelsPage'
 
 const socialMocks = vi.hoisted(() => ({
   getRecommendedReels: vi.fn(),
@@ -39,6 +39,7 @@ vi.mock('../components/ContentActions', () => ({
 
 describe('ReelsPage media discussion layout', () => {
   beforeEach(() => {
+    __clearReelsCacheForTesting()
     socialMocks.getRecommendedReels.mockReset().mockResolvedValue([{
       id: '9007199254740993',
       type: 3,

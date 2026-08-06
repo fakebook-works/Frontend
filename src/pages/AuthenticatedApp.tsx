@@ -622,16 +622,42 @@ function NotificationKindIcon({ actionType }: { actionType: string }) {
 
 function AppsMenu({ onNavigate }: { onNavigate: (path: string) => void }) {
   const { t } = useI18n()
-  const destinations: Array<{ path: string; label: string; icon: 'search' | 'friends' | 'video' | 'groups' | 'bookmark' | 'gift' | 'settings' }> = [
-    { path: '/search', label: t('searchResults'), icon: 'search' },
-    { path: '/friends', label: t('friends'), icon: 'friends' },
-    { path: '/reels', label: t('reels'), icon: 'video' },
-    { path: '/groups', label: t('groups'), icon: 'groups' },
-    { path: '/saved', label: t('saved'), icon: 'bookmark' },
-    { path: '/settings/premium', label: t('premium'), icon: 'gift' },
-    { path: '/settings/overview', label: t('settingsPrivacy'), icon: 'settings' },
+  const items: { section: string; icon: import('../components/Icon').IconName; label: string; path: string }[] = [
+    // Social section
+    { section: 'social', icon: 'home', label: t('home'), path: '/' },
+    { section: 'social', icon: 'friends', label: t('friends'), path: '/friends' },
+    { section: 'social', icon: 'groups', label: t('groups'), path: '/groups' },
+    { section: 'social', icon: 'video', label: t('reels'), path: '/reels' },
+    // Personal section
+    { section: 'personal', icon: 'bookmark', label: t('saved'), path: '/saved' },
+    { section: 'personal', icon: 'settings', label: t('settings'), path: '/settings/overview' },
+    { section: 'personal', icon: 'gift', label: t('premium'), path: '/settings/premium' },
   ]
-  return <div className="apps-menu-panel" role="dialog" aria-label={t('menu')}><h2>{t('menu')}</h2><div>{destinations.map((item) => <button type="button" key={item.path} onClick={() => onNavigate(item.path)}><span><Icon name={item.icon} size={22} /></span><strong>{item.label}</strong></button>)}</div></div>
+  const socialItems = items.filter(i => i.section === 'social')
+  const personalItems = items.filter(i => i.section === 'personal')
+  
+  return (
+    <div className="apps-menu-panel" role="menu">
+      <div className="apps-menu-section-title">{t('socialApps')}</div>
+      <div className="apps-menu-grid">
+        {socialItems.map(item => (
+          <button key={item.path} className="apps-menu-item" onClick={() => onNavigate(item.path)} role="menuitem">
+            <span className="apps-menu-item-icon"><Icon name={item.icon} size={24} /></span>
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="apps-menu-section-title">{t('personalApps')}</div>
+      <div className="apps-menu-grid">
+        {personalItems.map(item => (
+          <button key={item.path} className="apps-menu-item" onClick={() => onNavigate(item.path)} role="menuitem">
+            <span className="apps-menu-item-icon"><Icon name={item.icon} size={24} /></span>
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function toSummary(profile: SocialProfile): UserSummary {

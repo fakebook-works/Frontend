@@ -192,18 +192,24 @@
 .messenger-tabs {
   display: flex;
   gap: 4px;
-  padding: 0 12px 6px;
+  padding: 0 8px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.messenger-tabs::-webkit-scrollbar { display: none; }
 
 .messenger-tabs button {
-  flex: 1;
-  height: 32px;
+  flex: 0 0 auto;
+  height: 36px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 50px;
-  background: transparent;
-  color: var(--secondary);
+  border-radius: 18px;
+  background: var(--circle);
+  color: var(--text);
   font-weight: 600;
-  font-size: 0.8125rem;
+  font-size: 0.9375rem;
+  white-space: nowrap;
   transition: all 0.15s;
 }
 
@@ -215,6 +221,91 @@
   background: var(--chip-active);
   color: var(--blue);
 }
+
+/* ── Header icon action buttons (... and edit) ── */
+.messenger-list-head .messenger-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.messenger-list-head .messenger-actions button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text);
+  background: var(--hover);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.messenger-list-head .messenger-actions button:hover {
+  background: var(--circle);
+}
+
+/* ── Mobile slide animation between list ↔ thread ── */
+@media (max-width: 959px) {
+  .messenger-list,
+  .messenger-thread {
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.2s ease;
+  }
+
+  /* List visible, thread hidden (default) */
+  .messenger-shell .messenger-thread {
+    position: absolute;
+    inset: 0;
+    transform: translateX(100%);
+    opacity: 0;
+    pointer-events: none;
+    display: flex !important; /* override display:none so transition works */
+    z-index: 2;
+  }
+
+  /* Thread open: slide list out left, slide thread in */
+  .messenger-shell.thread-open .messenger-list {
+    transform: translateX(-30%);
+    opacity: 0;
+    pointer-events: none;
+    display: flex !important;
+  }
+
+  .messenger-shell.thread-open .messenger-thread {
+    transform: translateX(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Also keep messenger-empty hidden on mobile */
+  .messenger-shell .messenger-empty {
+    display: none;
+  }
+  .messenger-shell.thread-open .messenger-empty {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .messenger-shell {
+    height: calc(100vh - var(--topbar-h));
+  }
+}
+
+@media (max-width: 767px) {
+  .messenger-shell {
+    grid-template-columns: 1fr;
+  }
+  .messenger-shell:not(.thread-open) .message-thread-wrap {
+    display: none;
+  }
+  .messenger-shell.thread-open .conversation-list-wrap {
+    display: none;
+  }
+}
+
 
 .messenger-rows {
   flex: 1;
@@ -1408,6 +1499,97 @@ body.messenger-media-viewer-open .message-hover-timestamp { display: none !impor
   background: var(--hover);
 }
 
+/* ── Accordion sections ── */
+.messenger-detail-accordion {
+  width: 100%;
+  border-top: 1px solid var(--divider);
+  margin-top: 4px;
+}
+
+.messenger-detail-accordion-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.1s;
+}
+
+.messenger-detail-accordion-head:hover {
+  background: var(--hover);
+}
+
+.messenger-detail-accordion-chevron {
+  color: var(--secondary);
+  transition: transform 0.2s ease;
+}
+
+.messenger-detail-accordion-chevron.open {
+  transform: rotate(180deg);
+}
+
+.messenger-detail-accordion-body {
+  padding-bottom: 4px;
+}
+
+/* ── Member mini list in detail panel ── */
+.messenger-detail-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.messenger-detail-member:hover {
+  background: var(--hover);
+}
+
+.messenger-detail-member-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.messenger-detail-member-role {
+  font-size: 0.75rem;
+  color: var(--secondary);
+}
+
+.messenger-detail-view-all {
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: left;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.messenger-detail-view-all:hover {
+  background: var(--hover);
+}
+
 .detail-caret {
   margin-left: auto;
   color: var(--secondary);
@@ -1945,26 +2127,15 @@ body.messenger-media-viewer-open .message-hover-timestamp { display: none !impor
 
 @media (max-width: 900px) {
   .messenger-shell {
-    grid-template-columns: 1fr;
+    position: relative; /* needed for absolute-positioned thread slide */
+    overflow: hidden;
   }
 
   .messenger-shell.detail-open {
     grid-template-columns: 1fr;
   }
 
-  .messenger-shell .messenger-thread,
-  .messenger-shell .messenger-empty {
-    display: none;
-  }
-
-  .messenger-shell.thread-open .messenger-list {
-    display: none;
-  }
-
-  .messenger-shell.thread-open .messenger-thread {
-    display: flex;
-  }
-
+  /* Detail panel hidden on mobile (slide animation handled above) */
   .messenger-shell .messenger-detail {
     display: none;
   }
@@ -1988,6 +2159,7 @@ body.messenger-media-viewer-open .message-hover-timestamp { display: none !impor
     max-width: 360px;
   }
 }
+
 
 @media (max-width: 1200px) and (min-width: 901px) {
   .messenger-shell.detail-open {
