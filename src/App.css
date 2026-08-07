@@ -3309,6 +3309,28 @@ select {
 .profile-intro p { display: flex; align-items: center; gap: 8px; line-height: 1.45; }
 .profile-post-list { min-width: 0; display: grid; gap: 16px; }
 
+@media (min-width: 981px) {
+  .group-member-profile.profile-columns-scroll-active { padding-bottom: var(--self-profile-content-gap, 14px); }
+  .group-member-profile.profile-columns-scroll-active .profile-destination-grid {
+    height: calc(100vh - var(--topbar-h) - var(--self-profile-content-gap, 14px));
+    height: calc(100dvh - var(--topbar-h) - var(--self-profile-content-gap, 14px));
+    min-height: 0;
+    align-items: stretch;
+    overflow: hidden;
+  }
+  .group-member-profile.profile-columns-scroll-active .profile-destination-grid > .profile-intro,
+  .group-member-profile.profile-columns-scroll-active .profile-destination-grid > .profile-post-list {
+    min-height: 0;
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-width: none;
+  }
+  .group-member-profile.profile-columns-scroll-active .profile-destination-grid > .profile-intro::-webkit-scrollbar,
+  .group-member-profile.profile-columns-scroll-active .profile-destination-grid > .profile-post-list::-webkit-scrollbar { display: none; }
+}
+
 /* Profile viewed by its owner */
 .self-profile-page { --self-profile-content-gap: 14px; --self-profile-divider-width: 1.5px; --self-profile-divider-color: color-mix(in srgb, var(--divider) 88%, #fff 12%); --self-profile-accent: #6498d2; --self-profile-section-title-size: 1.04rem; --self-profile-section-action-height: 30px; --self-profile-tab-indicator-height: 2px; --self-profile-tab-label-size: .86rem; --self-profile-tab-label-weight: 550; padding: var(--topbar-h) 0 0; background: var(--bg); }
 .self-profile-cover-card { --self-profile-cover-height: 310px; --self-profile-ambient-lift: 18px; --self-profile-ambient-bottom-gap: 90px; position: relative; max-width: none; overflow: hidden; border-radius: 0; background: var(--card); box-shadow: none; }

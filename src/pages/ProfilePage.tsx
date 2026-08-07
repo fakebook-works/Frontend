@@ -1199,45 +1199,51 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
       const knownPost = posts.find((post) => post.id === item.contentId && post.__typename !== 'ReelDetail')
       if (knownPost) entries = buildProfileMediaEntries([knownPost])
     }
-    const immediateSelection = entries.find((entry) => entry.media.id === item.mediaId || (entry.post?.id === item.contentId && entry.media.url === item.mediaUrl))
-    if (immediateSelection) {
+    const selectEntry = (candidateEntries: PostPhotoViewerMediaEntry[]) => candidateEntries.find((entry) => entry.media.id === item.mediaId || (entry.post?.id === item.contentId && entry.media.url === item.mediaUrl))
+    const publishSelected = (selected: PostPhotoViewerMediaEntry, candidateEntries: PostPhotoViewerMediaEntry[], feedPromise?: Promise<GatewayPost[]>) => {
       const initialViewer: ProfileMediaViewerState = {
-        contentId: immediateSelection.post?.id ?? item.contentId,
-        mediaId: immediateSelection.media.id,
-        mediaUrl: immediateSelection.media.url,
-        initialPost: immediateSelection.post ?? undefined,
-        entries,
+        contentId: selected.post?.id ?? item.contentId,
+        mediaId: selected.media.id,
+        mediaUrl: selected.media.url,
+        initialPost: selected.post ?? undefined,
+        entries: candidateEntries,
       }
       publishProfileMediaViewer(initialViewer)
-      if (!suppliedEntries?.length && profile) {
-        void loadAllProfileFeedPosts(profile.id).then((feedPosts) => {
+      if (!suppliedEntries?.length && feedPromise) {
+        void feedPromise.then((feedPosts) => {
           const enrichedEntries = buildProfileMediaEntries(feedPosts)
           if (enrichedEntries.length === 0) return
           if (onOpenPhoto) publishProfileMediaViewer({ ...initialViewer, entries: enrichedEntries }, { update: true })
           else setProfileMediaViewer((current) => current && current.contentId === initialViewer.contentId && current.mediaId === initialViewer.mediaId ? { ...current, entries: enrichedEntries } : current)
         }).catch(() => undefined)
       }
+    }
+    const immediateSelection = selectEntry(entries)
+    if (immediateSelection) {
+      const feedPromise = !suppliedEntries?.length && profile
+        ? loadAllProfileFeedPosts(profile.id).catch(() => [] as GatewayPost[])
+        : undefined
+      publishSelected(immediateSelection, entries, feedPromise)
       return
     }
     try {
-      if (entries.length === 0 && profile) entries = buildProfileMediaEntries(await loadAllProfileFeedPosts(profile.id))
-      let selected = entries.find((entry) => entry.media.id === item.mediaId || (entry.post?.id === item.contentId && entry.media.url === item.mediaUrl))
-      if (!selected) {
-        const detail = await api.postDetail(item.contentId)
-        if (detail && detail.__typename !== 'ReelDetail') {
-          const detailEntries = buildProfileMediaEntries([detail])
-          entries = [...entries.filter((entry) => entry.post?.id !== detail.id), ...detailEntries]
-          selected = detailEntries.find((entry) => entry.media.id === item.mediaId || entry.media.url === item.mediaUrl) ?? detailEntries[0]
+      const feedPromise = profile
+        ? loadAllProfileFeedPosts(profile.id).catch(() => [] as GatewayPost[])
+        : Promise.resolve([] as GatewayPost[])
+      const detail = await api.postDetail(item.contentId)
+      if (detail && detail.__typename !== 'ReelDetail') {
+        const detailEntries = buildProfileMediaEntries([detail])
+        entries = [...entries.filter((entry) => entry.post?.id !== detail.id), ...detailEntries]
+        const selected = selectEntry(entries) ?? detailEntries[0]
+        if (selected) {
+          publishSelected(selected, entries, feedPromise)
+          return
         }
       }
+      entries = [...entries, ...buildProfileMediaEntries(await feedPromise)]
+      const selected = selectEntry(entries)
       if (selected) {
-        publishProfileMediaViewer({
-          contentId: selected.post?.id ?? item.contentId,
-          mediaId: selected.media.id,
-          mediaUrl: selected.media.url,
-          initialPost: selected.post ?? undefined,
-          entries,
-        })
+        publishSelected(selected, entries)
         return
       }
     } catch {

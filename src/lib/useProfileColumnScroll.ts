@@ -17,6 +17,9 @@ interface ProfileColumnScrollOptions {
 export function useProfileColumnScroll({ active, pageRef, firstColumnRef, secondColumnRef, resetKey }: ProfileColumnScrollOptions) {
   useEffect(() => {
     if (!active) return
+    // The responsive layout intentionally uses one native page scroller. The
+    // two-column hand-off only exists on the desktop profile grid.
+    if (typeof window !== 'undefined' && window.innerWidth <= 980) return
     const page = pageRef.current
     const firstColumn = firstColumnRef.current
     const secondColumn = secondColumnRef.current

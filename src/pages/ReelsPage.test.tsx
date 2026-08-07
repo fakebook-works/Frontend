@@ -489,6 +489,24 @@ describe('ReelsPage media discussion layout', () => {
     expect(apiMocks.postDetail).toHaveBeenCalledWith(selected.id)
   })
 
+  it('keeps the browser address on the Reel currently shown without refetching its queue', async () => {
+    const [first] = await socialMocks.getRecommendedReels()
+    const selected = { ...first, id: '9007199254740994', content: 'Addressed Home Reel' }
+    socialMocks.getRecommendedReels.mockReset().mockResolvedValue([selected, first])
+    apiMocks.postDetail.mockResolvedValue(toGatewayReel(selected))
+    const onAddressChange = vi.fn()
+    const { container } = render(<ReelsPage userId="1" mode="for-you" entrySource="for-you" entryReelId={selected.id} onActiveReelAddressChange={onAddressChange} onNavigate={vi.fn()} />)
+
+    await screen.findByText('Addressed Home Reel')
+    expect(onAddressChange).toHaveBeenLastCalledWith(selected.id)
+    const stage = container.querySelector<HTMLElement>('.reels-stage')!
+    Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 640 })
+    Object.defineProperty(stage, 'scrollTo', { configurable: true, value: vi.fn() })
+    fireEvent.click(screen.getByRole('button', { name: 'nextReel' }))
+    await waitFor(() => expect(onAddressChange).toHaveBeenLastCalledWith(first.id))
+    expect(socialMocks.getRecommendedReels).toHaveBeenCalledTimes(1)
+  })
+
   it('paints the selected Reel immediately while its following queue loads in the background', () => {
     socialMocks.getRecommendedReels.mockReset().mockReturnValue(new Promise(() => undefined))
     const seed = {

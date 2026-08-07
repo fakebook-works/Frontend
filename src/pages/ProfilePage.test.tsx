@@ -538,7 +538,7 @@ describe('ProfilePage messaging', () => {
     expect(screen.getByRole('button', { name: 'messageUser' })).toHaveClass('btn-primary')
 
     fireEvent.click(followingButton)
-    const followingMenu = screen.getByRole('menu')
+    const followingMenu = await screen.findByRole('menu')
     expect(within(followingMenu).getByRole('menuitem', { name: /profileUnfollow/ })).toBeInTheDocument()
     expect(within(followingMenu).getByRole('menuitem', { name: /block/ })).toBeInTheDocument()
     fireEvent.click(within(followingMenu).getByRole('menuitem', { name: /profileUnfollow/ }))
@@ -565,7 +565,7 @@ describe('ProfilePage messaging', () => {
     expect(screen.queryByRole('button', { name: 'following' })).not.toBeInTheDocument()
 
     fireEvent.click(friendButton)
-    let menu = screen.getByRole('menu')
+    let menu = await screen.findByRole('menu')
     expect(within(menu).getByRole('menuitem', { name: /removeFriend/ })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: /block/ })).toBeInTheDocument()
     fireEvent.click(within(menu).getByRole('menuitem', { name: /removeFriend/ }))
@@ -574,7 +574,7 @@ describe('ProfilePage messaging', () => {
 
     const tabMore = container.querySelector<HTMLButtonElement>('.visitor-profile-tab-menu > .self-profile-tab-more')!
     fireEvent.click(tabMore)
-    menu = screen.getByRole('menu')
+    menu = await screen.findByRole('menu')
     fireEvent.click(within(menu).getByRole('menuitem', { name: /block/ }))
     await waitFor(() => expect(socialMocks.blockUser).toHaveBeenCalledWith('me', 'normal-1'))
   })

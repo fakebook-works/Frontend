@@ -364,7 +364,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     if (entrySeed) applyQueue([entrySeed])
     try {
       const cachedReels = reelsCacheRef.current.get(requestKey)
-      if (cachedReels) {
+      if (cachedReels && !entryViewer) {
         applyQueue(cachedReels)
         setViewCounts(viewCountsCacheRef.current.get(requestKey) ?? {})
         setRelationships(relationshipsCacheRef.current.get(requestKey) ?? {})

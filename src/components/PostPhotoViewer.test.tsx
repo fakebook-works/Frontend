@@ -77,6 +77,14 @@ describe('PostPhotoViewer', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('resolves the requested media before reporting the initial URL on a direct link', async () => {
+    const onActiveMediaChange = vi.fn()
+    render(<PostPhotoViewer viewerId="viewer-1" contentId="post-1" initialMediaId="photo-b" onClose={vi.fn()} onActiveMediaChange={onActiveMediaChange} />)
+
+    await waitFor(() => expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-b.jpg'))
+    expect(onActiveMediaChange.mock.calls[0]).toEqual(['post-1', 'photo-b'])
+  })
+
   it('allows resharing a private photo post already authorized for the viewer', async () => {
     const privatePost = { ...post, privacy: 2 }
     render(<PostPhotoViewer viewerId="viewer-1" contentId="post-1" initialMediaId="photo-a" initialPost={privatePost} onClose={vi.fn()} />)
