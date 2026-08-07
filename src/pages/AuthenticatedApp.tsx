@@ -7,6 +7,7 @@ import { searchApi, type QuickSearchItem, type SearchTab } from '../api/search'
 import { socialApi, type SocialContent, type SocialProfile } from '../api/social'
 import type { UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
+import { CONTENT_DETAIL_SHELL_CLOSE_TARGET_ID } from '../components/ContentDetailShellClose'
 import type { PostPhotoViewerMediaEntry } from '../components/PostPhotoViewer'
 import { FriendPeopleGlyph, FriendPersonActionGlyph, type FriendPersonAction } from '../components/FriendPeopleGlyph'
 import { GroupMembersIcon } from '../components/GroupMembersIcon'
@@ -29,6 +30,7 @@ import {
 } from '../lib/overlayRoutes'
 import { relativeTime } from '../lib/format'
 import { notificationTarget, notificationText } from '../lib/notifications'
+import { takeOverlayContent } from '../lib/overlayContentCache'
 import { gatewayReelToSocialContent, type GatewayReelPost } from '../lib/reelEntry'
 import { unlockSoundEffects } from '../lib/sounds'
 import { FriendsPage } from './FriendsPage'
@@ -52,6 +54,7 @@ import { MessengerDock, MessengerPage, type MessengerDockHandle } from './messen
 const SETTINGS = new Set<SettingsSection>(['overview', 'profile', 'security', 'privacy', 'sessions', 'language', 'appearance', 'premium'])
 type PrimaryDestination = 'home' | 'friends' | 'reels' | 'groups'
 const REEL_MODES: readonly ReelMode[] = ['for-you', 'following', 'mine', 'saved', 'liked', 'shared', 'watched']
+const DIRECT_OVERLAY_BACKGROUND_HREF = '/__overlay-background'
 type PhotoOverlayState = {
   contentId: string
   mediaId: string
@@ -72,7 +75,7 @@ export function AuthenticatedApp() {
   const overlayRoute = parseOverlayRoute(browserLocation)
   const overlayBackground = overlayRoute ? overlayBackgroundHref(browserLocation.state) : null
   const location = overlayRoute
-    ? locationFromHref(overlayBackground ?? fallbackBackgroundHref(overlayRoute))
+    ? locationFromHref(overlayBackground ?? DIRECT_OVERLAY_BACKGROUND_HREF)
     : browserLocation
   const isHomeRoute = location.pathname === '/' || location.pathname === '/home'
   const isFriendsRoute = location.pathname.startsWith('/friends')
@@ -124,6 +127,7 @@ export function AuthenticatedApp() {
   const seenNotificationIds = useRef(new Set<string>())
   const destinationScrollPositionsRef = useRef<Partial<Record<PrimaryDestination, number>>>({})
   const destinationViewportRef = useRef<HTMLDivElement>(null)
+  const overlayContentSeedRef = useRef<{ viewerId: string; contentId: string; post: GatewayPost } | null>(null)
   const lastFriendsSectionRef = useRef(normalizeFriendSection(isFriendsRoute ? pathSegment(location.pathname, 1) : null))
   const lastReelModeRef = useRef(normalizeReelMode(isReelsRoute ? pathSegment(location.pathname, 1) : null))
 
@@ -363,6 +367,17 @@ export function AuthenticatedApp() {
   if (isReelsRoute) lastReelModeRef.current = normalizeReelMode(pathSegment(location.pathname, 1))
   const currentReelMode = lastReelModeRef.current
   const quickShellOpen = quickOpen || quickClosing
+  const overlayContentId = overlayRoute?.kind === 'reel' ? overlayRoute.reelId : overlayRoute?.contentId
+  if (!overlayContentId) {
+    overlayContentSeedRef.current = null
+  } else if (overlayContentSeedRef.current?.viewerId !== user.userId || overlayContentSeedRef.current.contentId !== overlayContentId) {
+    const stagedPost = takeOverlayContent(user.userId, overlayContentId)
+    overlayContentSeedRef.current = stagedPost ? { viewerId: user.userId, contentId: overlayContentId, post: stagedPost } : null
+  }
+  const cachedOverlayPost = overlayContentSeedRef.current?.post ?? null
+  const cachedOverlayReel = cachedOverlayPost?.__typename === 'ReelDetail'
+    ? gatewayReelToSocialContent(cachedOverlayPost)
+    : null
 
   function resetQuickSearch() {
     if (quickCloseTimerRef.current !== null) window.clearTimeout(quickCloseTimerRef.current)
@@ -421,7 +436,15 @@ export function AuthenticatedApp() {
 
   function replaceMediaOverlay(contentId: string, mediaId: string) {
     if (overlayRoute?.kind !== 'media') return
+    if (overlayRoute.contentId === contentId && overlayRoute.mediaId === mediaId) return
     navigate(mediaOverlayHref(contentId, mediaId), { replace: true, state: browserLocation.state })
+  }
+
+  function replaceReelOverlayAddress(reelId: string) {
+    if (overlayRoute?.kind !== 'reel') return
+    const nextHref = reelOverlayHref(reelId, overlayRoute.source, overlayRoute.ownerId)
+    if (`${window.location.pathname}${window.location.search}` === nextHref) return
+    window.history.replaceState(window.history.state, '', nextHref)
   }
 
   function go(path: string) {
@@ -447,6 +470,11 @@ export function AuthenticatedApp() {
 
   function openHomeReel(reel: GatewayReelPost) {
     setReelSeed(gatewayReelToSocialContent(reel))
+    openOverlay(reelOverlayHref(reel.id))
+  }
+
+  function openSocialReel(reel: SocialContent) {
+    setReelSeed(reel)
     openOverlay(reelOverlayHref(reel.id))
   }
 
@@ -575,8 +603,11 @@ export function AuthenticatedApp() {
   }
 
   return <div className={isGroupsRoute ? 'authenticated-app groups-route' : isFriendsRoute ? 'authenticated-app friends-route' : isSearchRoute ? 'authenticated-app search-results-route' : 'authenticated-app'}>
-    <header className="app-shell-topbar">
+    <header className={overlayRoute?.kind === 'content' ? 'app-shell-topbar is-content-detail' : 'app-shell-topbar'}>
       <div className="shell-brand-search-anchor">
+        <div id={CONTENT_DETAIL_SHELL_CLOSE_TARGET_ID} className="content-detail-shell-left-controls">
+          {overlayRoute?.kind === 'content' && <button type="button" className="content-detail-shell-close" aria-label={t('close')} onClick={closeOverlay}><Icon name="close" size={24} /></button>}
+        </div>
         <div className={quickShellOpen ? `shell-brand-search is-searching${quickClosing ? ' is-closing' : ''}${quickOpen && searchText.trim().length === 0 ? ' has-recent-empty' : ''}` : 'shell-brand-search'}>
         <span className={quickOpen ? 'shell-search-leading-slot is-searching' : 'shell-search-leading-slot'}>
           <button type="button" className="app-brand" onClick={goHome} aria-label={t('home')} aria-hidden={quickOpen} tabIndex={quickOpen ? -1 : 0}><img src="/brand/fakebook-minimal-cropped.png" alt="Fakebook" /></button>
@@ -640,6 +671,7 @@ export function AuthenticatedApp() {
         entryReelId={reelModeActive ? reelEntryId : null}
         entryOwnerId={reelModeActive ? reelEntryOwnerId : null}
         routeOverlays
+        onOpenReelOverlay={openSocialReel}
         onEntryClose={() => reelEntrySource === 'profile' && reelEntryOwnerId ? go(`/profile/${reelEntryOwnerId}?tab=reels`) : go('/home')}
         onNavigate={go}
       /></Activity>
@@ -664,6 +696,7 @@ export function AuthenticatedApp() {
       key={`overlay-content-${overlayRoute.contentId}`}
       viewerId={user.userId}
       contentId={overlayRoute.contentId}
+      initialPost={cachedOverlayPost?.id === overlayRoute.contentId ? cachedOverlayPost : undefined}
       routeOwned
       onClose={closeOverlay}
       onNavigate={go}
@@ -679,9 +712,10 @@ export function AuthenticatedApp() {
       entrySource={overlayRoute.source}
       entryReelId={overlayRoute.reelId}
       entryOwnerId={overlayRoute.ownerId}
-      entryReel={reelSeed?.id === overlayRoute.reelId ? reelSeed : null}
+      entryReel={reelSeed?.id === overlayRoute.reelId ? reelSeed : cachedOverlayReel?.id === overlayRoute.reelId ? cachedOverlayReel : null}
       routeOverlays
       onEntryClose={closeOverlay}
+      onActiveReelAddressChange={replaceReelOverlayAddress}
       onNavigate={go}
     />}
     {overlayRoute?.kind === 'media' && <Suspense fallback={<div className="post-photo-viewer"><button type="button" className="content-detail-shell-close post-photo-viewer-close" aria-label={t('close')} onClick={closeOverlay}><Icon name="close" size={24} /></button><span className="spinner" /></div>}><PostPhotoViewer
@@ -690,7 +724,7 @@ export function AuthenticatedApp() {
       initialMediaId={overlayRoute.mediaId}
       initialMediaUrl={photoSeed?.contentId === overlayRoute.contentId && photoSeed.mediaId === overlayRoute.mediaId ? photoSeed.mediaUrl : undefined}
       initialPlaybackTime={photoSeed?.contentId === overlayRoute.contentId && photoSeed.mediaId === overlayRoute.mediaId ? photoSeed.initialPlaybackTime : undefined}
-      initialPost={photoSeed?.contentId === overlayRoute.contentId ? photoSeed.initialPost : undefined}
+      initialPost={photoSeed?.contentId === overlayRoute.contentId ? photoSeed.initialPost : cachedOverlayPost?.id === overlayRoute.contentId ? cachedOverlayPost : undefined}
       mediaEntries={photoSeed?.mediaEntries}
       unavailableAuthor={photoSeed?.unavailableAuthor}
       routeOwned
@@ -888,7 +922,7 @@ function setDestinationScrollTop(viewport: HTMLElement | null, value: number) {
 }
 
 function isKnownPath(pathname: string) {
-  return pathname === '/' || pathname === '/home' || pathname === '/search' || pathname === '/groups' || pathname === '/messenger' || pathname === '/saved' || pathname.startsWith('/saved/') || pathname === '/premium' || pathname === '/premium/payment' || ['/friends', '/reels', '/groups/', '/profile/', '/settings', '/content/', '/photo/', '/reel/', '/help', '/privacy', '/about', '/policies'].some((prefix) => pathname.startsWith(prefix))
+  return pathname === DIRECT_OVERLAY_BACKGROUND_HREF || pathname === '/' || pathname === '/home' || pathname === '/search' || pathname === '/groups' || pathname === '/messenger' || pathname === '/saved' || pathname.startsWith('/saved/') || pathname === '/premium' || pathname === '/premium/payment' || ['/friends', '/reels', '/groups/', '/profile/', '/settings', '/content/', '/photo/', '/reel/', '/help', '/privacy', '/about', '/policies'].some((prefix) => pathname.startsWith(prefix))
 }
 
 function SettingsSubmenu({ onBack, onOpen }: { onBack: () => void; onOpen: (section: SettingsSection) => void }) {

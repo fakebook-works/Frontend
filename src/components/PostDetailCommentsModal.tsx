@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 import { api } from '../api/client'
 import type { ContentEngagement, SocialComment, SocialCommentEditRevision } from '../api/social'
 import { socialApi } from '../api/social'
@@ -17,6 +16,7 @@ import { clearPrefetchedCommentPage, loadCommentPage, readCachedCommentPage } fr
 import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
 import { reelOverlayHref } from '../lib/overlayRoutes'
 import { Avatar } from './Avatar'
+import { ContentDetailShellClose } from './ContentDetailShellClose'
 import { GroupPostAvatar } from './GroupPostAvatar'
 import { HoverTooltip } from './HoverTooltip'
 import { PostContent } from './PostContent'
@@ -149,9 +149,10 @@ export interface PostDetailCommentsModalProps {
   onCommentCreated: () => void
   onPostChanged?: (post: GatewayPost) => void
   variant?: 'modal' | 'photo-sidebar'
+  renderShellClose?: boolean
 }
 
-export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, likeBusy, canShare, shareDisabled = false, onToggleLike, onShare, onClose, onNavigate, onOpenImage, onOpenReel, onCommentCreated, onPostChanged, variant = 'modal' }: PostDetailCommentsModalProps) {
+export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, likeBusy, canShare, shareDisabled = false, onToggleLike, onShare, onClose, onNavigate, onOpenImage, onOpenReel, onCommentCreated, onPostChanged, variant = 'modal', renderShellClose = true }: PostDetailCommentsModalProps) {
   const { t, locale } = useI18n()
   useBodyInteractionLock(variant !== 'photo-sidebar', ['content-detail-open'])
   const initialCommentPageRef = useRef(readCachedCommentPage(viewerId, targetId, COMMENT_PAGE_LIMIT))
@@ -956,7 +957,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   }
 
   return <>
-    {createPortal(<button type="button" className="content-detail-shell-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>, document.body)}
+    {renderShellClose && <ContentDetailShellClose onClose={onClose} />}
     <div className="modal-backdrop content-modal-backdrop" role="presentation" onClick={onClose}>
       <section className="modal content-thread-modal" role="dialog" aria-modal="true" aria-label={t('comments')} onClick={(event) => event.stopPropagation()}>
         <header className="modal-head content-thread-head">

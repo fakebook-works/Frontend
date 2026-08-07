@@ -3830,6 +3830,7 @@ select {
 
 @media (min-width: 981px) {
   .self-profile-page { --self-profile-section-title-size: 1.2rem; --self-profile-section-action-height: 32px; --self-profile-tab-indicator-height: 2.75px; --self-profile-tab-label-size: .9rem; padding-bottom: 0; }
+  .self-profile-page.profile-columns-scroll-active { padding-bottom: var(--self-profile-content-gap); }
   .self-profile-cover-card { --self-profile-cover-height: clamp(325px, calc((100vw - 32px) * .33), 415px); --self-profile-ambient-lift: 20px; --self-profile-ambient-bottom-gap: 112px; }
   .self-profile-cover-ambient { right: 0; left: 0; filter: none; }
   .self-profile-header-shell { --self-profile-control-height: 32px; --self-profile-header-edge: 32px; width: min(1406px, calc(100% - 32px)); max-width: 1406px; }
@@ -3857,10 +3858,12 @@ select {
   .self-profile-tabs > .self-profile-tab-option.active::after { right: 0; left: 0; height: var(--self-profile-tab-indicator-height); }
 
   .self-profile-destination-grid { width: min(1342px, calc(100% - 96px)); gap: var(--self-profile-content-gap); }
-  .self-profile-page > .self-profile-cover-card + .self-profile-destination-grid.tab-posts { margin-top: var(--self-profile-content-gap); }
-  .self-profile-destination-grid.tab-posts { height: auto; min-height: 0; grid-template-columns: minmax(0, var(--self-profile-left-column-width, calc(100% - var(--home-center-width, 620px) - var(--self-profile-content-gap) - 6px))) minmax(0, 1fr); grid-template-rows: auto; align-items: start; overflow: visible; }
+  .self-profile-page > .self-profile-destination-grid.tab-posts { margin-top: 0; }
+  .self-profile-destination-grid.tab-posts { height: calc(100vh - var(--topbar-h) - var(--self-profile-content-gap)); height: calc(100dvh - var(--topbar-h) - var(--self-profile-content-gap)); min-height: 0; grid-template-columns: minmax(0, var(--self-profile-left-column-width, calc(100% - var(--home-center-width, 620px) - var(--self-profile-content-gap) - 6px))) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-items: stretch; overflow: hidden; }
   .self-profile-destination-grid.tab-posts > .self-profile-left-column,
-  .self-profile-destination-grid.tab-posts > .profile-post-list { align-self: start; min-height: 0; height: auto; align-content: start; grid-auto-rows: max-content; overflow: visible; padding-top: 0; will-change: auto; }
+  .self-profile-destination-grid.tab-posts > .profile-post-list { align-self: stretch; min-height: 0; height: 100%; align-content: start; grid-auto-rows: max-content; overflow-x: hidden; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: contain; scroll-behavior: auto; padding-top: var(--self-profile-content-gap); will-change: scroll-position; scrollbar-width: none; }
+  .self-profile-destination-grid.tab-posts > .self-profile-left-column::-webkit-scrollbar,
+  .self-profile-destination-grid.tab-posts > .profile-post-list::-webkit-scrollbar { display: none; }
   .self-profile-destination-grid.tab-posts > .profile-post-list { width: 100%; max-width: none; justify-self: end; }
   .self-profile-left-column { gap: var(--self-profile-content-gap); }
   .self-profile-side-card { padding: 18px; border-radius: 12px; }
@@ -8624,8 +8627,11 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 }
 .content-modal-error { margin: 6px 14px 0; }
 
-/* Keep the Fakebook shell controls above the dimmed post-detail backdrop. */
-body.content-detail-open .app-shell-topbar {
+/* Post detail keeps one real shell: its side controls stay above the modal,
+   while the destination tabs remain in place beneath the same dark scrim as
+   the preserved page. */
+body.content-detail-open .app-shell-topbar,
+.app-shell-topbar.is-content-detail {
   z-index: 1900;
   border-bottom-color: transparent;
   background: transparent;
@@ -8635,21 +8641,41 @@ body.content-detail-open .app-shell-topbar {
   pointer-events: none;
 }
 body.content-detail-open .app-shell-nav,
-body.content-detail-open .shell-search-wrap {
-  opacity: .32;
-  filter: grayscale(1) brightness(.58);
+.app-shell-topbar.is-content-detail .app-shell-nav {
+  position: relative;
   pointer-events: none;
   user-select: none;
 }
-body.content-detail-open .shell-brand-search,
-body.content-detail-open .app-shell-actions { position: relative; }
-body.content-detail-open .shell-brand-search,
-body.content-detail-open .app-shell-actions > * { pointer-events: auto; }
-body.content-detail-open .app-shell-actions { pointer-events: none; }
-body.content-detail-open .app-brand {
-  margin-left: 43px;
-  transition: margin-left .16s ease-out;
+.app-shell-topbar.is-content-detail .app-shell-nav::before,
+body.content-detail-open .app-shell-nav::before {
+  content: '';
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  background: var(--overlay);
+  pointer-events: auto;
 }
+body.content-detail-open .shell-search-wrap,
+.app-shell-topbar.is-content-detail .shell-search-wrap { display: none; }
+body.content-detail-open .shell-brand-search,
+.app-shell-topbar.is-content-detail .shell-brand-search,
+body.content-detail-open .app-shell-actions,
+.app-shell-topbar.is-content-detail .app-shell-actions { position: relative; }
+body.content-detail-open .shell-brand-search,
+.app-shell-topbar.is-content-detail .shell-brand-search,
+body.content-detail-open .app-shell-actions > *,
+.app-shell-topbar.is-content-detail .app-shell-actions > * { pointer-events: auto; }
+body.content-detail-open .app-shell-actions,
+.app-shell-topbar.is-content-detail .app-shell-actions { pointer-events: none; }
+.content-detail-shell-left-controls {
+  display: none;
+  align-items: center;
+  flex: 0 0 36px;
+}
+body.content-detail-open .content-detail-shell-left-controls,
+.app-shell-topbar.is-content-detail .content-detail-shell-left-controls { display: flex; }
+body.content-detail-open .shell-brand-search-anchor,
+.app-shell-topbar.is-content-detail .shell-brand-search-anchor { gap: 8px; }
 body.content-detail-open .account-dropdown,
 body.content-detail-open .apps-menu-panel,
 body.content-detail-open .messenger-popover,
@@ -8672,6 +8698,13 @@ body.content-detail-open .mini-chat-region { z-index: 2150; }
   box-shadow: 0 1px 4px rgb(0 0 0 / 28%);
 }
 .content-detail-shell-close:hover { background: var(--hover); }
+.content-detail-shell-left-controls .content-detail-shell-close {
+  position: static;
+  z-index: auto;
+  flex: 0 0 36px;
+  box-shadow: none;
+  pointer-events: auto;
+}
 
 /* Full-screen photo detail keeps the existing discussion tree in a compact right rail. */
 .post-media-slot.image-interactive { cursor: pointer; }
@@ -8982,9 +9015,9 @@ body.reels-page-scroll {
   body.home-page-scroll .gateway-left-rail::-webkit-scrollbar,
   body.home-page-scroll .gateway-right-rail::-webkit-scrollbar { display: none; }
   body.home-page-scroll .gateway-left-rail {
-    top: calc(var(--topbar-h) + 18px);
-    height: calc(100vh - var(--topbar-h) - 18px);
-    height: calc(100dvh - var(--topbar-h) - 18px);
+    top: calc(var(--topbar-h) + 10px);
+    height: calc(100vh - var(--topbar-h) - 10px);
+    height: calc(100dvh - var(--topbar-h) - 10px);
     max-height: none;
   }
   body.home-page-scroll .gateway-right-rail {
@@ -10421,6 +10454,6 @@ body.reels-library-viewer-open.mini-chat-bubble-rail-open .reels-page.is-library
 }
 
 @media (min-width: 861px) {
-  body.home-page-scroll .authenticated-destination-scroll .gateway-left-rail { top: 18px; }
+  body.home-page-scroll .authenticated-destination-scroll .gateway-left-rail { top: 10px; }
   body.home-page-scroll .authenticated-destination-scroll .gateway-right-rail { top: 6px; }
 }

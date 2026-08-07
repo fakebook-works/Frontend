@@ -18,6 +18,25 @@ const socialMocks = vi.hoisted(() => ({
 const prefetchMocks = vi.hoisted(() => ({ prefetchCommentPage: vi.fn() }))
 const apiMocks = vi.hoisted(() => ({ postDetail: vi.fn() }))
 
+function toGatewayReel(reel: { id: string; type: number; content: string; privacy: number; createdAt: string; author: { id: string; displayName: string; avatarUrl: string | null; isVerified: boolean }; media: Array<{ id: string; type: number; url: string }>; aspectRatio?: number | null; focalPointX?: number | null; focalPointY?: number | null }) {
+  return {
+    __typename: 'ReelDetail' as const,
+    id: reel.id,
+    type: reel.type,
+    content: reel.content,
+    privacy: reel.privacy,
+    create: reel.createdAt,
+    author: { id: reel.author.id, name: reel.author.displayName, avatar: reel.author.avatarUrl ?? '', isVerified: reel.author.isVerified },
+    media: reel.media,
+    mentions: [],
+    taggedUsers: [],
+    sharedSource: null,
+    aspectRatio: reel.aspectRatio ?? null,
+    focalPointX: reel.focalPointX ?? null,
+    focalPointY: reel.focalPointY ?? null,
+  }
+}
+
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../api/client', () => ({ api: apiMocks }))
 vi.mock('../lib/commentPagePrefetch', () => prefetchMocks)
@@ -455,6 +474,7 @@ describe('ReelsPage media discussion layout', () => {
     const [first] = await socialMocks.getRecommendedReels()
     const selected = { ...first, id: '9007199254740994', content: 'Selected Home Reel' }
     socialMocks.getRecommendedReels.mockReset().mockResolvedValue([first, selected])
+    apiMocks.postDetail.mockResolvedValue(toGatewayReel(selected))
 
     const { container } = render(<ReelsPage userId="1" mode="for-you" entrySource="for-you" entryReelId={selected.id} onNavigate={vi.fn()} />)
 
@@ -466,7 +486,7 @@ describe('ReelsPage media discussion layout', () => {
     expect(cards[0]).toHaveTextContent('Selected Home Reel')
     expect(cards[0]).toHaveAttribute('aria-current', 'true')
     expect(cards[1]).toHaveTextContent('A reel with comments')
-    expect(apiMocks.postDetail).not.toHaveBeenCalled()
+    expect(apiMocks.postDetail).toHaveBeenCalledWith(selected.id)
   })
 
   it('paints the selected Reel immediately while its following queue loads in the background', () => {
@@ -484,6 +504,7 @@ describe('ReelsPage media discussion layout', () => {
       focalPointX: .5,
       focalPointY: .5,
     }
+    apiMocks.postDetail.mockResolvedValue(toGatewayReel(seed))
 
     const { container } = render(<ReelsPage userId="1" mode="for-you" entrySource="for-you" entryReelId={seed.id} entryReel={seed} onNavigate={vi.fn()} />)
 
@@ -501,6 +522,7 @@ describe('ReelsPage media discussion layout', () => {
       { ...first, id: '9007199254740993', content: 'Older Reel' },
     ]
     socialMocks.getProfileReels.mockReset().mockResolvedValue({ items: profileReels, endCursor: null, hasNextPage: false })
+    apiMocks.postDetail.mockResolvedValue(toGatewayReel(profileReels[1]))
     const onEntryClose = vi.fn()
     const { container, rerender } = render(<Activity mode="visible"><ReelsPage userId="1" mode="for-you" active entrySource="profile" entryOwnerId="2" entryReelId="9007199254740994" onEntryClose={onEntryClose} onNavigate={vi.fn()} /></Activity>)
 
@@ -514,8 +536,14 @@ describe('ReelsPage media discussion layout', () => {
     expect(cards[1]).toHaveAttribute('aria-current', 'true')
     expect(screen.getByRole('button', { name: 'close' })).toBeInTheDocument()
     expect(container.querySelector('.reels-library-viewer-close')?.parentElement).toBe(container)
+    expect(document.body).toHaveClass('reels-library-viewer-open')
+    expect(document.body).not.toHaveClass('content-detail-open')
     expect(document.documentElement).not.toHaveClass('reels-page-scroll')
     expect(document.body).not.toHaveClass('reels-page-scroll')
+
+    fireEvent.click(screen.getByRole('button', { name: 'close' }))
+    expect(onEntryClose).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('.reels-page')).toHaveClass('is-library-viewer')
 
     rerender(<Activity mode="hidden"><ReelsPage userId="1" mode="for-you" active={false} entrySource="profile" entryOwnerId="2" entryReelId="9007199254740994" onEntryClose={onEntryClose} onNavigate={vi.fn()} /></Activity>)
     expect(screen.queryByRole('button', { name: 'close' })).not.toBeInTheDocument()
@@ -568,7 +596,8 @@ describe('ReelsPage media discussion layout', () => {
     expect(container.querySelector('.reels-page')).toHaveClass('is-library-viewer')
     expect(container.querySelector('.reels-sidebar')).not.toBeInTheDocument()
     expect(screen.queryByTestId('reel-comments-sidebar')).not.toBeInTheDocument()
-    expect(document.body).toHaveClass('content-detail-open', 'reels-library-viewer-open')
+    expect(document.body).toHaveClass('reels-library-viewer-open')
+    expect(document.body).not.toHaveClass('content-detail-open')
 
     const closeButton = screen.getByRole('button', { name: 'close' })
     expect(closeButton.parentElement).toBe(container)

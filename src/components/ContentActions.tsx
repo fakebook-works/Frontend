@@ -6,6 +6,7 @@ import { socialApi, type ContentEngagement, type SocialGroup } from '../api/soci
 import type { GatewayMedia, GatewayPost, SharedPostSource, SharedStory } from '../api/gatewayTypes'
 import type { MessengerConversationDto, UserSummary } from '../api/types'
 import { Avatar } from './Avatar'
+import { ContentDetailShellClose } from './ContentDetailShellClose'
 import { Icon } from './Icon'
 import { GroupMembersIcon } from './GroupMembersIcon'
 import { HoverTooltip } from './HoverTooltip'
@@ -317,9 +318,10 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
   </>
 }
 
-export function ContentDetailOverlay({ viewerId, contentId, routeOwned = false, onClose, onNavigate, onMessage, onStoryCreated, onOpenImage, onOpenReel }: {
+export function ContentDetailOverlay({ viewerId, contentId, initialPost, routeOwned = false, onClose, onNavigate, onMessage, onStoryCreated, onOpenImage, onOpenReel }: {
   viewerId: string
   contentId: string
+  initialPost?: GatewayPost
   routeOwned?: boolean
   onClose: () => void
   onNavigate?: (path: string) => void
@@ -329,10 +331,10 @@ export function ContentDetailOverlay({ viewerId, contentId, routeOwned = false, 
   onOpenReel?: (post: GatewayReelPost) => void
 }) {
   useBodyInteractionLock(true, ['content-detail-open'])
-  const { t } = useI18n()
-  const [post, setPost] = useState<GatewayPost | null>(null)
+  const usableInitialPost = initialPost?.id === contentId ? initialPost : null
+  const [post, setPost] = useState<GatewayPost | null>(usableInitialPost)
   const [engagement, setEngagement] = useState<ContentEngagement>({ ...EMPTY_ENGAGEMENT, targetId: contentId })
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!usableInitialPost)
   const [loadError, setLoadError] = useState(false)
   const [likeBusy, setLikeBusy] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
@@ -349,23 +351,23 @@ export function ContentDetailOverlay({ viewerId, contentId, routeOwned = false, 
 
   useEffect(() => {
     let active = true
-    setLoading(true)
+    setPost(usableInitialPost)
+    setLoading(!usableInitialPost)
     setLoadError(false)
-    Promise.all([
-      api.postDetail(contentId),
-      socialApi.getContentEngagement(contentId).catch(() => null),
-    ]).then(([detail, nextEngagement]) => {
+    void socialApi.getContentEngagement(contentId).then((nextEngagement) => {
+      if (active && nextEngagement) setEngagement(nextEngagement)
+    }).catch(() => undefined)
+    api.postDetail(contentId).then((detail) => {
       if (!active) return
       setPost(detail)
-      if (nextEngagement) setEngagement(nextEngagement)
       setLoadError(!detail)
     }).catch(() => {
-      if (active) setLoadError(true)
+      if (active && !usableInitialPost) setLoadError(true)
     }).finally(() => {
       if (active) setLoading(false)
     })
     return () => { active = false }
-  }, [contentId])
+  }, [contentId, usableInitialPost])
 
   async function toggleLike() {
     const next = !engagement.viewerHasLiked
@@ -385,12 +387,12 @@ export function ContentDetailOverlay({ viewerId, contentId, routeOwned = false, 
 
   if (loading) {
     return <>
-      <button type="button" className="content-detail-shell-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>
+      {!routeOwned && <ContentDetailShellClose onClose={onClose} />}
       <div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation" onClick={onClose}><span className="spinner" /></div>
     </>
   }
   if (loadError || !post) {
-    return <UnavailableContentDetail viewerId={viewerId} onClose={onClose} />
+    return <UnavailableContentDetail viewerId={viewerId} renderShellClose={!routeOwned} onClose={onClose} />
   }
 
   const canShare = true
@@ -427,10 +429,11 @@ export function ContentDetailOverlay({ viewerId, contentId, routeOwned = false, 
       else onClose()
     }}
     onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))}
+    renderShellClose={!routeOwned}
   />
 }
 
-function UnavailableContentDetail({ viewerId, onClose }: { viewerId: string; onClose: () => void }) {
+function UnavailableContentDetail({ viewerId, renderShellClose, onClose }: { viewerId: string; renderShellClose: boolean; onClose: () => void }) {
   const { t } = useI18n()
   const [viewer, setViewer] = useState<UserSummary | null>(null)
 
@@ -443,7 +446,7 @@ function UnavailableContentDetail({ viewerId, onClose }: { viewerId: string; onC
   }, [viewerId])
 
   return <>
-    <button type="button" className="content-detail-shell-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>
+    {renderShellClose && <ContentDetailShellClose onClose={onClose} />}
     <div className="modal-backdrop content-modal-backdrop" role="presentation" onClick={onClose}>
       <section className="modal content-thread-modal unavailable-photo-discussion unavailable-detail-discussion" role="dialog" aria-modal="true" aria-label={t('contentUnavailable')} data-post-unavailable="true" onClick={(event) => event.stopPropagation()}>
         <header className="modal-head content-thread-head"><h2>{t('unavailablePostPlaceholder')}</h2><button type="button" className="icon-circle subtle" aria-label={t('close')} onClick={onClose}><Icon name="close" /></button></header>

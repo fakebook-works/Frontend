@@ -70,7 +70,8 @@ describe('PostPhotoViewer', () => {
     expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-b.jpg')
     expect(screen.getByRole('button', { name: 'nextPhoto' })).toBeInTheDocument()
     expect(apiMocks.postDetail).toHaveBeenCalledTimes(1)
-    expect(document.body).toHaveClass('post-photo-viewer-open', 'content-detail-open')
+    expect(document.body).toHaveClass('post-photo-viewer-open')
+    expect(document.body).not.toHaveClass('content-detail-open')
 
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
@@ -134,7 +135,7 @@ describe('PostPhotoViewer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'previousPhoto' }))
     expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-c.jpg')
     expect(document.querySelector('video[src="/reel.mp4"]')).not.toBeInTheDocument()
-    expect(apiMocks.postDetail).not.toHaveBeenCalled()
+    expect(apiMocks.postDetail).toHaveBeenCalledWith('post-1')
   })
 
   it('renders the protected unavailable discussion for an unlinked profile picture', async () => {

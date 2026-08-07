@@ -737,15 +737,19 @@
   body:is(.post-photo-viewer-open, .reels-library-viewer-open, .content-detail-open) .app-shell-nav,
   body.modal-interaction-locked .app-shell-nav { display: none; }
 
-  /* Content viewers retain the preserved destination chrome as a dimmed,
-     non-interactive second row instead of removing it from the shell. */
+  /* Only post detail retains the destination chrome. Photo/Reel viewers own
+     the full viewport and therefore keep this row removed. */
   body.content-detail-open {
     --fb-shell-secondary-row: 52px;
     --topbar-h: calc(var(--fb-shell-primary-row) + var(--fb-shell-secondary-row));
   }
 
-  body.content-detail-open .app-shell-nav { display: grid; }
-  body.content-detail-open .content-detail-shell-close {
+  body.content-detail-open .app-shell-nav,
+  .app-shell-topbar.is-content-detail .app-shell-nav {
+    position: relative;
+    display: grid;
+  }
+  body.content-detail-open > .content-detail-shell-close {
     top: calc(var(--fb-safe-top) + (var(--fb-shell-primary-row) - 36px) / 2);
   }
 }

@@ -409,6 +409,43 @@ describe('GroupProfilePage', () => {
     expect(socialMocks.getGroupFriendMembers).toHaveBeenCalledWith('61', 12)
   })
 
+  it('scrolls both discussion columns and clamps the shorter group column', async () => {
+    const { container } = render(<div className="authenticated-destination-scroll"><GroupProfilePage groupId="61" userId="71" onBack={vi.fn()} onNavigate={vi.fn()} /></div>)
+    await screen.findByTestId('group-composer')
+
+    const destinationViewport = container.querySelector<HTMLElement>('.authenticated-destination-scroll')!
+    const grid = container.querySelector<HTMLElement>('.group-profile-content-grid')!
+    const postColumn = container.querySelector<HTMLElement>('.group-profile-post-column')!
+    const infoColumn = container.querySelector<HTMLElement>('.group-profile-info-column')!
+    Object.defineProperties(destinationViewport, {
+      clientHeight: { configurable: true, value: 800 },
+      scrollHeight: { configurable: true, value: 1600 },
+    })
+    Object.defineProperties(postColumn, {
+      clientHeight: { configurable: true, value: 500 },
+      scrollHeight: { configurable: true, value: 2000 },
+    })
+    Object.defineProperties(infoColumn, {
+      clientHeight: { configurable: true, value: 500 },
+      scrollHeight: { configurable: true, value: 1000 },
+    })
+    destinationViewport.scrollTop = 800
+    postColumn.scrollTop = 300
+    infoColumn.scrollTop = 400
+
+    fireEvent.wheel(grid, { deltaY: 250 })
+    await waitFor(() => {
+      expect(postColumn.scrollTop).toBeCloseTo(550, 1)
+      expect(infoColumn.scrollTop).toBe(500)
+    })
+
+    fireEvent.wheel(grid, { deltaY: 250 })
+    await waitFor(() => {
+      expect(postColumn.scrollTop).toBeCloseTo(800, 1)
+      expect(infoColumn.scrollTop).toBe(500)
+    })
+  })
+
   it('keeps a public-group join pending until an administrator approves it', async () => {
     socialMocks.getGroup.mockResolvedValue({ ...group, privacy: 0 })
     socialMocks.getGroupMembershipState.mockResolvedValue({ isMember: false, isAdmin: false, joinRequestPending: false, canViewPosts: true })

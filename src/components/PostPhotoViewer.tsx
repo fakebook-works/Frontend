@@ -136,9 +136,10 @@ function UnavailablePhotoDiscussion({ viewerId, author, onNavigate }: { viewerId
 }
 
 export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMediaUrl, initialPlaybackTime = 0, initialPost, mediaEntries, unavailableAuthor, routeOwned = false, onClose, onActiveMediaChange, onNavigate, onMessage, onStoryCreated }: PostPhotoViewerProps) {
-  useBodyInteractionLock(true, ['content-detail-open', 'post-photo-viewer-open'])
+  useBodyInteractionLock(true, ['post-photo-viewer-open'])
   const { t } = useI18n()
   const usableInitialPost = initialPost?.__typename === 'ReelDetail' ? null : initialPost ?? null
+  const suppliedContentPost = mediaEntries?.find((entry) => entry.post?.id === contentId && entry.post.__typename !== 'ReelDetail')?.post ?? null
   const [post, setPost] = useState<GatewayPost | null>(usableInitialPost)
   const [postOverrides, setPostOverrides] = useState<Record<string, GatewayPost>>({})
   const hasSuppliedEntries = Boolean(mediaEntries?.length)
@@ -157,12 +158,20 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
   const dragStartRef = useRef<{ pointerId: number; x: number; y: number; offsetX: number; offsetY: number } | null>(null)
   const playbackTimesRef = useRef<Record<string, number>>({})
   const reportedMediaKeyRef = useRef('')
+  const selectionRequestKeyRef = useRef('')
   const viewerEntries = useMemo<PostPhotoViewerMediaEntry[]>(() => {
     if (mediaEntries?.length) return mediaEntries.filter((entry) => entry.post?.__typename !== 'ReelDetail' && (entry.media.type === 0 || entry.media.type === 1))
     if (!post || post.__typename === 'ReelDetail') return []
     return post.media.filter((media) => media.type === 0 || media.type === 1).map((media) => ({ post, media }))
   }, [mediaEntries, post])
-  const activeEntry = viewerEntries[activeIndex] ?? null
+  const requestedIndex = viewerEntries.findIndex((entry) =>
+    (initialMediaId && entry.media.id === initialMediaId) ||
+    (initialMediaUrl && entry.media.url === initialMediaUrl))
+  const selectionRequestKey = `${contentId}:${initialMediaId ?? ''}:${initialMediaUrl ?? ''}:${viewerEntries.map((entry) => `${entry.post?.id ?? contentId}:${entry.media.id}`).join('|')}`
+  const displayedActiveIndex = selectionRequestKeyRef.current === selectionRequestKey
+    ? activeIndex
+    : requestedIndex >= 0 ? requestedIndex : 0
+  const activeEntry = viewerEntries[displayedActiveIndex] ?? null
   const activeMedia = activeEntry?.media ?? null
   const activePostBase = activeEntry ? activeEntry.post : post
   const activePost = activePostBase ? postOverrides[activePostBase.id] ?? activePostBase : null
@@ -228,7 +237,7 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
   useEffect(() => {
     let active = true
     setPost(usableInitialPost)
-    if (hasSuppliedEntries) {
+    if (hasSuppliedEntries && !usableInitialPost && !suppliedContentPost) {
       setLoading(false)
       setLoadError(false)
       return () => { active = false }
@@ -241,16 +250,18 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
         setLoadError(true)
       } else if (detail) {
         setPost(detail)
-      } else if (!usableInitialPost) {
+        setPostOverrides((current) => ({ ...current, [detail.id]: detail }))
+      } else {
+        setPost(null)
         setLoadError(true)
       }
     }).catch(() => {
-      if (active && !usableInitialPost) setLoadError(true)
+      if (active && !usableInitialPost && !suppliedContentPost) setLoadError(true)
     }).finally(() => {
       if (active) setLoading(false)
     })
     return () => { active = false }
-  }, [contentId, hasSuppliedEntries, usableInitialPost])
+  }, [contentId, hasSuppliedEntries, suppliedContentPost, usableInitialPost])
 
   useEffect(() => {
     if (!activePost) {
@@ -266,15 +277,13 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
   }, [activePost, contentId])
 
   useEffect(() => {
+    selectionRequestKeyRef.current = selectionRequestKey
     if (viewerEntries.length === 0) {
       setActiveIndex(0)
       return
     }
-    const requestedIndex = viewerEntries.findIndex((entry) =>
-      (initialMediaId && entry.media.id === initialMediaId) ||
-      (initialMediaUrl && entry.media.url === initialMediaUrl))
     setActiveIndex(requestedIndex >= 0 ? requestedIndex : 0)
-  }, [initialMediaId, initialMediaUrl, viewerEntries])
+  }, [requestedIndex, selectionRequestKey, viewerEntries.length])
 
   useEffect(() => {
     setScale(MIN_PHOTO_SCALE)
@@ -296,8 +305,8 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
   useEffect(() => {
     if (viewerEntries.length < 2) return
     const adjacentIndexes = new Set([
-      (activeIndex - 1 + viewerEntries.length) % viewerEntries.length,
-      (activeIndex + 1) % viewerEntries.length,
+      (displayedActiveIndex - 1 + viewerEntries.length) % viewerEntries.length,
+      (displayedActiveIndex + 1) % viewerEntries.length,
     ])
     for (const index of adjacentIndexes) {
       const photo = viewerEntries[index]?.media
@@ -305,7 +314,7 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
       const preload = new Image()
       preload.src = photo.url
     }
-  }, [activeIndex, viewerEntries])
+  }, [displayedActiveIndex, viewerEntries])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

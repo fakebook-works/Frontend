@@ -24,9 +24,16 @@ export function useProfileColumnScroll({ active, pageRef, firstColumnRef, second
     const columns = [firstColumn, secondColumn]
     columns.forEach((column) => { column.scrollTop = 0 })
 
-    const pageScrollTop = () => window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0
-    const pageScrollLimit = () => Math.max(0, Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) - window.innerHeight)
-    const scrollPageTo = (top: number) => window.scrollTo({ top: Math.max(0, top), left: window.scrollX, behavior: 'auto' })
+    const destinationViewport = page.closest<HTMLElement>('.authenticated-destination-scroll')
+    const pageScrollTop = () => destinationViewport?.scrollTop ?? (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0)
+    const pageScrollLimit = () => destinationViewport
+      ? Math.max(0, destinationViewport.scrollHeight - destinationViewport.clientHeight)
+      : Math.max(0, Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) - window.innerHeight)
+    const scrollPageTo = (top: number) => {
+      const next = Math.max(0, top)
+      if (destinationViewport) destinationViewport.scrollTop = next
+      else window.scrollTo({ top: next, left: window.scrollX, behavior: 'auto' })
+    }
     const columnLimit = (column: HTMLElement) => Math.max(0, column.scrollHeight - column.clientHeight)
     const scrollColumnsBy = (delta: number) => {
       columns.forEach((column) => {

@@ -249,7 +249,7 @@ function ReelCaption({ content, mentions, onNavigate }: {
   </div>
 }
 
-export function ReelsPage({ userId, mode, active = true, entrySource = null, entryReelId = null, entryOwnerId = null, entryReel = null, routeOverlays = false, onEntryClose, onNavigate }: {
+export function ReelsPage({ userId, mode, active = true, entrySource = null, entryReelId = null, entryOwnerId = null, entryReel = null, routeOverlays = false, onEntryClose, onActiveReelAddressChange, onOpenReelOverlay, onNavigate }: {
   userId: string
   mode: ReelMode
   active?: boolean
@@ -259,6 +259,8 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   entryReel?: SocialContent | null
   routeOverlays?: boolean
   onEntryClose?: () => void
+  onActiveReelAddressChange?: (reelId: string) => void
+  onOpenReelOverlay?: (reel: SocialContent) => void
   onNavigate: (path: string) => void
 }) {
   const { t } = useI18n()
@@ -273,7 +275,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   const commentsSidebarOpen = commentReelId !== null
   const [activeIndex, setActiveIndex] = useState(0)
   const [libraryViewerOpen, setLibraryViewerOpen] = useState(entryViewer)
-  useBodyInteractionLock(active && libraryViewerOpen, ['content-detail-open', 'reels-library-viewer-open'])
+  useBodyInteractionLock(active && libraryViewerOpen, ['reels-library-viewer-open'])
   const [viewCounts, setViewCounts] = useState<Record<string, number>>({})
   const [relationships, setRelationships] = useState<Record<string, ProfileRelationshipState>>({})
   const loadedRequestRef = useRef<string | null>(null)
@@ -369,19 +371,42 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
         return
       }
       let nextReels: SocialContent[]
-      if (entrySource === 'profile' && entryReelId && entryOwnerId) {
-        nextReels = await loadProfileReelQueue(entryOwnerId, entryReelId)
-        if (!nextReels.some((reel) => reel.id === entryReelId)) {
-          if (!entrySeed) throw new Error('Profile Reel is unavailable')
-          nextReels = [entrySeed, ...nextReels]
+      if (entrySource && entryReelId) {
+        const queuePromise = entrySource === 'profile' && entryOwnerId
+          ? loadProfileReelQueue(entryOwnerId, entryReelId).catch(() => [] as SocialContent[])
+          : socialApi.getRecommendedReels(userId, 'FOR_YOU', 0, 24).catch(() => [] as SocialContent[])
+        let exactUnavailable = false
+        const directAnchorPromise = api.postDetail(entryReelId)
+          .then((detail) => {
+            if (detail?.__typename === 'ReelDetail') return gatewayReelToSocialContent(detail)
+            exactUnavailable = true
+            if (requestSequence === requestSequenceRef.current) {
+              setReels([])
+              setError(t('reelsLoadError'))
+              setLoading(false)
+            }
+            return null
+          })
+          .catch(() => null)
+        const paintAnchor = (anchor: SocialContent | null) => {
+          if (anchor && requestSequence === requestSequenceRef.current) {
+            applyQueue([anchor])
+            setLoading(false)
+          }
+          return anchor
         }
-      } else if (entrySource === 'for-you' && entryReelId) {
-        const recommended = await socialApi.getRecommendedReels(userId, 'FOR_YOU', 0, 24)
-        const recommendedAnchor = recommended.find((reel) => reel.id === entryReelId) ?? null
-        const detail = entrySeed || recommendedAnchor ? null : await api.postDetail(entryReelId)
-        const anchor = recommendedAnchor ?? entrySeed ?? (detail?.__typename === 'ReelDetail' ? gatewayReelToSocialContent(detail) : null)
+        const directTask = directAnchorPromise.then(paintAnchor)
+        const queueTask = queuePromise.then((queue) => {
+          if (!entrySeed) paintAnchor(queue.find((reel) => reel.id === entryReelId) ?? null)
+          return queue
+        })
+        const [directAnchor, queuedReels] = await Promise.all([directTask, queueTask])
+        if (exactUnavailable) throw new Error('Reel is unavailable')
+        const anchor = queuedReels.find((reel) => reel.id === entryReelId) ?? entrySeed ?? directAnchor
         if (!anchor) throw new Error('Reel is unavailable')
-        nextReels = [anchor, ...recommended.filter((reel) => reel.id !== anchor.id)]
+        nextReels = entrySource === 'profile'
+          ? queuedReels.some((reel) => reel.id === anchor.id) ? queuedReels : [anchor, ...queuedReels]
+          : [anchor, ...queuedReels.filter((reel) => reel.id !== anchor.id)]
       } else {
         nextReels = mode === 'mine'
           ? (await socialApi.getProfileReels(userId, 24)).items
@@ -452,6 +477,12 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   }, [active, entryReelId, entrySource, entryViewer])
 
   useEffect(() => {
+    if (!active || !entryViewer || !libraryViewerOpen) return
+    const activeReel = reels[activeIndex]
+    if (activeReel) onActiveReelAddressChange?.(activeReel.id)
+  }, [active, activeIndex, entryViewer, libraryViewerOpen, onActiveReelAddressChange, reels])
+
+  useEffect(() => {
     // The full Reels destination owns its own viewport scroll, so it locks the
     // document. An entry viewer is a fixed overlay above Home/Profile; applying
     // the same `height: 100%; overflow: hidden` class there collapses the
@@ -512,8 +543,8 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     if (!libraryViewerOpen) return
     const closeViewerOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || commentReelId) return
-      setLibraryViewerOpen(false)
       if (entryViewer) onEntryClose?.()
+      else setLibraryViewerOpen(false)
     }
     window.addEventListener('keydown', closeViewerOnEscape)
     return () => window.removeEventListener('keydown', closeViewerOnEscape)
@@ -783,7 +814,8 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   function openLibraryReel(index: number) {
     const selectedReel = reels[index]
     if (routeOverlays && selectedReel) {
-      onNavigate(reelOverlayHref(selectedReel.id))
+      if (onOpenReelOverlay) onOpenReelOverlay(selectedReel)
+      else onNavigate(reelOverlayHref(selectedReel.id))
       return
     }
     libraryScrollTopRef.current = libraryContentRef.current?.scrollTop ?? 0
@@ -797,15 +829,15 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   function closeLibraryViewer() {
     cancelProgrammaticScroll()
     setCommentReelId(null)
-    setLibraryViewerOpen(false)
     if (entryViewer) onEntryClose?.()
+    else setLibraryViewerOpen(false)
   }
 
   const navigateFromReel = useCallback((path: string) => {
     setCommentReelId(null)
-    setLibraryViewerOpen(false)
+    if (!entryViewer) setLibraryViewerOpen(false)
     onNavigate(path)
-  }, [onNavigate])
+  }, [entryViewer, onNavigate])
 
   const removeDeletedReel = useCallback((reelId: string) => {
     const previous = reelsRef.current
@@ -845,7 +877,6 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     }
 
     if (next.length === 0 && entryViewer) {
-      setLibraryViewerOpen(false)
       onEntryClose?.()
       return
     }

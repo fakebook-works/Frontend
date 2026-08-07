@@ -22,7 +22,7 @@ import { useI18n } from '../i18n'
 import { useInlineImageCrop } from '../lib/useInlineImageCrop'
 import { useImageAmbientColor } from '../lib/useImageAmbientColor'
 import { groupProfilePostsByMonth } from '../lib/profilePostGrid'
-import { useProfilePageScrollMode } from '../lib/useProfileColumnScroll'
+import { useProfileColumnScroll, useProfilePageScrollMode } from '../lib/useProfileColumnScroll'
 import { contentOverlayHref } from '../lib/overlayRoutes'
 import { PostComposer, GatewayPostCard } from './GatewayHomePage'
 import './GroupProfilePage.css'
@@ -396,11 +396,14 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const [existingPicker, setExistingPicker] = useState<GroupImageKind | null>(null)
   const [photoViewer, setPhotoViewer] = useState<GroupMediaViewerState | null>(null)
   const publishGroupPhoto = (viewer: GroupMediaViewerState) => {
+    const seededViewer = viewer.initialPost
+      ? viewer
+      : { ...viewer, initialPost: posts.find((post) => post.id === viewer.contentId && post.__typename !== 'ReelDetail') }
     if (onOpenPhoto) {
-      onOpenPhoto(viewer)
+      onOpenPhoto(seededViewer)
       return
     }
-    setPhotoViewer(viewer)
+    setPhotoViewer(seededViewer)
   }
   const coverActionRef = useRef<HTMLDivElement>(null)
   const avatarActionRef = useRef<HTMLDivElement>(null)
@@ -409,6 +412,8 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const groupPageRef = useRef<HTMLElement>(null)
   const groupContentGridRef = useRef<HTMLDivElement>(null)
   const profileWidthRulerRef = useRef<HTMLElement>(null)
+  const groupPostColumnRef = useRef<HTMLElement>(null)
+  const groupInfoColumnRef = useRef<HTMLElement>(null)
   const groupPostSentinelRef = useRef<HTMLDivElement>(null)
   const postRequestSequenceRef = useRef(0)
   const postsLoadMoreBusyRef = useRef(false)
@@ -417,6 +422,13 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const coverAmbientColor = useImageAmbientColor(coverEditor.target?.previewUrl ?? group?.backgroundUrl)
 
   useProfilePageScrollMode()
+  useProfileColumnScroll({
+    active: tab === 'discussion' && !loading && group != null,
+    pageRef: groupPageRef,
+    firstColumnRef: groupPostColumnRef,
+    secondColumnRef: groupInfoColumnRef,
+    resetKey: groupId,
+  })
 
   useLayoutEffect(() => {
     if (loading || !group) return
@@ -817,7 +829,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const coverBackgroundStyle = coverImageUrl ? { backgroundImage: `url(${coverImageUrl})` } : undefined
   const coverAmbientStyle = { '--profile-cover-ambient-color': coverAmbientColor } as CSSProperties
   return <>
-    <main ref={groupPageRef} className="profile-destination self-profile-page group-profile-page">
+    <main ref={groupPageRef} className={`profile-destination self-profile-page group-profile-page${tab === 'discussion' ? ' profile-columns-scroll-active' : ''}`}>
       <section className="profile-cover-card self-profile-cover-card group-profile-hero">
         <div className="self-profile-cover-ambient group-profile-cover-ambient" style={coverAmbientStyle} aria-hidden="true" />
         <div className="self-profile-header-shell group-profile-hero-shell">
@@ -896,7 +908,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
 
       {error && <p className="inline-alert group-profile-alert">{error}</p>}
       {tab === 'discussion' && <div ref={groupContentGridRef} className="profile-destination-grid self-profile-destination-grid tab-posts group-profile-main discussion group-profile-content-grid">
-        <section className="profile-post-list group-profile-post-column">
+        <section ref={groupPostColumnRef} className="profile-post-list group-profile-post-column">
           {participant && viewer && <PostComposer variant="group" userId={viewer.id} displayName={viewer.displayName} avatarUrl={viewer.avatarUrl} isVerified={viewer.isVerified} friends={eligibleTagPeople} groupId={group.id} groupName={group.name} groupAvatarUrl={group.avatarUrl} groupPrivacy={group.privacy} onNavigate={onNavigate} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
           <GroupPostViewTools filter={postFilter} view={postView} manageMode={manageMode} onFilterChange={setPostFilter} onViewChange={setPostView} onManageToggle={() => setManageMode((value) => !value)} />
           {!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupFeedEmpty')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : filteredPosts.length === 0 ? <div className="card state-card"><h2>{t('profileNoPosts')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : postView === 'grid' ? <div className="self-profile-post-months">{groupPostMonthGroups.map((month) => <section className="card self-profile-post-month" key={month.id}><h3>{month.label}</h3><div className="self-profile-post-grid">{month.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} groupPrivacy onOpenDetail={() => onNavigate(contentOverlayHref(post.id))} onOpenMedia={(item: ProfileGridMediaTarget) => publishGroupPhoto({ contentId: item.contentId, media: { id: item.mediaId, type: item.mediaType, url: item.mediaUrl } })} onOpenReel={post.__typename === 'ReelDetail' && onOpenReel ? () => onOpenReel(post) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} onOpenReel={onOpenReel} groupContextId={group.id} viewerCanModerateGroupPosts={membership.isAdmin} />)}
@@ -905,7 +917,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
             {postsMoreError && <button type="button" className="btn-soft" disabled={!postCursor} onClick={() => void loadPosts(postCursor, true)}>{t('tryAgain')}</button>}
           </div>}
         </section>
-        <aside className="self-profile-left-column group-profile-info-column"><GroupAboutCard group={group} locale={locale} admin={membership.isAdmin} compact onUpdated={setGroup} /><GroupPeoplePreview people={visiblePeople} count={groupMemberCount} onNavigate={onNavigate} onOpen={() => setTab('people')} /><GroupMediaPreview media={media} hasMore={mediaHaveMore} onOpenTab={() => setTab('media')} onOpenMedia={(item) => publishGroupPhoto(item)} /></aside>
+        <aside ref={groupInfoColumnRef} className="self-profile-left-column group-profile-info-column"><GroupAboutCard group={group} locale={locale} admin={membership.isAdmin} compact onUpdated={setGroup} /><GroupPeoplePreview people={visiblePeople} count={groupMemberCount} onNavigate={onNavigate} onOpen={() => setTab('people')} /><GroupMediaPreview media={media} hasMore={mediaHaveMore} onOpenTab={() => setTab('media')} onOpenMedia={(item) => publishGroupPhoto(item)} /></aside>
       </div>}
 
       {tab === 'about' && <div className="profile-destination-grid self-profile-destination-grid tab-about"><section className="profile-post-list"><GroupAboutCard group={group} locale={locale} admin={membership.isAdmin} onUpdated={setGroup} /></section></div>}

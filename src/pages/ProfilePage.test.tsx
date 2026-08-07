@@ -1317,12 +1317,8 @@ describe('ProfilePage messaging', () => {
     expect(onNavigate).toHaveBeenCalledWith('/content/text-june')
   })
 
-  it('leaves profile wheel scrolling to the outer page when the columns are not scroll containers', async () => {
-    const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(document.documentElement, 'scrollHeight')
-    vi.stubGlobal('innerHeight', 800)
-    vi.stubGlobal('scrollY', 800)
-    Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, value: 1600 })
-    const { container, unmount } = render(<ProfilePage
+  it('scrolls the embedded profile page first, then both columns while clamping the shorter one', async () => {
+    const { container } = render(<div className="authenticated-destination-scroll"><ProfilePage
       profile={{
         id: 'me', username: 'owner', email: 'owner@example.com', displayName: 'Owner Name', avatarUrl: null,
         backgroundUrl: null, bio: null, location: null, birthDate: null, gender: null,
@@ -1331,15 +1327,21 @@ describe('ProfilePage messaging', () => {
       }}
       loading={false}
       error={null}
-      canEdit
-      viewerId="me"
+      canEdit={false}
+      viewerId="viewer"
+      embedded
       onEdit={vi.fn()}
       onNavigate={vi.fn()}
       onMessage={vi.fn()}
-    />)
+    /></div>)
+    const destinationViewport = container.querySelector<HTMLElement>('.authenticated-destination-scroll')!
     const grid = container.querySelector<HTMLElement>('.self-profile-destination-grid.tab-posts')!
     const infoColumn = container.querySelector<HTMLElement>('.self-profile-left-column')!
     const postColumn = container.querySelector<HTMLElement>('.profile-post-list')!
+    Object.defineProperties(destinationViewport, {
+      clientHeight: { configurable: true, value: 800 },
+      scrollHeight: { configurable: true, value: 1600 },
+    })
     Object.defineProperties(infoColumn, {
       clientHeight: { configurable: true, value: 500 },
       scrollHeight: { configurable: true, value: 1000 },
@@ -1353,19 +1355,22 @@ describe('ProfilePage messaging', () => {
 
     fireEvent.wheel(grid, { deltaY: 250 })
     await waitFor(() => {
+      expect(destinationViewport.scrollTop).toBeCloseTo(250, 1)
       expect(infoColumn.scrollTop).toBe(400)
       expect(postColumn.scrollTop).toBe(300)
+    })
+
+    destinationViewport.scrollTop = 800
+    fireEvent.wheel(grid, { deltaY: 250 })
+    await waitFor(() => {
+      expect(infoColumn.scrollTop).toBe(500)
+      expect(postColumn.scrollTop).toBeCloseTo(550, 1)
     })
 
     fireEvent.wheel(grid, { deltaY: 250 })
     await waitFor(() => {
-      expect(infoColumn.scrollTop).toBe(400)
-      expect(postColumn.scrollTop).toBe(300)
+      expect(infoColumn.scrollTop).toBe(500)
+      expect(postColumn.scrollTop).toBeCloseTo(800, 1)
     })
-
-    unmount()
-    if (scrollHeightDescriptor) Object.defineProperty(document.documentElement, 'scrollHeight', scrollHeightDescriptor)
-    else Reflect.deleteProperty(document.documentElement, 'scrollHeight')
-    vi.unstubAllGlobals()
   })
 })

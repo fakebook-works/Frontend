@@ -326,12 +326,15 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(window.location.pathname).toBe('/content/home-post')
     expect(await screen.findByTestId('content-overlay')).toHaveAttribute('data-content-id', 'home-post')
     expect(screen.getByTestId('home-page')).toBe(homePage)
+    expect(document.querySelector('.app-shell-topbar')).toHaveClass('is-content-detail')
+    expect(document.querySelector('#content-detail-shell-close-target .content-detail-shell-close')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'open-detail-photo' }))
     expect(window.location.pathname).toBe('/photo/home-post/media-1')
     expect(screen.queryByTestId('content-overlay')).not.toBeInTheDocument()
     expect(await screen.findByTestId('photo-overlay')).toHaveAttribute('data-content-id', 'home-post')
     expect(screen.getByTestId('home-page')).toBe(homePage)
+    expect(document.querySelector('.app-shell-topbar')).not.toHaveClass('is-content-detail')
 
     fireEvent.click(screen.getByRole('button', { name: 'close-photo-overlay' }))
     await waitFor(() => expect(screen.queryByTestId('photo-overlay')).not.toBeInTheDocument())
@@ -339,11 +342,11 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(screen.getByTestId('home-page')).toBe(homePage)
   })
 
-  it('renders direct media and profile Reel links as overlays over deterministic background pages', async () => {
+  it('renders direct media and profile Reel links without loading a competing destination behind them', async () => {
     window.history.replaceState({}, '', '/content/direct-post')
     const first = render(<AuthenticatedApp />)
 
-    expect(screen.getByTestId('home-page')).toBeInTheDocument()
+    expect(screen.queryByTestId('home-page')).not.toBeInTheDocument()
     expect(await screen.findByTestId('content-overlay')).toHaveAttribute('data-content-id', 'direct-post')
     fireEvent.click(screen.getByRole('button', { name: 'close-content-overlay' }))
     expect(window.location.pathname).toBe('/home')
@@ -351,7 +354,7 @@ describe('AuthenticatedApp routing and navigation', () => {
 
     window.history.replaceState({}, '', '/photo/direct-post/direct-media')
     const second = render(<AuthenticatedApp />)
-    expect(screen.getByTestId('home-page')).toBeInTheDocument()
+    expect(screen.queryByTestId('home-page')).not.toBeInTheDocument()
     expect(await screen.findByTestId('photo-overlay')).toHaveAttribute('data-content-id', 'direct-post')
     fireEvent.click(screen.getByRole('button', { name: 'close-photo-overlay' }))
     await waitFor(() => expect(window.location.pathname).toBe('/home'))
@@ -359,7 +362,7 @@ describe('AuthenticatedApp routing and navigation', () => {
 
     window.history.replaceState({}, '', '/reel/direct-reel?source=profile&owner=2')
     render(<AuthenticatedApp />)
-    expect(screen.getByTestId('profile-page')).toBeInTheDocument()
+    expect(screen.queryByTestId('profile-page')).not.toBeInTheDocument()
     expect(await screen.findByTestId('reel-overlay')).toHaveAttribute('data-reel-id', 'direct-reel')
     fireEvent.click(screen.getByRole('button', { name: 'close-reel-overlay' }))
     expect(window.location.pathname).toBe('/profile/2')

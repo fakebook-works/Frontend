@@ -26,6 +26,7 @@ import { contentOverlayHref, reelOverlayHref } from '../lib/overlayRoutes'
 import { decodeStoryContent } from '../lib/storyContent'
 import { useInlineImageCrop } from '../lib/useInlineImageCrop'
 import { useImageAmbientColor } from '../lib/useImageAmbientColor'
+import { useProfileColumnScroll } from '../lib/useProfileColumnScroll'
 import { GatewayPostCard, PostComposer } from './GatewayHomePage'
 import { birthDateBounds, isAllowedBirthDate } from './birthDate'
 
@@ -553,10 +554,13 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
   const avatarSavePendingRef = useRef(false)
   const locallyViewedStoryIdsRef = useRef<Set<string>>(new Set())
   const avatarEditor = useInlineImageCrop(profile?.id)
+  const profilePageRef = useRef<HTMLElement>(null)
   const profileTabsRef = useRef<HTMLElement>(null)
   const profileFirstTabRef = useRef<HTMLButtonElement>(null)
   const profileGroupsTabRef = useRef<HTMLButtonElement>(null)
   const profileContentGridRef = useRef<HTMLDivElement>(null)
+  const profileInfoColumnRef = useRef<HTMLElement>(null)
+  const profilePostColumnRef = useRef<HTMLElement>(null)
   const profilePostSentinelRef = useRef<HTMLDivElement>(null)
   const publishProfileMediaViewer = (viewer: ProfileMediaViewerState, options?: ProfileMediaViewerOpenOptions) => {
     if (onOpenPhoto) {
@@ -586,6 +590,14 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
       document.body.classList.remove('profile-page-scroll')
     }
   }, [embedded])
+
+  useProfileColumnScroll({
+    active: tab === 'posts' && !loading && profile != null,
+    pageRef: profilePageRef,
+    firstColumnRef: profileInfoColumnRef,
+    secondColumnRef: profilePostColumnRef,
+    resetKey: profile?.id ?? '',
+  })
 
   useLayoutEffect(() => {
     if (loading || !profile) return
@@ -1183,6 +1195,30 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
 
   async function openProfileMediaViewer(item: { contentId: string; mediaId: string; mediaUrl: string; mediaType: number }, suppliedEntries?: PostPhotoViewerMediaEntry[]) {
     let entries = suppliedEntries ?? []
+    if (entries.length === 0) {
+      const knownPost = posts.find((post) => post.id === item.contentId && post.__typename !== 'ReelDetail')
+      if (knownPost) entries = buildProfileMediaEntries([knownPost])
+    }
+    const immediateSelection = entries.find((entry) => entry.media.id === item.mediaId || (entry.post?.id === item.contentId && entry.media.url === item.mediaUrl))
+    if (immediateSelection) {
+      const initialViewer: ProfileMediaViewerState = {
+        contentId: immediateSelection.post?.id ?? item.contentId,
+        mediaId: immediateSelection.media.id,
+        mediaUrl: immediateSelection.media.url,
+        initialPost: immediateSelection.post ?? undefined,
+        entries,
+      }
+      publishProfileMediaViewer(initialViewer)
+      if (!suppliedEntries?.length && profile) {
+        void loadAllProfileFeedPosts(profile.id).then((feedPosts) => {
+          const enrichedEntries = buildProfileMediaEntries(feedPosts)
+          if (enrichedEntries.length === 0) return
+          if (onOpenPhoto) publishProfileMediaViewer({ ...initialViewer, entries: enrichedEntries }, { update: true })
+          else setProfileMediaViewer((current) => current && current.contentId === initialViewer.contentId && current.mediaId === initialViewer.mediaId ? { ...current, entries: enrichedEntries } : current)
+        }).catch(() => undefined)
+      }
+      return
+    }
     try {
       if (entries.length === 0 && profile) entries = buildProfileMediaEntries(await loadAllProfileFeedPosts(profile.id))
       let selected = entries.find((entry) => entry.media.id === item.mediaId || (entry.post?.id === item.contentId && entry.media.url === item.mediaUrl))
@@ -1390,7 +1426,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
         : t('genderPreferNot')
 
   return <>
-    <main className={`profile-destination self-profile-page${canEdit ? '' : ' visitor-profile-page'}${embedded ? ' embedded-profile-page' : ''}`}>
+    <main ref={profilePageRef} className={`profile-destination self-profile-page${tab === 'posts' ? ' profile-columns-scroll-active' : ''}${canEdit ? '' : ' visitor-profile-page'}${embedded ? ' embedded-profile-page' : ''}`}>
       <section className="profile-cover-card self-profile-cover-card">
         <div className="self-profile-cover-ambient" style={coverAmbientStyle} aria-hidden="true" />
         <div className="self-profile-header-shell">
@@ -1499,7 +1535,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
       </section>
 
       <div ref={profileContentGridRef} className={`profile-destination-grid self-profile-destination-grid tab-${tab}`}>
-        {tab === 'posts' && <aside className="self-profile-left-column">
+        {tab === 'posts' && <aside ref={profileInfoColumnRef} className="self-profile-left-column">
           <section className="card self-profile-side-card self-profile-intro-card">
             <div className="self-profile-info-section">
               <header><h2>{t('profilePersonalInfo')}</h2>{canEdit && <button type="button" aria-label={t('editDetails')} onClick={() => setTab('about')}><ProfileInfoEditIcon /></button>}</header>
@@ -1531,7 +1567,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
           </section>
         </aside>}
 
-        <section className="profile-post-list">
+        <section ref={profilePostColumnRef} className="profile-post-list">
           {tab === 'posts' && canEdit && <PostComposer variant="profile" userId={profile.id} displayName={profile.displayName} avatarUrl={profile.avatarUrl} isVerified={profile.isVerified} friends={profileFriends} onNavigate={onNavigate} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
           {tab === 'posts' && <section className="card self-profile-post-tools">
             <header><h2>{t('profilePostsTitle')}</h2><div><details><summary><ProfilePostFilterIcon />{t('profilePostFilters')}</summary><div>{(['all', 'media', 'text'] as ProfilePostFilter[]).map((filter) => <button type="button" key={filter} className={postFilter === filter ? 'active' : ''} onClick={() => setPostFilter(filter)}>{t(filter === 'all' ? 'profileAllPosts' : filter === 'media' ? 'profileMediaPosts' : 'profileTextPosts')}</button>)}</div></details>{canEdit && <button type="button" className={manageMode ? 'active' : ''} onClick={() => setManageMode((value) => !value)}><ProfilePostManageIcon />{t(manageMode ? 'done' : 'profileManagePosts')}</button>}</div></header>
