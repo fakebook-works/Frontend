@@ -8,19 +8,22 @@
 
 .messenger-shell {
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 360px minmax(0, 1fr);
+  max-width: 100%;
   height: calc(100vh - var(--topbar-h));
   background: var(--bg);
   overflow: hidden;
+  overflow-x: hidden;
 }
 
 .messenger-shell.detail-open {
-  grid-template-columns: 360px 1fr 340px;
+  grid-template-columns: 360px minmax(0, 1fr) 340px;
 }
 
 /* -------------------- Conversation List (left) -------------------- */
 
 .messenger-list {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--card);
@@ -302,6 +305,7 @@
 /* -------------------- Message Thread (center) -------------------- */
 
 .messenger-thread {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1199,15 +1203,19 @@ body.messenger-media-viewer-open .message-hover-timestamp { display: none !impor
 }
 
 .messenger-attachment-tray {
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   padding: 0 12px 8px;
   border-top: 1px solid var(--divider);
   background: var(--card);
+  overflow-x: hidden;
 }
 
 .attachment-chip {
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1340,6 +1348,7 @@ body.messenger-media-viewer-open .message-hover-timestamp { display: none !impor
 /* -------------------- Detail Panel (right) -------------------- */
 
 .messenger-detail {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2535,10 +2544,10 @@ body.messenger-media-viewer-open .message-hover-timestamp { display: none !impor
 .mini-compose-previews {
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  overflow-x: auto;
+  overflow-x: hidden;
   padding: 11px 11px 3px;
-  
 }
 .mini-compose-preview {
   position: relative;

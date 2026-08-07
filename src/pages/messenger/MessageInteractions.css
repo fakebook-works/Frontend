@@ -221,10 +221,17 @@
 }
 .message-reply-preview.compact { padding: 5px 7px; border-radius: 7px; }
 .message-reply-copy { min-width: 0; flex: 1; display: grid; gap: 1px; }
-.message-reply-copy strong,
-.message-reply-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-reply-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message-reply-copy strong { color: var(--text); font-size: .75rem; }
-.message-reply-copy small { font-size: .72rem; }
+.message-reply-copy small {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--secondary);
+  font-size: .72rem;
+  line-height: 1.3;
+  white-space: pre-wrap;
+}
 .message-reply-preview img { width: 34px; height: 34px; flex: 0 0 34px; border-radius: 6px; object-fit: cover; }
 .message-reply-preview button {
   width: 25px;
@@ -276,6 +283,7 @@
 
 .message-reply-preview.sent {
   width: fit-content;
+  min-width: 0;
   max-width: 100%;
   display: grid;
   justify-items: start;
@@ -289,6 +297,8 @@
 .message-line.mine .message-reply-preview.sent,
 .mini-msg-line.mine .message-reply-preview.sent { justify-items: end; }
 .message-reply-context {
+  min-width: 0;
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -296,11 +306,13 @@
   font-size: .72rem;
   font-weight: 500;
   line-height: 1.2;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 .message-reply-context svg { width: 13px; height: 13px; flex: 0 0 13px; fill: currentColor; }
 .message-reply-source {
   width: fit-content;
+  min-width: 0;
   max-width: 218px;
   padding-bottom: 3px;
   overflow: hidden;
@@ -314,7 +326,7 @@
   outline-offset: 2px;
 }
 .message-reply-source > span {
-  width: max-content;
+  width: auto;
   min-width: 0;
   max-width: 198px;
   display: flex;
@@ -323,8 +335,8 @@
   gap: 8px;
   padding: 8px 12px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
   font-size: .9375rem;
   line-height: 1.35;
 }

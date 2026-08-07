@@ -59,13 +59,6 @@ img {
   background-color: transparent;
 }
 
-/* Keep the document scrollbar below the fixed authenticated navigation, just
-   like the Reels library's own content scroller. */
-html.authenticated-shell-scroll:not(.reels-page-scroll)::-webkit-scrollbar-track,
-body.authenticated-shell-scroll:not(.reels-page-scroll)::-webkit-scrollbar-track {
-  margin-block-start: var(--topbar-h);
-}
-
 ::-webkit-scrollbar-thumb {
   background-color: transparent;
   border-radius: 20px;

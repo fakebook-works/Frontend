@@ -7507,6 +7507,31 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 /* Keep the shell navigation and the Home feed on one shared center axis. */
 .authenticated-app { --home-center-width: 620px; --shell-search-surface: color-mix(in srgb, var(--hover) 80%, #fff 20%); }
 :root[data-theme='dark'] .authenticated-app { --shell-search-surface: color-mix(in srgb, var(--circle) 98%, #fff 2%); }
+.authenticated-app {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+.authenticated-destination-scroll {
+  position: fixed;
+  z-index: 0;
+  top: var(--topbar-h);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  background: var(--bg);
+}
+.authenticated-destination-content {
+  min-height: calc(100% + var(--topbar-h));
+  margin-top: calc(-1 * var(--topbar-h));
+}
+.authenticated-destination-scroll:is(.is-reels, .is-messenger) { overflow: hidden; }
 .app-shell-nav {
   width: min(100%, var(--home-center-width));
   justify-self: center;
@@ -8688,10 +8713,10 @@ body.post-photo-viewer-open.mini-chat-bubble-rail-open .post-photo-viewer::after
   background: #050505;
 }
 .post-photo-viewer-image {
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   display: block;
   object-fit: contain;
   image-rendering: auto;
@@ -8901,11 +8926,14 @@ body.post-photo-viewer-fullscreen .mini-chat-region { display: none !important; 
   .post-photo-viewer-nav.next { right: 12px; }
 }
 
-html.home-page-scroll,
-body.home-page-scroll {
-  
-  
+html.authenticated-shell-scroll,
+body.authenticated-shell-scroll {
+  height: 100%;
+  overflow: hidden;
 }
+
+html.home-page-scroll,
+body.home-page-scroll { background: var(--bg); }
 
 html.profile-page-scroll,
 body.profile-page-scroll {
@@ -10369,4 +10397,19 @@ body.reels-library-viewer-open.mini-chat-bubble-rail-open .reels-page.is-library
   font-size: 1rem;
   line-height: 1.25;
   font-weight: 600;
+}
+
+/* The authenticated content viewport begins below the fixed navigation. Keep
+   sticky destination rails pinned to that viewport instead of offsetting them
+   by the navigation height a second time. */
+.authenticated-destination-scroll .groups-sidebar,
+.authenticated-destination-scroll .friends-page-sidebar,
+.authenticated-destination-scroll .discovery-sidebar,
+.authenticated-destination-scroll .settings-sidebar {
+  top: 0;
+}
+
+@media (min-width: 861px) {
+  body.home-page-scroll .authenticated-destination-scroll .gateway-left-rail { top: 18px; }
+  body.home-page-scroll .authenticated-destination-scroll .gateway-right-rail { top: 6px; }
 }

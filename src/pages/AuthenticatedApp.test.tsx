@@ -126,7 +126,7 @@ describe('AuthenticatedApp routing and navigation', () => {
     { path: '/groups/61', page: 'group-profile-page' },
   ])('lands at the cover when navigating to the $path detail profile', ({ path, page }) => {
     render(<AuthenticatedApp />)
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = screen.getByTestId('destination-scroll-root')
     scrollRoot.scrollTop = 840
 
     window.history.pushState({}, '', path)
@@ -138,10 +138,10 @@ describe('AuthenticatedApp routing and navigation', () => {
 
   it('keeps the saved Home position while entering a user profile at its cover', () => {
     render(<AuthenticatedApp />)
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = screen.getByTestId('destination-scroll-root')
     const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
     scrollRoot.scrollTop = 675
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
 
     fireEvent.click(screen.getByRole('button', { name: 'test' }))
     fireEvent.click(screen.getByRole('button', { name: 'seeYourProfile' }))
@@ -202,17 +202,17 @@ describe('AuthenticatedApp routing and navigation', () => {
   it('keeps each visited primary destination mounted and restores its own scroll position', () => {
     render(<AuthenticatedApp />)
     const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = screen.getByTestId('destination-scroll-root')
     const homePage = screen.getByTestId('home-page')
 
     scrollRoot.scrollTop = 640
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
     fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="friends"]')!)
     const friendsPage = screen.getByText('friends-page')
     expect(scrollRoot.scrollTop).toBe(0)
 
     scrollRoot.scrollTop = 175
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
     fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="home"]')!)
     expect(screen.getByTestId('home-page')).toBe(homePage)
     expect(scrollRoot.scrollTop).toBe(640)
@@ -243,10 +243,10 @@ describe('AuthenticatedApp routing and navigation', () => {
 
   it('opens and closes a Home Reel as an overlay without navigating or losing the feed position', () => {
     render(<AuthenticatedApp />)
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = screen.getByTestId('destination-scroll-root')
     const homePage = screen.getByTestId('home-page')
     scrollRoot.scrollTop = 640
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
 
     fireEvent.click(screen.getByRole('button', { name: 'open-home-reel' }))
 
@@ -265,10 +265,10 @@ describe('AuthenticatedApp routing and navigation', () => {
   it('closes a Reel from Profile All without changing the tab or scroll position', () => {
     window.history.replaceState({}, '', '/profile/2')
     render(<AuthenticatedApp />)
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = screen.getByTestId('destination-scroll-root')
     const profilePage = screen.getByTestId('profile-page')
     scrollRoot.scrollTop = 510
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
 
     fireEvent.click(screen.getByRole('button', { name: 'open-profile-reel' }))
 
@@ -296,10 +296,10 @@ describe('AuthenticatedApp routing and navigation', () => {
     window.history.replaceState({}, '', path)
     render(<AuthenticatedApp />)
     const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = screen.getByTestId('destination-scroll-root')
     const originalPage = screen.getByText(pageText)
     scrollRoot.scrollTop = 480
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
 
     fireEvent.click(navigation.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!)
 

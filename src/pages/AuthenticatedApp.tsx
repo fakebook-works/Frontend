@@ -105,7 +105,8 @@ export function AuthenticatedApp() {
   const quickCloseTimerRef = useRef<number | null>(null)
   const messengerDockRef = useRef<MessengerDockHandle>(null)
   const seenNotificationIds = useRef(new Set<string>())
-  const destinationScrollRef = useRef<Partial<Record<PrimaryDestination, number>>>({})
+  const destinationScrollPositionsRef = useRef<Partial<Record<PrimaryDestination, number>>>({})
+  const destinationViewportRef = useRef<HTMLDivElement>(null)
   const lastFriendsSectionRef = useRef(normalizeFriendSection(isFriendsRoute ? pathSegment(location.pathname, 1) : null))
   const lastReelModeRef = useRef(normalizeReelMode(isReelsRoute ? pathSegment(location.pathname, 1) : null))
   const lastHomeDetailPostIdRef = useRef<string | null>(isHomeRoute ? location.params.get('post') : null)
@@ -143,7 +144,7 @@ export function AuthenticatedApp() {
 
   useLayoutEffect(() => {
     if (!activePrimaryDestination) return
-    setDocumentScrollTop(destinationScrollRef.current[activePrimaryDestination] ?? 0)
+    setDestinationScrollTop(destinationViewportRef.current, destinationScrollPositionsRef.current[activePrimaryDestination] ?? 0)
   }, [activePrimaryDestination])
 
   useLayoutEffect(() => {
@@ -152,14 +153,16 @@ export function AuthenticatedApp() {
     // Always enter them at their hero cover instead of inheriting the source
     // page's document offset. Reel/photo overlays do not change the route, so
     // closing those viewers still keeps the profile's current position.
-    setDocumentScrollTop(0)
+    setDestinationScrollTop(destinationViewportRef.current, 0)
   }, [profileLandingRoute])
 
   useEffect(() => {
     if (!activePrimaryDestination) return
-    const capture = () => { destinationScrollRef.current[activePrimaryDestination] = documentScrollTop() }
-    window.addEventListener('scroll', capture, { passive: true })
-    return () => window.removeEventListener('scroll', capture)
+    const viewport = destinationViewportRef.current
+    if (!viewport) return
+    const capture = () => { destinationScrollPositionsRef.current[activePrimaryDestination] = viewport.scrollTop }
+    viewport.addEventListener('scroll', capture, { passive: true })
+    return () => viewport.removeEventListener('scroll', capture)
   }, [activePrimaryDestination])
 
   useEffect(() => {
@@ -359,7 +362,7 @@ export function AuthenticatedApp() {
   }
 
   function go(path: string) {
-    if (activePrimaryDestination) destinationScrollRef.current[activePrimaryDestination] = documentScrollTop()
+    if (activePrimaryDestination) destinationScrollPositionsRef.current[activePrimaryDestination] = destinationViewportRef.current?.scrollTop ?? 0
     lastHomeDetailPostIdRef.current = null
     setReelOverlay(null)
     setPhotoOverlay(null)
@@ -383,8 +386,8 @@ export function AuthenticatedApp() {
   function goHome() {
     const refreshCurrentHome = isHomeRoute
     if (refreshCurrentHome) {
-      destinationScrollRef.current.home = 0
-      setDocumentScrollTop(0)
+      destinationScrollPositionsRef.current.home = 0
+      setDestinationScrollTop(destinationViewportRef.current, 0)
     }
     go('/home')
     if (refreshCurrentHome) setHomeRefreshToken((value) => value + 1)
@@ -392,8 +395,8 @@ export function AuthenticatedApp() {
 
   function goReels() {
     if (isReelsRoute) {
-      destinationScrollRef.current.reels = 0
-      setDocumentScrollTop(0)
+      destinationScrollPositionsRef.current.reels = 0
+      setDestinationScrollTop(destinationViewportRef.current, 0)
       setReelsRefreshToken((value) => value + 1)
     }
     go('/reels')
@@ -401,8 +404,8 @@ export function AuthenticatedApp() {
 
   function goGroups() {
     if (location.pathname === '/groups') {
-      destinationScrollRef.current.groups = 0
-      setDocumentScrollTop(0)
+      destinationScrollPositionsRef.current.groups = 0
+      setDestinationScrollTop(destinationViewportRef.current, 0)
       setGroupsRefreshToken((value) => value + 1)
     }
     go('/groups')
@@ -507,6 +510,8 @@ export function AuthenticatedApp() {
 
     {notificationPanelOpen && <NotificationPopover items={notificationItems} unreadCount={unreadNotifications} loading={notificationsLoading} onOpen={(item) => void openNotification(item)} onMarkAll={() => void markAllNotificationsRead()} onClose={() => setNotificationPanelOpen(false)} />}
 
+    <div ref={destinationViewportRef} className={`authenticated-destination-scroll${isReelsRoute ? ' is-reels' : location.pathname === '/messenger' ? ' is-messenger' : ''}`} data-testid="destination-scroll-root">
+      <div className="authenticated-destination-content">
     {(activePrimaryDestination === 'home' || mountedDestinations.has('home')) && <Activity name="home-destination" mode={activePrimaryDestination === 'home' ? 'visible' : 'hidden'}><GatewayHomePage profile={currentProfile} refreshToken={homeRefreshToken} detailPostId={lastHomeDetailPostIdRef.current} onDetailClose={() => navigate('/home', { replace: true })} onNavigate={go} onOpenReel={openHomeReel} onMessage={openDirectMessage} onNewConversation={() => messengerDockRef.current?.openComposer()} onConversation={(conversation) => messengerDockRef.current?.openConversation(conversation)} /></Activity>}
     {location.pathname === '/search' && <SearchPage query={location.params.get('q') ?? ''} tab={searchTab} userId={user.userId} onNavigate={go} onMessage={openDirectMessage} />}
     {(activePrimaryDestination === 'friends' || mountedDestinations.has('friends')) && <Activity name="friends-destination" mode={activePrimaryDestination === 'friends' ? 'visible' : 'hidden'}><FriendsPage userId={user.userId} section={lastFriendsSectionRef.current} onNavigate={go} onMessage={openDirectMessage} /></Activity>}
@@ -540,6 +545,8 @@ export function AuthenticatedApp() {
     {location.pathname === '/about' && <AboutPage onBack={() => go('/home')} />}
     {location.pathname.startsWith('/policies') && <PoliciesPage onBack={() => go('/home')} />}
     {!isKnownPath(location.pathname) && <main className="unknown-page"><div className="card state-card"><h1>{t('pageNotFound')}</h1><p>{t('pageNotFoundDesc')}</p><button className="btn-primary" onClick={() => go('/home')}>{t('backToHome')}</button></div></main>}
+      </div>
+    </div>
     {reelOverlay && <ReelsPage
       key={`overlay-reel-${reelOverlay.source}-${reelOverlay.ownerId ?? ''}-${reelOverlay.reelId}`}
       userId={user.userId}
@@ -740,16 +747,9 @@ function profileLandingRouteForPath(pathname: string) {
   return null
 }
 
-function documentScrollTop() {
-  return document.scrollingElement?.scrollTop ?? document.documentElement.scrollTop ?? document.body.scrollTop ?? 0
-}
-
-function setDocumentScrollTop(value: number) {
+function setDestinationScrollTop(viewport: HTMLElement | null, value: number) {
   const top = Math.max(0, Number.isFinite(value) ? value : 0)
-  const scrollingElement = document.scrollingElement ?? document.documentElement
-  scrollingElement.scrollTop = top
-  if (scrollingElement !== document.documentElement) document.documentElement.scrollTop = top
-  if (scrollingElement !== document.body) document.body.scrollTop = top
+  if (viewport) viewport.scrollTop = top
 }
 
 function isKnownPath(pathname: string) {
