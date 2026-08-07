@@ -9,9 +9,8 @@ import {
 } from '../api/social'
 import type { UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
-import { FriendPeopleGlyph } from '../components/FriendPeopleGlyph'
 import { GroupMembersIcon } from '../components/GroupMembersIcon'
-import { ReelIcon } from '../components/Icon'
+import { Icon, ReelIcon } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { GatewayPostCard } from './GatewayHomePage'
@@ -284,7 +283,7 @@ async function hydrateSearchPage(result: SearchPageResult, userId: string): Prom
 
 function SearchFilterIcon({ tab, active }: { tab: SearchTab; active: boolean }) {
   if (tab === 'posts') return <SearchPostsIcon />
-  if (tab === 'people') return <FriendPeopleGlyph className="friend-nav-glyph" size={22} filled={active} />
+  if (tab === 'people') return <Icon name="friends" size={22} />
   if (tab === 'reels') return <ReelIcon size={22} filled={active} dividerColor="var(--discovery-nav-icon-bg)" />
   return <GroupMembersIcon size={23} className="discovery-groups-glyph" />
 }

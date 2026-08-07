@@ -6,8 +6,7 @@ import { Icon } from '../components/Icon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { GatewayPostCard } from './GatewayHomePage'
-import { HomeFeedSkeleton } from './GatewayHomePage'
-import { ProfilePageSkeleton } from './ProfilePage'
+
 type GroupProfileTab = 'posts' | 'photos' | 'about'
 
 const EMPTY_MEMBERSHIP: GroupMembershipState = {
@@ -98,7 +97,7 @@ export function UserInGroupProfilePage({ groupId, profileId, viewerId, onBack, o
     if (tab === 'photos') void loadPhotos()
   }, [loadPhotos, tab])
 
-  if (loading) return <ProfilePageSkeleton />
+  if (loading) return <main className="profile-destination"><div className="card state-card"><span className="spinner" /></div></main>
   if (!profile || !group) return <main className="profile-destination"><div className="card state-card"><h2>{t('groupMemberProfileUnavailable')}</h2><p>{error || t('groupMemberProfileLoadError')}</p><button type="button" className="btn-soft" onClick={onBack}>{t('backToGroup')}</button></div></main>
 
   const contextualAuthorPath = (authorId: string) => `/groups/${group.id}/members/${authorId}`
@@ -117,7 +116,7 @@ export function UserInGroupProfilePage({ groupId, profileId, viewerId, onBack, o
     <div className="profile-destination-grid">
       <aside className="card profile-intro"><h2>{t('groupContext')}</h2><button type="button" className="group-context-card" onClick={onBack}><Avatar name={group.name} src={group.avatarUrl} size={54} /><span><strong>{group.name}</strong><small>{group.privacy === 0 ? t('publicGroup') : t('privateGroup')}</small></span></button>{profile.bio && <p>{profile.bio}</p>}{profile.location && <p><Icon name="location" size={18} />{t('livesIn', { location: profile.location })}</p>}</aside>
       <section className="profile-post-list">
-        {tab === 'posts' && (!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <><HomeFeedSkeleton /><HomeFeedSkeleton /></> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupMemberNoPosts')}</h2><p>{t('groupMemberNoPostsDesc', { name: profile.displayName.split(' ')[0], group: group.name })}</p></div> : <>{posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} authorPath={contextualAuthorPath} />)}{postsHaveMore && <button type="button" className="btn-soft load-more-result" disabled={postsLoading || !postCursor} onClick={() => void loadPosts(postCursor, true)}>{postsLoading ? t('loadingMore') : t('seeMore')}</button>}</>)}
+        {tab === 'posts' && (!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupMemberNoPosts')}</h2><p>{t('groupMemberNoPostsDesc', { name: profile.displayName.split(' ')[0], group: group.name })}</p></div> : <>{posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} authorPath={contextualAuthorPath} />)}{postsHaveMore && <button type="button" className="btn-soft load-more-result" disabled={postsLoading || !postCursor} onClick={() => void loadPosts(postCursor, true)}>{postsLoading ? t('loadingMore') : t('seeMore')}</button>}</>)}
         {tab === 'photos' && <div className="card profile-tab-card"><h2>{t('groupContextPhotos')}</h2><p className="muted">{t('groupContextPhotosDesc', { group: group.name })}</p>{!membership.canViewPosts ? <p className="muted">{t('joinToSeePosts')}</p> : photosLoading && photos.length === 0 ? <div className="state-card"><span className="spinner" /></div> : photos.length === 0 ? <p className="muted">{t('photosEmpty')}</p> : <><div className="profile-photo-grid">{photos.map((photo) => <button type="button" key={`${photo.contentId}-${photo.media.id}`} onClick={() => onNavigate(`/content/${photo.contentId}`)}><img src={photo.media.url} alt="" loading="lazy" /></button>)}</div>{photosHaveMore && <button type="button" className="btn-soft load-more-result" disabled={photosLoading || !photoCursor} onClick={() => void loadPhotos(photoCursor, true)}>{photosLoading ? t('loadingMore') : t('seeMore')}</button>}</>}</div>}
         {tab === 'about' && <div className="card profile-tab-card"><h2>{t('about')}</h2><dl><div><dt>{t('bio')}</dt><dd>{profile.bio || t('notAvailable')}</dd></div><div><dt>{t('location')}</dt><dd>{profile.location || t('notAvailable')}</dd></div><div><dt>{t('group')}</dt><dd>{group.name}</dd></div></dl></div>}
       </section>

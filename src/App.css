@@ -176,16 +176,12 @@ select {
 
 /* ---------------- composed Gateway application ---------------- */
 .authenticated-app {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
+  min-height: 100vh;
   background: var(--bg);
 }
 .app-shell-topbar {
-  position: relative;
-  flex-shrink: 0;
+  position: sticky;
+  top: 0;
   z-index: 100;
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--sidebar-w);
@@ -3105,23 +3101,17 @@ select {
 }
 
 /* Facebook-inspired 2026 application shell */
-.authenticated-app { height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); }
+.authenticated-app { min-height: 100vh; background: var(--bg); }
 .app-shell-topbar {
-  position: relative; z-index: 1000; height: var(--topbar-h); flex-shrink: 0;
+  position: fixed; inset: 0 0 auto; z-index: 1000; height: var(--topbar-h);
   display: grid; grid-template-columns: minmax(220px, 1fr) minmax(360px, 680px) minmax(220px, 1fr);
   align-items: center; gap: 18px; padding: 0 16px; background: var(--card);
   border-bottom: var(--navigation-divider-width) solid var(--navigation-divider); box-shadow: var(--shadow-card);
 }
-.app-shell-content {
-  flex: 1 1 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  min-height: 0;
-}
 .shell-brand-search, .app-shell-actions { display: flex; align-items: center; gap: 8px; }
 .shell-brand-search-anchor { min-width: 0; display: flex; align-items: center; }
 .app-shell-actions { justify-content: flex-end; }
-.app-brand { width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; overflow: hidden; background: var(--blue); transition: margin-left .16s ease-out; }
+.app-brand { width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; overflow: hidden; background: var(--blue); }
 .app-brand img { width: 100%; height: 100%; object-fit: contain; transform: scale(1.6); transform-origin: center; }
 .shell-search { width: min(280px, calc(100vw - 90px)); height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 13px; border-radius: 22px; color: var(--secondary); background: var(--bg); }
 .shell-search input { min-width: 0; width: 100%; border: 0; outline: 0; color: var(--text); background: transparent; }
@@ -6125,18 +6115,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 .shared-private-group-message { display: flex; align-items: center; gap: 10px; padding: 13px 14px 4px; color: var(--secondary); border-top: 1px solid var(--divider); }
 .shared-private-group-message strong { color: var(--text); font-size: .9rem; font-weight: 590; }
 .shared-private-group-message p { margin: 2px 0 0; font-size: .8rem; }
-.shared-group-join-link {
-  height: 34px;
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin: 10px 12px 12px;
-  padding: 0 13px;
-  border-radius: 8px;
-  font-size: .9rem;
-  font-weight: 600;
-}
+.shared-group-join-link { min-height: 36px; margin: 10px 12px 12px; border-radius: 7px; }
 .shared-source-group-author { min-width: 0; max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shared-source-body { border-top: 0; }
 .shared-source-head { display: flex; align-items: flex-start; gap: 10px; padding: 12px 12px 8px; }
@@ -6609,10 +6588,9 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 .story-viewer-sidebar > header {
   position: relative;
   z-index: 3;
-  display: flex;
-  align-items: center;
+  display: block;
   min-height: 0;
-  padding: 14px 15px 8px 56px;
+  padding: 14px 15px 8px;
   border-bottom: 0;
   background: #242526;
 }
@@ -7985,13 +7963,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
   border-bottom: 1px solid var(--divider);
 }
 .content-thread-head h2 { font-size: 1.28rem; font-weight: 700; }
-.content-thread-scroll {
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-}
-.content-thread-scroll::-webkit-scrollbar {
-  display: none;
-}
+.content-thread-scroll { overscroll-behavior: contain; }
 .thread-post-preview.gateway-post {
   margin-top: 0;
   overflow: visible;
@@ -8661,16 +8633,6 @@ body.content-detail-open .mini-chat-region { z-index: 2150; }
   box-shadow: 0 1px 4px rgb(0 0 0 / 28%);
 }
 .content-detail-shell-close:hover { background: var(--hover); }
-
-/* Story viewer shell close: position at topbar level next to the logo, matching Facebook's layout */
-.story-viewer-shell-close {
-  top: calc((var(--topbar-h) - 36px) / 2);
-  left: 14px;
-  color: #e4e6eb;
-  background: #3a3b3c;
-  box-shadow: none;
-}
-.story-viewer-shell-close:hover { background: #4e4f50; }
 
 /* Full-screen photo detail keeps the existing discussion tree in a compact right rail. */
 .post-media-slot.image-interactive { cursor: pointer; }
@@ -10403,62 +10365,3 @@ body.reels-library-viewer-open.mini-chat-bubble-rail-open .reels-page.is-library
   line-height: 1.25;
   font-weight: 600;
 }
-
-/* --- Responsive fixes --- */
-@media (max-width: 1024px) and (min-width: 768px) {
-  .gateway-left-rail {
-    width: 72px !important;
-    min-width: 72px !important;
-  }
-  .gateway-left-rail .service-heading h2,
-  .gateway-left-rail .service-heading p,
-  .gateway-left-rail .service-heading button,
-  .gateway-left-rail span,
-  .gateway-left-rail .service-contract-note,
-  .gateway-left-rail strong {
-    display: none !important;
-  }
-  .gateway-home {
-    grid-template-columns: 72px minmax(0, 1fr) var(--sidebar-w) !important;
-  }
-}
-
-@media (max-width: 767px) {
-  .gateway-left-rail {
-    display: none !important;
-  }
-  .gateway-home {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
-  
-  /* Post composer modal */
-  .modal {
-    max-width: 100% !important;
-    width: 100% !important;
-    height: 100% !important;
-    max-height: 100vh !important;
-    border-radius: 0 !important;
-    margin: 0 !important;
-  }
-  .modal-backdrop {
-    padding: 0 !important;
-  }
-  
-  /* Profile page responsive */
-  .profile-cover {
-    height: 200px !important;
-  }
-  .profile-cta {
-    flex-wrap: wrap !important;
-  }
-
-  /* Story viewer sidebar behavior */
-  .story-viewer-sidebar {
-    display: none !important;
-  }
-  .story-viewer-canvas {
-    width: 100vw !important;
-    left: 0 !important;
-  }
-}
-

@@ -590,7 +590,7 @@ function ContactSearchIcon() {
   return <svg className="contact-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.3" /><path d="m14.95 14.95 4.75 4.75" /></svg>
 }
 
-export function HomeFeedSkeleton({ label }: { label?: string }) {
+function HomeFeedSkeleton({ label }: { label: string }) {
   return <article className="card gateway-post home-feed-skeleton" role="status" aria-label={label}>
     <header className="feed-post-head" aria-hidden="true">
       <span className="home-feed-skeleton-avatar" />
@@ -730,8 +730,7 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   const privacyLabel = privacyOptions.find((option) => option.value === privacy)?.label ?? t('privacyPublic')
   const effectivePrivacy: PostPrivacy = groupMode ? groupPrivacy === 0 ? 0 : 2 : privacy
   const effectivePrivacyLabel = groupMode ? groupPrivacy === 0 ? t('publicGroup') : t('privateGroup') : privacyLabel
-  const MAX_BACKGROUND_CHARS = 130
-  const selectedBackground = selectedFiles.length === 0 && content.length <= MAX_BACKGROUND_CHARS ? getPostBackgroundPreset(backgroundId) : null
+  const selectedBackground = selectedFiles.length === 0 ? getPostBackgroundPreset(backgroundId) : null
   const composerPlaceholder = t('postComposerPersonalPlaceholder', { name: displayName })
   const postEditorClass = selectedBackground
     ? 'mention-compose-field home-post-editor has-background'
@@ -922,7 +921,7 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
     try {
       uploaded = files.length > 0 ? await api.uploadMediaFiles(files) : []
       const serializedContent = serializeMentionContent(content, mentionEntities)
-      const persistedContent = encodePostContent(serializedContent, files.length === 0 && content.length <= MAX_BACKGROUND_CHARS ? backgroundId : null)
+      const persistedContent = encodePostContent(serializedContent, files.length === 0 ? backgroundId : null)
       const mentionById = new Map(mentionEntities.map((mention) => [mention.userId, mention]))
       const optimisticMentions = extractMentionUserIds(serializedContent).flatMap((userId) => {
         const mention = mentionById.get(userId)

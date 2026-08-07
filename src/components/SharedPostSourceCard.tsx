@@ -31,7 +31,7 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource,
           <button type="button" className="shared-group-copy" onClick={openGroup}><strong>{sharedGroup.name}</strong><span>{t('privateGroup')} · {t('membersCount', { count: sharedGroup.memberCount })}</span></button>
         </div>
         <div className="shared-private-group-message"><Icon name="lock" size={22} /><div><strong>{t('privateGroupPostUnavailable')}</strong><p>{t('privateGroupPostUnavailableDesc')}</p></div></div>
-        <button type="button" className={`shared-group-join-link ${sharedGroup.joinRequestPending ? 'btn-soft' : 'btn-primary'}`} onClick={openGroup}>{sharedGroup.joinRequestPending ? t('joinRequested') : t('joinGroupLong')}</button>
+        <button type="button" className="btn-primary shared-group-join-link" onClick={openGroup}>{sharedGroup.joinRequestPending ? t('joinRequested') : t('joinGroupLong')}</button>
       </section>
     }
     return <section className="shared-post-source unavailable"><Icon name="lock" size={24} /><div><strong>{t('contentUnavailable')}</strong><p>{t('contentUnavailableDesc')}</p></div></section>

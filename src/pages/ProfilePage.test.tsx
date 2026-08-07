@@ -58,7 +58,6 @@ vi.mock('../i18n', () => ({ useI18n: () => ({ t: i18nMocks.t, locale: i18nMocks.
 vi.mock('../lib/imageCrop', () => ({ cropImageFile: cropMocks.cropImageFile }))
 vi.mock('./GatewayHomePage', () => ({
   GatewayPostCard: () => null,
-  HomeFeedSkeleton: () => null,
   PostComposer: ({ triggerOnly, externalOpenRequest, externalReelOpenRequest, onCreated }: { triggerOnly?: boolean; externalOpenRequest?: number; externalReelOpenRequest?: number; onCreated?: (post: Record<string, unknown>) => void }) => <div data-testid="profile-post-composer" data-trigger-only={triggerOnly ? 'true' : 'false'} data-open-request={externalOpenRequest ?? 0} data-reel-open-request={externalReelOpenRequest ?? 0}>
     {(externalReelOpenRequest ?? 0) > 0 && <div data-testid="profile-create-reel-modal"><button type="button" onClick={() => onCreated?.({
       __typename: 'ReelDetail',

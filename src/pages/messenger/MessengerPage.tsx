@@ -9,7 +9,6 @@ import { Icon } from '../../components/Icon'
 import { useI18n } from '../../i18n'
 import { ConversationDetail } from './ConversationDetail'
 import { ConversationList } from './ConversationList'
-import { ConversationMediaBrowser } from './ConversationMediaBrowser'
 import { ForwardMessageDialog } from './ForwardMessageDialog'
 import { GroupConversationManager } from './GroupConversationManager'
 import { MessageThread } from './MessageThread'
@@ -71,8 +70,7 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   const [showNewModal, setShowNewModal] = useState(false)
   const [mobileShowThread, setMobileShowThread] = useState(false)
   const [showDetail, setShowDetail] = useState(true)
-  const [mediaGalleryTab, setMediaGalleryTab] = useState<'media' | 'files' | 'links' | null>(null)
-  const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'groups'>('all')
+  const [activeTab, setActiveTab] = useState<'inbox' | 'communities'>('inbox')
   const [presenceByUserId, setPresenceByUserId] = useState<Record<string, MessengerPresenceDto>>({})
   const [typingByConversationId, setTypingByConversationId] = useState<Record<string, string>>({})
   const [replyToByConversationId, setReplyToByConversationId] = useState<Record<string, string | null>>({})
@@ -689,26 +687,7 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
     <main className={`messenger-shell${mobileShowThread ? ' thread-open' : ''}${showDetail ? ' detail-open' : ''}`} aria-label="Messenger">
       <ConversationList me={me} conversations={conversations} presenceByUserId={presenceByUserId} selectedId={selectedId} query={query} loading={loading} activeTab={activeTab} totalUnread={totalUnread} onSelect={selectConversation} onQueryChange={setQuery} onTabChange={setActiveTab} onNewMessage={() => setShowNewModal(true)} />
       {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={drafts[selected.id] ?? ''} pendingAttachments={pendingAttachmentsByConversation[selected.id] ?? []} pendingUploadPreviews={pendingUploadPreviewsByConversation[selected.id] ?? []} uploading={uploadingConversationId === selected.id} apiState={apiState} showDetail={showDetail} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} groupPresenceLabel={selectedGroupPresence?.label} groupOnlineCount={selectedGroupPresence?.onlineCount} typingUserId={typingByConversationId[selected.id] ?? null} replyTarget={replyTarget} onInteract={() => markConversationRead(selected.id)} onDraftChange={(value) => updateDraft(selected.id, value)} onAttachFiles={(files) => void attachFiles(selected.id, files)} onRemoveAttachment={removePendingAttachment} onRemovePendingUpload={(id) => removePendingUploadPreview(selected.id, id)} onSubmit={handleSubmit} onSendLike={(level) => void sendLike(level)} onReplyMessage={(message) => setReplyToByConversationId((current) => ({ ...current, [selected.id]: message.id }))} onCancelReply={() => setReplyToByConversationId((current) => ({ ...current, [selected.id]: null }))} onReactMessage={reactToMessage} onRecallMessage={recallMessage} onEditMessage={editChatMessage} onForwardMessage={setForwardingMessage} onOpenProfile={onOpenProfile} onNavigate={onNavigate} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onUnblockDirect={(targetUserId) => void unblockDirectConversation(targetUserId)} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
-      {showDetail && selected && (
-        mediaGalleryTab ? (
-          <ConversationMediaBrowser
-            conversationId={selected.id}
-            activeTab={mediaGalleryTab}
-            onTabChange={setMediaGalleryTab}
-            onClose={() => setMediaGalleryTab(null)}
-          />
-        ) : (
-          <ConversationDetail
-            me={me}
-            conversation={selected}
-            presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined}
-            onOpenProfile={onOpenProfile}
-            onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined}
-            onLeave={() => void leaveSelectedConversation()}
-            onOpenMediaTab={setMediaGalleryTab}
-          />
-        )
-      )}
+      {showDetail && selected && <ConversationDetail me={me} conversation={selected} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} onOpenProfile={onOpenProfile} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onLeave={() => void leaveSelectedConversation()} />}
     </main>
     {showNewModal && <NewConversationModal friends={friends} onStart={startConversation} onCreateGroup={startGroupConversation} onClose={() => setShowNewModal(false)} />}
     {forwardingMessage && <ForwardMessageDialog message={forwardingMessage} conversations={conversations} me={me} onForward={forwardMessage} onClose={() => setForwardingMessage(null)} />}

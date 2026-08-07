@@ -14,11 +14,11 @@ interface ConversationListProps {
   selectedId: string | null
   query: string
   loading: boolean
-  activeTab: 'all' | 'unread' | 'groups'
+  activeTab: 'inbox' | 'communities'
   totalUnread: number
   onSelect: (id: string) => void
   onQueryChange: (q: string) => void
-  onTabChange: (tab: 'all' | 'unread' | 'groups') => void
+  onTabChange: (tab: 'inbox' | 'communities') => void
   onNewMessage: () => void
 }
 
@@ -38,16 +38,10 @@ export function ConversationList({
 }: ConversationListProps) {
   const { t, locale } = useI18n()
   const filtered = useMemo(() => {
-    let list = conversations
-    if (activeTab === 'unread') {
-      list = list.filter(c => c.unreadCount > 0)
-    } else if (activeTab === 'groups') {
-      list = list.filter(c => c.type === 'GROUP')
-    }
     const needle = query.trim().toLowerCase()
-    if (!needle) return list
-    return list.filter((c) => conversationName(c, me).toLowerCase().includes(needle))
-  }, [conversations, me, query, activeTab])
+    if (!needle) return conversations
+    return conversations.filter((c) => conversationName(c, me).toLowerCase().includes(needle))
+  }, [conversations, me, query])
 
   return (
     <aside className="messenger-list" aria-label={t('chats')}>
@@ -59,6 +53,7 @@ export function ConversationList({
         <div className="messenger-actions">
           <button type="button" className="btn-soft messenger-new-message" aria-label={t('newMessage')} onClick={onNewMessage}>
             <Icon name="edit" size={18} />
+            <span>{t('newMessage')}</span>
           </button>
         </div>
       </header>
@@ -71,24 +66,17 @@ export function ConversationList({
       <div className="messenger-tabs" role="tablist" aria-label={t('inboxFilters')}>
         <button
           type="button"
-          className={activeTab === 'all' ? 'active' : ''}
-          onClick={() => onTabChange('all')}
+          className={activeTab === 'inbox' ? 'active' : ''}
+          onClick={() => onTabChange('inbox')}
         >
-          {t('all')}
+          {t('inbox')}
         </button>
         <button
           type="button"
-          className={activeTab === 'unread' ? 'active' : ''}
-          onClick={() => onTabChange('unread')}
+          className={activeTab === 'communities' ? 'active' : ''}
+          onClick={() => onTabChange('communities')}
         >
-          {t('unread')}
-        </button>
-        <button
-          type="button"
-          className={activeTab === 'groups' ? 'active' : ''}
-          onClick={() => onTabChange('groups')}
-        >
-          {t('groups')}
+          {t('communities')}
         </button>
       </div>
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { api, ApiError } from '../api/client'
+import { api } from '../api/client'
 import { messengerApi } from '../api/messenger'
 import { socialApi, type ContentEngagement, type SocialGroup } from '../api/social'
 import type { GatewayMedia, GatewayPost, SharedPostSource, SharedStory } from '../api/gatewayTypes'
@@ -92,7 +92,6 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [isUnavailable, setIsUnavailable] = useState(false)
   const [localCommentsOpen, setLocalCommentsOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [reelOptionsOpen, setReelOptionsOpen] = useState(false)
@@ -118,21 +117,13 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
     const sequence = ++engagementLoadSequenceRef.current
     setEngagement({ ...EMPTY_ENGAGEMENT, targetId: contentId })
     setError(null)
-    setIsUnavailable(false)
     setLoading(true)
     void socialApi.getContentEngagement(contentId)
       .then((value) => {
         if (sequence === engagementLoadSequenceRef.current && value) setEngagement(value)
       })
-      .catch((err) => {
-        if (sequence === engagementLoadSequenceRef.current) {
-          if (err instanceof ApiError && (err.status === 403 || err.status === 404)) {
-            setIsUnavailable(true)
-            setError(t('contentNotAvailable') || 'This content is no longer available')
-          } else {
-            setError(t('engagementLoadError'))
-          }
-        }
+      .catch(() => {
+        if (sequence === engagementLoadSequenceRef.current) setError(t('engagementLoadError'))
       })
       .finally(() => {
         if (sequence === engagementLoadSequenceRef.current) setLoading(false)
@@ -284,17 +275,17 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
         {showShareCount && <span className="content-share-summary">{counts.shares} {t('shares')}</span>}
         {showViewCount && <span className="content-view-summary">{counts.views} {t('views')}</span>}
       </div>}
-      <footer className={`gateway-post-actions${canShare && !isUnavailable ? '' : ' no-share'}`}>
-        <button type="button" className={engagement.viewerHasLiked ? 'active' : ''} disabled={loading || busy != null || isUnavailable} onClick={() => void toggleLike()}><Icon name={engagement.viewerHasLiked ? 'like' : 'likeOutline'} size={21} />{t('like')}</button>
-        <button type="button" disabled={isUnavailable} onClick={() => setCommentsOpen(true)}><Icon name="commentOutline" size={21} />{t('commentAction')}</button>
-        {canShare && !isUnavailable && <button type="button" disabled={!sharingAllowed} aria-disabled={!sharingAllowed} onClick={() => setShareOpen(true)}><Icon name="shareOutline" size={22} />{t('shareAction')}</button>}
+      <footer className={`gateway-post-actions${canShare ? '' : ' no-share'}`}>
+        <button type="button" className={engagement.viewerHasLiked ? 'active' : ''} disabled={loading || busy != null} onClick={() => void toggleLike()}><Icon name={engagement.viewerHasLiked ? 'like' : 'likeOutline'} size={21} />{t('like')}</button>
+        <button type="button" onClick={() => setCommentsOpen(true)}><Icon name="commentOutline" size={21} />{t('commentAction')}</button>
+        {canShare && <button type="button" disabled={!sharingAllowed} aria-disabled={!sharingAllowed} onClick={() => setShareOpen(true)}><Icon name="shareOutline" size={22} />{t('shareAction')}</button>}
       </footer>
       {error && <p className="content-action-error">{error}</p>}
     </div> : <aside ref={reelOptionsRef} className="reel-actions" aria-label={t('reels')}>
-      <button type="button" aria-label={t('like')} className={engagement.viewerHasLiked ? 'active' : ''} disabled={loading || busy != null || isUnavailable} onClick={() => void toggleLike()}><Icon name={engagement.viewerHasLiked ? 'like' : 'likeOutline'} /><span aria-hidden={!loading && engagement.likeCount === 0} className={!loading && engagement.likeCount === 0 ? 'reel-action-count is-empty' : 'reel-action-count'}>{reelCounts.likes}</span></button>
-      <button type="button" className={commentsOpen ? 'active' : ''} aria-label={t('commentAction')} disabled={isUnavailable} aria-expanded={commentsOpen} onClick={() => setCommentsOpen(commentsPresentation === 'sidebar' ? !commentsOpen : true)}><Icon name="commentOutline" /><span aria-hidden={!loading && engagement.commentCount === 0} className={!loading && engagement.commentCount === 0 ? 'reel-action-count is-empty' : 'reel-action-count'}>{reelCounts.comments}</span></button>
-      {canShare && !isUnavailable && <button type="button" className={shareOpen ? 'active' : ''} aria-label={t('shareAction')} disabled={!sharingAllowed} aria-disabled={!sharingAllowed} onClick={() => setShareOpen(true)}><Icon name="shareOutline" /><span aria-hidden={!loading && engagement.shareCount === 0} className={!loading && engagement.shareCount === 0 ? 'reel-action-count is-empty' : 'reel-action-count'}>{reelCounts.shares}</span></button>}
-      <button type="button" aria-label={engagement.viewerHasSaved ? t('saved') : t('save')} className={`reel-save-action${engagement.viewerHasSaved ? ' active' : ''}`} disabled={loading || busy != null || isUnavailable} onClick={() => void toggleSave()}><Icon name="bookmark" /></button>
+      <button type="button" aria-label={t('like')} className={engagement.viewerHasLiked ? 'active' : ''} disabled={loading || busy != null} onClick={() => void toggleLike()}><Icon name={engagement.viewerHasLiked ? 'like' : 'likeOutline'} /><span aria-hidden={!loading && engagement.likeCount === 0} className={!loading && engagement.likeCount === 0 ? 'reel-action-count is-empty' : 'reel-action-count'}>{reelCounts.likes}</span></button>
+      <button type="button" className={commentsOpen ? 'active' : ''} aria-label={t('commentAction')} aria-expanded={commentsOpen} onClick={() => setCommentsOpen(commentsPresentation === 'sidebar' ? !commentsOpen : true)}><Icon name="commentOutline" /><span aria-hidden={!loading && engagement.commentCount === 0} className={!loading && engagement.commentCount === 0 ? 'reel-action-count is-empty' : 'reel-action-count'}>{reelCounts.comments}</span></button>
+      {canShare && <button type="button" className={shareOpen ? 'active' : ''} aria-label={t('shareAction')} disabled={!sharingAllowed} aria-disabled={!sharingAllowed} onClick={() => setShareOpen(true)}><Icon name="shareOutline" /><span aria-hidden={!loading && engagement.shareCount === 0} className={!loading && engagement.shareCount === 0 ? 'reel-action-count is-empty' : 'reel-action-count'}>{reelCounts.shares}</span></button>}
+      <button type="button" aria-label={engagement.viewerHasSaved ? t('saved') : t('save')} className={`reel-save-action${engagement.viewerHasSaved ? ' active' : ''}`} disabled={loading || busy != null} onClick={() => void toggleSave()}><Icon name="bookmark" /></button>
       <button type="button" className={`reel-more-action${reelOptionsOpen ? ' active' : ''}`} aria-label={t('more')} aria-expanded={reelOptionsOpen} onClick={() => { setReelOptionsOpen((open) => !open); setReelSpeedOpen(false) }}><Icon name="more" /></button>
       {reelOptionsOpen && !reelSpeedOpen && <div className="reel-options-menu" role="menu" aria-label={t('more')}>
         <button type="button" role="menuitem" className={reelPreference === 'interested' ? 'selected' : ''} onClick={() => { setReelPreference('interested'); setReelOptionsOpen(false) }}><ReelPreferenceIcon kind="plus" /><span>{t('interested')}</span></button>
@@ -337,14 +328,6 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
     flushSync(onClose)
     onNavigate?.(path)
   }
-
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [onClose])
 
   useEffect(() => {
     let active = true

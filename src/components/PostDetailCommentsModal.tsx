@@ -198,15 +198,6 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   }, [])
 
   useEffect(() => {
-    if (variant === 'photo-sidebar') return
-    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [variant, onClose])
-
-  useEffect(() => {
     if (!commentMenuId) return
     const close = (event: MouseEvent) => {
       if (!(event.target as HTMLElement | null)?.closest('[data-comment-options-root]')) {
