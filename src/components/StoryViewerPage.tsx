@@ -6,6 +6,7 @@ import { socialApi, type ContentEngagement, type ProfileRelationshipState } from
 import type { UserSummary } from '../api/types'
 import { useI18n } from '../i18n'
 import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
+import { contentOverlayHref } from '../lib/overlayRoutes'
 import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
 import { decodeStoryContent } from '../lib/storyContent'
 import { Avatar } from './Avatar'
@@ -219,7 +220,7 @@ export function StoryViewerPage({
 
   const openSharedPost = useCallback((sourceId: string) => {
     onClose()
-    onNavigate?.(`/home?post=${encodeURIComponent(sourceId)}`)
+    onNavigate?.(contentOverlayHref(sourceId))
   }, [onClose, onNavigate])
 
   const advanceStory = useCallback(() => {

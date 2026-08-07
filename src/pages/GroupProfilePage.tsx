@@ -22,12 +22,12 @@ import { useI18n } from '../i18n'
 import { useInlineImageCrop } from '../lib/useInlineImageCrop'
 import { useImageAmbientColor } from '../lib/useImageAmbientColor'
 import { groupProfilePostsByMonth } from '../lib/profilePostGrid'
-import { useProfileColumnScroll, useProfilePageScrollMode } from '../lib/useProfileColumnScroll'
+import { useProfilePageScrollMode } from '../lib/useProfileColumnScroll'
+import { contentOverlayHref } from '../lib/overlayRoutes'
 import { PostComposer, GatewayPostCard } from './GatewayHomePage'
 import './GroupProfilePage.css'
 
 const PostPhotoViewer = lazy(() => import('../components/PostPhotoViewer').then((module) => ({ default: module.PostPhotoViewer })))
-const ContentDetailOverlay = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentDetailOverlay })))
 const ShareModal = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ShareModal })))
 
 type GroupProfileTab = 'discussion' | 'about' | 'people' | 'media'
@@ -37,7 +37,7 @@ type GroupPostFilter = 'all' | 'media' | 'text'
 type GroupImageKind = 'avatar' | 'background'
 type GroupAboutEditTarget = 'description' | 'privacy' | 'all'
 
-interface GroupMediaViewerState {
+export interface GroupMediaViewerState {
   contentId: string
   media: { id: string; type: number; url: string }
   initialPlaybackTime?: number
@@ -352,7 +352,7 @@ function GroupRequestCard({ profile, busy, onNavigate, onReview }: { profile: Us
   </article>
 }
 
-export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenReel }: { groupId: string; userId: string; onBack: () => void; onNavigate: (path: string) => void; onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void }) {
+export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenReel, onOpenPhoto }: { groupId: string; userId: string; onBack: () => void; onNavigate: (path: string) => void; onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void; onOpenPhoto?: (viewer: GroupMediaViewerState) => void }) {
   const { t, locale } = useI18n()
   const [group, setGroup] = useState<SocialGroup | null>(null)
   const [viewer, setViewer] = useState<SocialProfile | null>(null)
@@ -395,7 +395,13 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const [imageCandidates, setImageCandidates] = useState<SocialPhoto[]>([])
   const [existingPicker, setExistingPicker] = useState<GroupImageKind | null>(null)
   const [photoViewer, setPhotoViewer] = useState<GroupMediaViewerState | null>(null)
-  const [groupDetailPostId, setGroupDetailPostId] = useState<string | null>(null)
+  const publishGroupPhoto = (viewer: GroupMediaViewerState) => {
+    if (onOpenPhoto) {
+      onOpenPhoto(viewer)
+      return
+    }
+    setPhotoViewer(viewer)
+  }
   const coverActionRef = useRef<HTMLDivElement>(null)
   const avatarActionRef = useRef<HTMLDivElement>(null)
   const coverUploadInputRef = useRef<HTMLInputElement>(null)
@@ -403,8 +409,6 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const groupPageRef = useRef<HTMLElement>(null)
   const groupContentGridRef = useRef<HTMLDivElement>(null)
   const profileWidthRulerRef = useRef<HTMLElement>(null)
-  const groupPostColumnRef = useRef<HTMLElement>(null)
-  const groupInfoColumnRef = useRef<HTMLElement>(null)
   const groupPostSentinelRef = useRef<HTMLDivElement>(null)
   const postRequestSequenceRef = useRef(0)
   const postsLoadMoreBusyRef = useRef(false)
@@ -413,13 +417,6 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const coverAmbientColor = useImageAmbientColor(coverEditor.target?.previewUrl ?? group?.backgroundUrl)
 
   useProfilePageScrollMode()
-  useProfileColumnScroll({
-    active: tab === 'discussion' && !loading && group != null,
-    pageRef: groupPageRef,
-    firstColumnRef: groupPostColumnRef,
-    secondColumnRef: groupInfoColumnRef,
-    resetKey: groupId,
-  })
 
   useLayoutEffect(() => {
     if (loading || !group) return
@@ -899,16 +896,16 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
 
       {error && <p className="inline-alert group-profile-alert">{error}</p>}
       {tab === 'discussion' && <div ref={groupContentGridRef} className="profile-destination-grid self-profile-destination-grid tab-posts group-profile-main discussion group-profile-content-grid">
-        <section ref={groupPostColumnRef} className="profile-post-list group-profile-post-column">
+        <section className="profile-post-list group-profile-post-column">
           {participant && viewer && <PostComposer variant="group" userId={viewer.id} displayName={viewer.displayName} avatarUrl={viewer.avatarUrl} isVerified={viewer.isVerified} friends={eligibleTagPeople} groupId={group.id} groupName={group.name} groupAvatarUrl={group.avatarUrl} groupPrivacy={group.privacy} onNavigate={onNavigate} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
           <GroupPostViewTools filter={postFilter} view={postView} manageMode={manageMode} onFilterChange={setPostFilter} onViewChange={setPostView} onManageToggle={() => setManageMode((value) => !value)} />
-          {!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupFeedEmpty')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : filteredPosts.length === 0 ? <div className="card state-card"><h2>{t('profileNoPosts')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : postView === 'grid' ? <div className="self-profile-post-months">{groupPostMonthGroups.map((month) => <section className="card self-profile-post-month" key={month.id}><h3>{month.label}</h3><div className="self-profile-post-grid">{month.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} groupPrivacy onOpenDetail={() => setGroupDetailPostId(post.id)} onOpenMedia={(item: ProfileGridMediaTarget) => setPhotoViewer({ contentId: item.contentId, media: { id: item.mediaId, type: item.mediaType, url: item.mediaUrl } })} onOpenReel={post.__typename === 'ReelDetail' && onOpenReel ? () => onOpenReel(post) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} onOpenReel={onOpenReel} groupContextId={group.id} viewerCanModerateGroupPosts={membership.isAdmin} />)}
+          {!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupFeedEmpty')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : filteredPosts.length === 0 ? <div className="card state-card"><h2>{t('profileNoPosts')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : postView === 'grid' ? <div className="self-profile-post-months">{groupPostMonthGroups.map((month) => <section className="card self-profile-post-month" key={month.id}><h3>{month.label}</h3><div className="self-profile-post-grid">{month.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} groupPrivacy onOpenDetail={() => onNavigate(contentOverlayHref(post.id))} onOpenMedia={(item: ProfileGridMediaTarget) => publishGroupPhoto({ contentId: item.contentId, media: { id: item.mediaId, type: item.mediaType, url: item.mediaUrl } })} onOpenReel={post.__typename === 'ReelDetail' && onOpenReel ? () => onOpenReel(post) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} onOpenReel={onOpenReel} groupContextId={group.id} viewerCanModerateGroupPosts={membership.isAdmin} />)}
           {posts.length > 0 && (postsHaveMore || postsLoadingMore || postsMoreError) && <div ref={groupPostSentinelRef} className="profile-posts-auto-loader" aria-live="polite">
             {postsLoadingMore && <span className="spinner" aria-label={t('loadingMore')} />}
             {postsMoreError && <button type="button" className="btn-soft" disabled={!postCursor} onClick={() => void loadPosts(postCursor, true)}>{t('tryAgain')}</button>}
           </div>}
         </section>
-        <aside ref={groupInfoColumnRef} className="self-profile-left-column group-profile-info-column"><GroupAboutCard group={group} locale={locale} admin={membership.isAdmin} compact onUpdated={setGroup} /><GroupPeoplePreview people={visiblePeople} count={groupMemberCount} onNavigate={onNavigate} onOpen={() => setTab('people')} /><GroupMediaPreview media={media} hasMore={mediaHaveMore} onOpenTab={() => setTab('media')} onOpenMedia={(item) => setPhotoViewer(item)} /></aside>
+        <aside className="self-profile-left-column group-profile-info-column"><GroupAboutCard group={group} locale={locale} admin={membership.isAdmin} compact onUpdated={setGroup} /><GroupPeoplePreview people={visiblePeople} count={groupMemberCount} onNavigate={onNavigate} onOpen={() => setTab('people')} /><GroupMediaPreview media={media} hasMore={mediaHaveMore} onOpenTab={() => setTab('media')} onOpenMedia={(item) => publishGroupPhoto(item)} /></aside>
       </div>}
 
       {tab === 'about' && <div className="profile-destination-grid self-profile-destination-grid tab-about"><section className="profile-post-list"><GroupAboutCard group={group} locale={locale} admin={membership.isAdmin} onUpdated={setGroup} /></section></div>}
@@ -922,20 +919,16 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
       {tab === 'media' && <div className="profile-destination-grid self-profile-destination-grid tab-photos"><section className="profile-post-list"><section className="card self-profile-collection-card self-profile-media-tab group-profile-media-tab">
         <header className="self-profile-collection-head self-profile-section-head"><h2>{t('mediaFiles')}</h2>{participant && <button type="button" className="self-profile-section-action" onClick={() => setMediaComposerRequest((request) => request + 1)}>{t('profileAddPhotoVideo')}</button>}</header>
         <nav className="self-profile-collection-tabs" aria-label={t('mediaFiles')}><button type="button" className={mediaFilter === 'all' ? 'active' : ''} onClick={() => setMediaFilter('all')}>{t('profileMediaAll')}</button><button type="button" className={mediaFilter === 'photos' ? 'active' : ''} onClick={() => setMediaFilter('photos')}>{t('photos')}</button><button type="button" className={mediaFilter === 'videos' ? 'active' : ''} onClick={() => setMediaFilter('videos')}>{t('videos')}</button></nav>
-        {!membership.canViewPosts ? <div className="self-profile-collection-state muted">{t('joinToSeePosts')}</div> : mediaLoading && media.length === 0 ? <div className="self-profile-collection-state"><span className="spinner" /></div> : filteredMedia.length === 0 ? <div className="self-profile-collection-state muted">{t('photosEmpty')}</div> : <div className="self-profile-media-grid">{filteredMedia.map((item) => <article key={`${item.contentId}-${item.media.id}`}><button type="button" className="self-profile-media-open" onClick={() => setPhotoViewer(item)}>{item.media.type === 1 ? <><video src={item.media.url} muted playsInline preload="metadata" /><span className="self-profile-media-play"><Icon name="play" size={20} /></span></> : <img src={item.media.url} alt="" loading="lazy" />}</button></article>)}</div>}
+        {!membership.canViewPosts ? <div className="self-profile-collection-state muted">{t('joinToSeePosts')}</div> : mediaLoading && media.length === 0 ? <div className="self-profile-collection-state"><span className="spinner" /></div> : filteredMedia.length === 0 ? <div className="self-profile-collection-state muted">{t('photosEmpty')}</div> : <div className="self-profile-media-grid">{filteredMedia.map((item) => <article key={`${item.contentId}-${item.media.id}`}><button type="button" className="self-profile-media-open" onClick={() => publishGroupPhoto(item)}>{item.media.type === 1 ? <><video src={item.media.url} muted playsInline preload="metadata" /><span className="self-profile-media-play"><Icon name="play" size={20} /></span></> : <img src={item.media.url} alt="" loading="lazy" />}</button></article>)}</div>}
         {mediaHaveMore && <button type="button" className="btn-soft group-profile-load-more" disabled={mediaLoading || !mediaCursor} onClick={() => void loadMedia(mediaCursor, true)}>{mediaLoading ? t('loadingMore') : t('seeMore')}</button>}
         {participant && viewer && <PostComposer triggerOnly externalOpenRequest={mediaComposerRequest} variant="group" userId={viewer.id} displayName={viewer.displayName} avatarUrl={viewer.avatarUrl} isVerified={viewer.isVerified} friends={eligibleTagPeople} groupId={group.id} groupName={group.name} groupAvatarUrl={group.avatarUrl} groupPrivacy={group.privacy} onNavigate={onNavigate} onCreated={(post) => { setPosts((currentPosts) => [post, ...currentPosts.filter((item) => item.id !== post.id)]); void loadMedia() }} />}
       </section></section></div>}
     </main>
 
-    {groupDetailPostId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={userId} contentId={groupDetailPostId} onClose={() => setGroupDetailPostId(null)} onNavigate={onNavigate} onOpenImage={(detailPost, item, _index, initialPlaybackTime) => {
-      if (detailPost.__typename === 'ReelDetail') return
-      setPhotoViewer({ contentId: detailPost.id, media: item, initialPlaybackTime, initialPost: detailPost })
-    }} onOpenReel={onOpenReel} /></Suspense>}
     {editOpen && <GroupEditModal group={group} onClose={() => setEditOpen(false)} onUpdated={setGroup} />}
     {inviteOpen && <GroupInviteModal groupId={group.id} viewerId={userId} admin={membership.isAdmin} excludedIds={new Set(allPeople.map((person) => person.id))} onClose={() => setInviteOpen(false)} />}
     {existingPicker && <ExistingGroupPhotoPicker photos={imageCandidates} kind={existingPicker} onClose={() => setExistingPicker(null)} onSelect={(photo) => void chooseExisting(photo, existingPicker)} />}
-    {photoViewer && <Suspense fallback={<div className="modal-backdrop"><span className="spinner" /></div>}><PostPhotoViewer viewerId={userId} contentId={photoViewer.contentId} initialMediaId={photoViewer.media.id} initialMediaUrl={photoViewer.media.url} initialPlaybackTime={photoViewer.initialPlaybackTime} initialPost={photoViewer.initialPost} onClose={() => setPhotoViewer(null)} onNavigate={onNavigate} /></Suspense>}
+    {photoViewer && !onOpenPhoto && <Suspense fallback={<div className="modal-backdrop"><span className="spinner" /></div>}><PostPhotoViewer viewerId={userId} contentId={photoViewer.contentId} initialMediaId={photoViewer.media.id} initialMediaUrl={photoViewer.media.url} initialPlaybackTime={photoViewer.initialPlaybackTime} initialPost={photoViewer.initialPost} onClose={() => setPhotoViewer(null)} onNavigate={onNavigate} /></Suspense>}
     {shareGroupOpen && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ShareModal viewerId={userId} sourceId={group.id} canReshare allowStory={false} initialPreview={{ id: group.id, isAvailable: true, type: 1, content: null, privacy: group.privacy, create: group.createdAt, author: null, media: [], group: { id: group.id, name: group.name, avatar: group.avatarUrl || '', background: group.backgroundUrl || '', privacy: group.privacy, memberCount: group.memberCount ?? 0, viewerIsMember: participant, joinRequestPending: membership.joinRequestPending } } satisfies SharedPostSource} onClose={() => setShareGroupOpen(false)} onShared={() => undefined} onNavigate={onNavigate} /></Suspense>}
   </>
 }

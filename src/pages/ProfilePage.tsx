@@ -22,6 +22,7 @@ import { forgetOwnUnseenStory, reconcileOwnUnseenStories, rememberOwnUnseenStory
 import { decodePostContent } from '../lib/postContent'
 import { groupProfilePostsByMonth } from '../lib/profilePostGrid'
 import { gatewayReelToSocialContent } from '../lib/reelEntry'
+import { contentOverlayHref, reelOverlayHref } from '../lib/overlayRoutes'
 import { decodeStoryContent } from '../lib/storyContent'
 import { useInlineImageCrop } from '../lib/useInlineImageCrop'
 import { useImageAmbientColor } from '../lib/useImageAmbientColor'
@@ -31,7 +32,6 @@ import { birthDateBounds, isAllowedBirthDate } from './birthDate'
 const StoryViewerPage = lazy(() => import('../components/StoryViewerPage').then((module) => ({ default: module.StoryViewerPage })))
 const StoryCreatorModal = lazy(() => import('../components/StoryCreatorModal').then((module) => ({ default: module.StoryCreatorModal })))
 const PostPhotoViewer = lazy(() => import('../components/PostPhotoViewer').then((module) => ({ default: module.PostPhotoViewer })))
-const ContentDetailOverlay = lazy(() => import('../components/ContentActions').then((module) => ({ default: module.ContentDetailOverlay })))
 
 const EMPTY_RELATIONSHIP: ProfileRelationshipState = {
   friendship: 'none',
@@ -60,7 +60,7 @@ interface CoverPreviewPlacement {
   maxShiftY: number
 }
 
-interface ProfileMediaViewerState {
+export interface ProfileMediaViewerState {
   contentId: string
   mediaId: string
   mediaUrl: string
@@ -68,6 +68,10 @@ interface ProfileMediaViewerState {
   initialPost?: GatewayPost
   entries: PostPhotoViewerMediaEntry[]
   unavailableAuthor?: GatewayPost['author']
+}
+
+export interface ProfileMediaViewerOpenOptions {
+  update?: boolean
 }
 
 const UNAVAILABLE_POST_DETAIL_CODES = new Set([
@@ -485,7 +489,7 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
   </section>
 }
 
-export function ProfilePage({ profile, loading, error, canEdit, viewerId, initialTab, embedded = false, onEdit, onNavigate, onOpenReel, onMessage }: { profile: SocialProfile | null; loading: boolean; error: string | null; canEdit: boolean; viewerId: string; initialTab?: ProfileTab; embedded?: boolean; onEdit: () => void; onNavigate: (path: string) => void; onOpenReel?: (ownerId: string, reelId: string, reel?: SocialContent) => void; onMessage: (profileId: string) => Promise<void> }) {
+export function ProfilePage({ profile, loading, error, canEdit, viewerId, initialTab, embedded = false, onEdit, onNavigate, onOpenReel, onOpenPhoto, onMessage }: { profile: SocialProfile | null; loading: boolean; error: string | null; canEdit: boolean; viewerId: string; initialTab?: ProfileTab; embedded?: boolean; onEdit: () => void; onNavigate: (path: string) => void; onOpenReel?: (ownerId: string, reelId: string, reel?: SocialContent) => void; onOpenPhoto?: (viewer: ProfileMediaViewerState, options?: ProfileMediaViewerOpenOptions) => void; onMessage: (profileId: string) => Promise<void> }) {
   const { t, locale } = useI18n()
   const [posts, setPosts] = useState<GatewayPost[]>([])
   const [postsLoading, setPostsLoading] = useState(false)
@@ -511,7 +515,6 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
   const [storyCreatorOpen, setStoryCreatorOpen] = useState(false)
   const [storyViewerOpen, setStoryViewerOpen] = useState(false)
   const [profileMediaViewer, setProfileMediaViewer] = useState<ProfileMediaViewerState | null>(null)
-  const [profileDetailPostId, setProfileDetailPostId] = useState<string | null>(null)
   const [postFilter, setPostFilter] = useState<ProfilePostFilter>('all')
   const [postView, setPostView] = useState<ProfilePostView>('list')
   const [manageMode, setManageMode] = useState(false)
@@ -550,14 +553,18 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
   const avatarSavePendingRef = useRef(false)
   const locallyViewedStoryIdsRef = useRef<Set<string>>(new Set())
   const avatarEditor = useInlineImageCrop(profile?.id)
-  const profilePageRef = useRef<HTMLElement>(null)
   const profileTabsRef = useRef<HTMLElement>(null)
   const profileFirstTabRef = useRef<HTMLButtonElement>(null)
   const profileGroupsTabRef = useRef<HTMLButtonElement>(null)
   const profileContentGridRef = useRef<HTMLDivElement>(null)
-  const profileInfoColumnRef = useRef<HTMLElement>(null)
-  const profilePostColumnRef = useRef<HTMLElement>(null)
   const profilePostSentinelRef = useRef<HTMLDivElement>(null)
+  const publishProfileMediaViewer = (viewer: ProfileMediaViewerState, options?: ProfileMediaViewerOpenOptions) => {
+    if (onOpenPhoto) {
+      onOpenPhoto(viewer, options)
+      return
+    }
+    setProfileMediaViewer(viewer)
+  }
   const postsRequestSequenceRef = useRef(0)
   const postsLoadMoreBusyRef = useRef(false)
   const coverPreviewPlacement = useMemo(() => getCoverPreviewPlacement(
@@ -623,151 +630,6 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
     }
   }, [loading, locale, profile])
 
-  useEffect(() => {
-    if (tab !== 'posts') return
-    const page = profilePageRef.current
-    const grid = profileContentGridRef.current
-    const infoColumn = profileInfoColumnRef.current
-    const postColumn = profilePostColumnRef.current
-    if (!page || !grid || !infoColumn || !postColumn) return
-    const columns = [infoColumn, postColumn]
-    columns.forEach((column) => { column.scrollTop = 0 })
-
-    const destinationViewport = page.closest<HTMLElement>('.authenticated-destination-scroll')
-    const pageScrollTop = () => destinationViewport?.scrollTop ?? (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0)
-    const pageScrollLimit = () => destinationViewport
-      ? Math.max(0, destinationViewport.scrollHeight - destinationViewport.clientHeight)
-      : Math.max(0, Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) - window.innerHeight)
-    const scrollPageTo = (top: number) => {
-      const next = Math.max(0, top)
-      if (destinationViewport) destinationViewport.scrollTop = next
-      else window.scrollTo({ top: next, left: window.scrollX, behavior: 'auto' })
-    }
-    const columnLimit = (column: HTMLElement) => Math.max(0, column.scrollHeight - column.clientHeight)
-    const scrollColumnsBy = (delta: number) => {
-      columns.forEach((column) => {
-        column.scrollTop = Math.min(columnLimit(column), Math.max(0, column.scrollTop + delta))
-      })
-    }
-    const nestedScrollableCanMove = (target: EventTarget | null, delta: number) => {
-      let node = target instanceof HTMLElement ? target : null
-      while (node && node !== page && !columns.includes(node)) {
-        const overflowY = window.getComputedStyle(node).overflowY
-        const maxScroll = Math.max(0, node.scrollHeight - node.clientHeight)
-        if ((overflowY === 'auto' || overflowY === 'scroll') && maxScroll > 0) {
-          if ((delta > 0 && node.scrollTop < maxScroll) || (delta < 0 && node.scrollTop > 0)) return true
-        }
-        node = node.parentElement
-      }
-      return false
-    }
-    const clampColumns = () => columns.forEach((column) => {
-      column.scrollTop = Math.min(columnLimit(column), Math.max(0, column.scrollTop))
-    })
-
-    let pendingDelta = 0
-    let animationFrame: number | null = null
-    let lastFrameTime = 0
-    const routeAnimatedStep = (delta: number) => {
-      if (delta > 0) {
-        let remaining = delta
-        let consumed = 0
-        const pageTop = pageScrollTop()
-        const pageStep = Math.min(remaining, Math.max(0, pageScrollLimit() - pageTop))
-        if (pageStep > 0) {
-          scrollPageTo(pageTop + pageStep)
-          remaining -= pageStep
-          consumed += pageStep
-        }
-        const columnStep = Math.min(remaining, Math.max(...columns.map((column) => columnLimit(column) - column.scrollTop)))
-        if (columnStep > 0) {
-          scrollColumnsBy(columnStep)
-          consumed += columnStep
-        }
-        return consumed
-      }
-
-      let remaining = -delta
-      let consumed = 0
-      const columnStep = Math.min(remaining, Math.max(...columns.map((column) => column.scrollTop)))
-      if (columnStep > 0) {
-        scrollColumnsBy(-columnStep)
-        remaining -= columnStep
-        consumed += columnStep
-      }
-      const pageTop = pageScrollTop()
-      const pageStep = Math.min(remaining, pageTop)
-      if (pageStep > 0) {
-        scrollPageTo(pageTop - pageStep)
-        consumed += pageStep
-      }
-      return -consumed
-    }
-    const stopAnimation = () => {
-      pendingDelta = 0
-      if (animationFrame != null) window.cancelAnimationFrame(animationFrame)
-      animationFrame = null
-      lastFrameTime = 0
-    }
-    const animateColumns = (timestamp: number) => {
-      animationFrame = null
-      const magnitude = Math.abs(pendingDelta)
-      if (magnitude < .35) {
-        if (magnitude > .01) routeAnimatedStep(pendingDelta)
-        pendingDelta = 0
-        lastFrameTime = 0
-        return
-      }
-      const elapsed = lastFrameTime === 0 ? 16.67 : Math.min(32, Math.max(1, timestamp - lastFrameTime))
-      lastFrameTime = timestamp
-      const easing = 1 - Math.exp(-elapsed / 22)
-      const frameLimit = 96 * elapsed / 16.67
-      const stepMagnitude = Math.min(frameLimit, Math.max(.35, magnitude * easing))
-      const step = Math.sign(pendingDelta) * stepMagnitude
-      const consumed = routeAnimatedStep(step)
-      if (Math.abs(consumed) < .01 || Math.abs(consumed) + .01 < Math.abs(step)) {
-        pendingDelta = 0
-        lastFrameTime = 0
-        return
-      }
-      pendingDelta -= consumed
-      animationFrame = window.requestAnimationFrame(animateColumns)
-    }
-    const queueColumnDelta = (delta: number) => {
-      if (pendingDelta !== 0 && Math.sign(pendingDelta) !== Math.sign(delta)) pendingDelta = 0
-      pendingDelta = Math.max(-720, Math.min(720, pendingDelta + delta))
-      if (animationFrame == null) animationFrame = window.requestAnimationFrame(animateColumns)
-    }
-
-    const routeWheel = (event: WheelEvent) => {
-      if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
-      const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE
-        ? event.deltaY * 16
-        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-          ? event.deltaY * window.innerHeight
-          : event.deltaY
-      if (Math.abs(delta) < .01) return
-      if (nestedScrollableCanMove(event.target, delta)) {
-        stopAnimation()
-        return
-      }
-
-      event.preventDefault()
-      queueColumnDelta(delta)
-    }
-
-    page.addEventListener('wheel', routeWheel, { passive: false })
-    const handleResize = () => {
-      stopAnimation()
-      clampColumns()
-    }
-    window.addEventListener('resize', handleResize)
-    return () => {
-      stopAnimation()
-      page.removeEventListener('wheel', routeWheel)
-      window.removeEventListener('resize', handleResize)
-    }
-  }, [profile?.id, tab])
 
   useEffect(() => {
     setTab(initialTab ?? 'posts')
@@ -789,7 +651,6 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
     setHomeStoryBuckets([])
     setStoryViewerOpen(false)
     setProfileMediaViewer(null)
-    setProfileDetailPostId(null)
     setCoverMenuOpen(false)
     setCoverPickerOpen(false)
     setCoverCandidates([])
@@ -1253,7 +1114,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
       avatar: profile.avatarUrl,
       isVerified: Boolean(profile.isVerified),
     }
-    const openStandalone = (unavailableContentId?: string) => setProfileMediaViewer({
+    const openStandalone = (unavailableContentId?: string) => publishProfileMediaViewer({
       contentId: unavailableContentId ?? `profile-avatar-${profile.id}`,
       mediaId: standaloneMedia.id,
       mediaUrl: standaloneMedia.url,
@@ -1288,19 +1149,25 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
             openStandalone()
             return
           }
-          setProfileMediaViewer({
+          const initialViewer: ProfileMediaViewerState = {
             contentId: detail.id,
             mediaId: selected.media.id,
             mediaUrl: selected.media.url,
             initialPost: detail,
             entries: initialEntries,
-          })
+          }
+          publishProfileMediaViewer(initialViewer)
           void loadAllProfileFeedPosts(profile.id).then((feedPosts) => {
             const entries = buildProfileMediaEntries(feedPosts)
+            if (entries.length === 0) return
+            if (onOpenPhoto) {
+              publishProfileMediaViewer({ ...initialViewer, entries }, { update: true })
+              return
+            }
             setProfileMediaViewer((current) => current &&
               current.contentId === detail.id &&
               current.mediaId === selected.media.id
-              ? { ...current, entries: entries.length > 0 ? entries : current.entries }
+              ? { ...current, entries }
               : current)
           }).catch(() => undefined)
           return
@@ -1328,7 +1195,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
         }
       }
       if (selected) {
-        setProfileMediaViewer({
+        publishProfileMediaViewer({
           contentId: selected.post?.id ?? item.contentId,
           mediaId: selected.media.id,
           mediaUrl: selected.media.url,
@@ -1341,7 +1208,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
       // A visible media URL can still be viewed without inventing post metadata.
     }
     const standaloneMedia = { id: item.mediaId, type: item.mediaType, url: item.mediaUrl }
-    setProfileMediaViewer({
+    publishProfileMediaViewer({
       contentId: item.contentId,
       mediaId: standaloneMedia.id,
       mediaUrl: standaloneMedia.url,
@@ -1461,7 +1328,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
 
   const openReelViewer = (ownerId: string, reelId: string, reel?: SocialContent) => {
     if (onOpenReel) onOpenReel(ownerId, reelId, reel)
-    else onNavigate(`/reels?source=profile&owner=${encodeURIComponent(ownerId)}&reel=${encodeURIComponent(reelId)}`)
+    else onNavigate(reelOverlayHref(reelId, 'profile', ownerId))
   }
 
   const activeProfileId = profile.id
@@ -1523,7 +1390,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
         : t('genderPreferNot')
 
   return <>
-    <main ref={profilePageRef} className={`profile-destination self-profile-page${canEdit ? '' : ' visitor-profile-page'}${embedded ? ' embedded-profile-page' : ''}`}>
+    <main className={`profile-destination self-profile-page${canEdit ? '' : ' visitor-profile-page'}${embedded ? ' embedded-profile-page' : ''}`}>
       <section className="profile-cover-card self-profile-cover-card">
         <div className="self-profile-cover-ambient" style={coverAmbientStyle} aria-hidden="true" />
         <div className="self-profile-header-shell">
@@ -1632,7 +1499,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
       </section>
 
       <div ref={profileContentGridRef} className={`profile-destination-grid self-profile-destination-grid tab-${tab}`}>
-        {tab === 'posts' && <aside ref={profileInfoColumnRef} className="self-profile-left-column">
+        {tab === 'posts' && <aside className="self-profile-left-column">
           <section className="card self-profile-side-card self-profile-intro-card">
             <div className="self-profile-info-section">
               <header><h2>{t('profilePersonalInfo')}</h2>{canEdit && <button type="button" aria-label={t('editDetails')} onClick={() => setTab('about')}><ProfileInfoEditIcon /></button>}</header>
@@ -1664,7 +1531,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
           </section>
         </aside>}
 
-        <section ref={profilePostColumnRef} className="profile-post-list">
+        <section className="profile-post-list">
           {tab === 'posts' && canEdit && <PostComposer variant="profile" userId={profile.id} displayName={profile.displayName} avatarUrl={profile.avatarUrl} isVerified={profile.isVerified} friends={profileFriends} onNavigate={onNavigate} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
           {tab === 'posts' && <section className="card self-profile-post-tools">
             <header><h2>{t('profilePostsTitle')}</h2><div><details><summary><ProfilePostFilterIcon />{t('profilePostFilters')}</summary><div>{(['all', 'media', 'text'] as ProfilePostFilter[]).map((filter) => <button type="button" key={filter} className={postFilter === filter ? 'active' : ''} onClick={() => setPostFilter(filter)}>{t(filter === 'all' ? 'profileAllPosts' : filter === 'media' ? 'profileMediaPosts' : 'profileTextPosts')}</button>)}</div></details>{canEdit && <button type="button" className={manageMode ? 'active' : ''} onClick={() => setManageMode((value) => !value)}><ProfilePostManageIcon />{t(manageMode ? 'done' : 'profileManagePosts')}</button>}</div></header>
@@ -1672,7 +1539,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
             <div className="self-profile-post-view-tabs"><button type="button" className={postView === 'list' ? 'active' : ''} onClick={() => setPostView('list')}><ProfilePostListIcon /><span>{t('profileListView')}</span></button><button type="button" className={postView === 'grid' ? 'active' : ''} onClick={() => setPostView('grid')}><ProfilePostGridIcon /><span>{t('profileGridView')}</span></button></div>
           </section>}
 
-          {tab === 'posts' && (postsLoading ? <div className="card state-card"><span className="spinner" /></div> : filteredPosts.length > 0 ? postView === 'grid' ? <div className="self-profile-post-months">{profilePostMonthGroups.map((group) => <section className="card self-profile-post-month" key={group.id}><h3>{group.label}</h3><div className="self-profile-post-grid">{group.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} onOpenDetail={() => setProfileDetailPostId(post.id)} onOpenMedia={(item) => void openProfileMediaViewer(item)} onOpenReel={post.__typename === 'ReelDetail' ? () => openReelViewer(profile.id, post.id, gatewayReelToSocialContent(post)) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenReel={(reel) => openReelViewer(profile.id, reel.id, gatewayReelToSocialContent(reel))} />) : <div className="card state-card"><h2>{postsUnavailable ? t('unableToLoad') : t('profileNoPosts')}</h2><p>{postsUnavailable ? t('profilePostsLoadError') : canEdit ? t('yourPostsEmpty') : t('userPostsEmpty', { name: profile.displayName.split(' ')[0] })}</p></div>)}
+          {tab === 'posts' && (postsLoading ? <div className="card state-card"><span className="spinner" /></div> : filteredPosts.length > 0 ? postView === 'grid' ? <div className="self-profile-post-months">{profilePostMonthGroups.map((group) => <section className="card self-profile-post-month" key={group.id}><h3>{group.label}</h3><div className="self-profile-post-grid">{group.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} onOpenDetail={() => onNavigate(contentOverlayHref(post.id))} onOpenMedia={(item) => void openProfileMediaViewer(item)} onOpenReel={post.__typename === 'ReelDetail' ? () => openReelViewer(profile.id, post.id, gatewayReelToSocialContent(post)) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenReel={(reel) => openReelViewer(profile.id, reel.id, gatewayReelToSocialContent(reel))} />) : <div className="card state-card"><h2>{postsUnavailable ? t('unableToLoad') : t('profileNoPosts')}</h2><p>{postsUnavailable ? t('profilePostsLoadError') : canEdit ? t('yourPostsEmpty') : t('userPostsEmpty', { name: profile.displayName.split(' ')[0] })}</p></div>)}
           {tab === 'posts' && posts.length > 0 && (postsHaveMore || postsLoadingMore || postsMoreError) && <div ref={profilePostSentinelRef} className="profile-posts-auto-loader" aria-live="polite">
             {postsLoadingMore && <span className="spinner" aria-label={t('loadingMore')} />}
             {postsMoreError && <button type="button" className="btn-soft" disabled={!postCursor} onClick={() => void loadProfilePosts(postCursor, true)}>{t('tryAgain')}</button>}
@@ -1707,18 +1574,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
         return { ...current, stories, latestCreate: stories[0].create, unseenCount, hasUnseen: unseenCount > 0 }
       })
     } : undefined} /></Suspense>}
-    {profileDetailPostId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={profileDetailPostId} onClose={() => setProfileDetailPostId(null)} onNavigate={onNavigate} onMessage={onMessage} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => {
-      if (detailPost.__typename === 'ReelDetail') return
-      setProfileMediaViewer({
-        contentId: detailPost.id,
-        mediaId: media.id,
-        mediaUrl: media.url,
-        initialPlaybackTime,
-        initialPost: detailPost,
-        entries: buildProfileMediaEntries([detailPost]),
-      })
-    }} onOpenReel={(reel) => openReelViewer(reel.author.id, reel.id, gatewayReelToSocialContent(reel))} /></Suspense>}
-    {profileMediaViewer && <Suspense fallback={<div className="post-photo-viewer"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={profileMediaViewer.contentId} initialMediaId={profileMediaViewer.mediaId} initialMediaUrl={profileMediaViewer.mediaUrl} initialPlaybackTime={profileMediaViewer.initialPlaybackTime} initialPost={profileMediaViewer.initialPost} mediaEntries={profileMediaViewer.entries} unavailableAuthor={profileMediaViewer.unavailableAuthor} onClose={() => setProfileMediaViewer(null)} onNavigate={onNavigate} onMessage={onMessage} /></Suspense>}
+    {profileMediaViewer && !onOpenPhoto && <Suspense fallback={<div className="post-photo-viewer"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={profileMediaViewer.contentId} initialMediaId={profileMediaViewer.mediaId} initialMediaUrl={profileMediaViewer.mediaUrl} initialPlaybackTime={profileMediaViewer.initialPlaybackTime} initialPost={profileMediaViewer.initialPost} mediaEntries={profileMediaViewer.entries} unavailableAuthor={profileMediaViewer.unavailableAuthor} onClose={() => setProfileMediaViewer(null)} onNavigate={onNavigate} onMessage={onMessage} /></Suspense>}
     {canEdit && coverPickerOpen && <ProfileImagePhotoPicker kind="cover" images={coverCandidates} loading={coverCandidatesLoading} error={coverPickerError} onClose={() => { coverPickerRequestRef.current += 1; setCoverCandidatesLoading(false); setCoverPickerOpen(false) }} onSelect={(photo) => void chooseExistingCover(photo)} />}
     {canEdit && avatarPickerOpen && <ProfileImagePhotoPicker kind="avatar" images={avatarCandidates} loading={avatarCandidatesLoading} error={avatarPickerError} onClose={() => { avatarPickerRequestRef.current += 1; setAvatarCandidatesLoading(false); setAvatarPickerOpen(false) }} onSelect={(photo) => void chooseExistingAvatar(photo)} />}
   </>

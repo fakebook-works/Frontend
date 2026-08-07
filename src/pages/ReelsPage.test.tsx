@@ -577,6 +577,17 @@ describe('ReelsPage media discussion layout', () => {
     expect(document.body).not.toHaveClass('content-detail-open', 'reels-library-viewer-open')
   })
 
+  it('delegates library Reel opening to the route owner when the app shell owns overlays', async () => {
+    const items = await socialMocks.getRecommendedReels()
+    socialMocks.getProfileReels.mockResolvedValue({ items, endCursor: null, hasNextPage: false })
+    const onNavigate = vi.fn()
+    render(<ReelsPage userId="1" mode="mine" routeOverlays onNavigate={onNavigate} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reel Author' }))
+    expect(onNavigate).toHaveBeenCalledWith('/reel/9007199254740993?source=for-you')
+    expect(document.body).not.toHaveClass('reels-library-viewer-open')
+  })
+
   it('plays a profile Reel preview only while its library tile is hovered', async () => {
     const items = await socialMocks.getRecommendedReels()
     socialMocks.getProfileReels.mockResolvedValue({ items, endCursor: null, hasNextPage: false })

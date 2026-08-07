@@ -25,6 +25,7 @@ import { PostPrivacyIcon, type PostPrivacy } from '../components/PostPrivacyIcon
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
+import { reelOverlayHref } from '../lib/overlayRoutes'
 import { detectVideoHasAudio } from '../lib/videoAudio'
 import { prefetchCommentPage } from '../lib/commentPagePrefetch'
 import { parseMentionContent, type MentionDisplayUser } from '../lib/mentions'
@@ -248,7 +249,7 @@ function ReelCaption({ content, mentions, onNavigate }: {
   </div>
 }
 
-export function ReelsPage({ userId, mode, active = true, entrySource = null, entryReelId = null, entryOwnerId = null, entryReel = null, onEntryClose, onNavigate }: {
+export function ReelsPage({ userId, mode, active = true, entrySource = null, entryReelId = null, entryOwnerId = null, entryReel = null, routeOverlays = false, onEntryClose, onNavigate }: {
   userId: string
   mode: ReelMode
   active?: boolean
@@ -256,6 +257,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   entryReelId?: string | null
   entryOwnerId?: string | null
   entryReel?: SocialContent | null
+  routeOverlays?: boolean
   onEntryClose?: () => void
   onNavigate: (path: string) => void
 }) {
@@ -779,6 +781,11 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   }, [active, showReelViewer])
 
   function openLibraryReel(index: number) {
+    const selectedReel = reels[index]
+    if (routeOverlays && selectedReel) {
+      onNavigate(reelOverlayHref(selectedReel.id))
+      return
+    }
     libraryScrollTopRef.current = libraryContentRef.current?.scrollTop ?? 0
     cancelProgrammaticScroll()
     activeIndexRef.current = index

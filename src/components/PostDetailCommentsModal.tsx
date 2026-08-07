@@ -15,6 +15,7 @@ import { formatPostTimestamp } from '../lib/postTime'
 import { sharedPostSourceToGatewayReel } from '../lib/reelEntry'
 import { clearPrefetchedCommentPage, loadCommentPage, readCachedCommentPage } from '../lib/commentPagePrefetch'
 import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
+import { reelOverlayHref } from '../lib/overlayRoutes'
 import { Avatar } from './Avatar'
 import { GroupPostAvatar } from './GroupPostAvatar'
 import { HoverTooltip } from './HoverTooltip'
@@ -1033,7 +1034,7 @@ function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, on
     {!hideMedia && post.sharedSource && <SharedPostSourceCard source={post.sharedSource} locale={locale} onNavigate={onNavigate} onOpenImage={onOpenImage && post.sharedSource.type !== 4 ? (source, media, index, initialPlaybackTime) => onOpenImage(sharedSourceAsPost(source, post), media, index, initialPlaybackTime) : undefined} onOpenReel={post.sharedSource.type === 4 ? (source) => {
       const reel = sharedPostSourceToGatewayReel(source)
       if (reel && onOpenReel) onOpenReel(reel)
-      else onNavigate?.(`/reels?source=for-you&reel=${encodeURIComponent(source.id)}`)
+      else onNavigate?.(reelOverlayHref(source.id))
     } : undefined} />}
   </article>
 }

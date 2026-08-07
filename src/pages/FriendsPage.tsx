@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { socialApi, type SocialProfile } from '../api/social'
+import { socialApi, type SocialContent, type SocialProfile } from '../api/social'
 import type { UserSummary } from '../api/types'
 import { AnchoredMenuPortal } from '../components/AnchoredMenuPortal'
 import { Avatar } from '../components/Avatar'
@@ -9,6 +9,7 @@ import { SidebarSettingsIcon } from '../components/SidebarSettingsIcon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { ProfilePage } from './ProfilePage'
+import type { ProfileMediaViewerOpenOptions, ProfileMediaViewerState } from './ProfilePage'
 
 export type FriendSection = 'home' | 'outgoing' | 'incoming' | 'suggestions' | 'friends' | 'blocked'
 
@@ -29,11 +30,15 @@ export function FriendsPage({
   userId,
   section,
   onNavigate,
+  onOpenReel,
+  onOpenPhoto,
   onMessage,
 }: {
   userId: string
   section: FriendSection
   onNavigate: (path: string) => void
+  onOpenReel?: (ownerId: string, reelId: string, reel?: SocialContent) => void
+  onOpenPhoto?: (viewer: ProfileMediaViewerState, options?: ProfileMediaViewerOpenOptions) => void
   onMessage?: (profileId: string) => Promise<void>
 }) {
   const { t } = useI18n()
@@ -252,6 +257,8 @@ export function FriendsPage({
         embedded
         onEdit={() => undefined}
         onNavigate={onNavigate}
+        onOpenReel={onOpenReel}
+        onOpenPhoto={onOpenPhoto}
         onMessage={onMessage ?? (async () => undefined)}
       />}
       {!loading && !selectedProfile && <div className="friends-page-state"><Icon name="friends" size={44} /><h3>{emptyState.title}</h3><p>{emptyState.description}</p></div>}

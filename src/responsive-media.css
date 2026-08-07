@@ -194,6 +194,19 @@
     border-radius: 0;
   }
 
+  /* Route-owned post details keep the preserved two-row shell visible. The
+     generic mobile modal rules above remain full-screen for composers and
+     crop tools, while this discussion surface starts below the shell. */
+  body.content-detail-open .content-modal-backdrop {
+    padding-top: calc(var(--topbar-h) + var(--fb-safe-top));
+    padding-bottom: var(--fb-safe-bottom);
+  }
+
+  body.content-detail-open .content-modal-backdrop > .content-thread-modal:not(.photo-detail-discussion) {
+    height: calc(100dvh - var(--topbar-h) - var(--fb-safe-top) - var(--fb-safe-bottom));
+    max-height: calc(100dvh - var(--topbar-h) - var(--fb-safe-top) - var(--fb-safe-bottom));
+  }
+
   .home-post-modal-head { min-height: 54px; padding-top: max(8px, var(--fb-safe-top)); }
   .home-post-modal-body {
     max-height: none;

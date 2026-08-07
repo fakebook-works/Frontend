@@ -55,14 +55,17 @@ describe('PostPhotoViewer', () => {
 
   it('opens the requested image, loops through post media and keeps comments attached to the post', async () => {
     const onClose = vi.fn()
-    render(<PostPhotoViewer viewerId="viewer-1" contentId="post-1" initialMediaId="photo-b" initialPost={post} onClose={onClose} />)
+    const onActiveMediaChange = vi.fn()
+    render(<PostPhotoViewer viewerId="viewer-1" contentId="post-1" initialMediaId="photo-b" initialPost={post} onClose={onClose} onActiveMediaChange={onActiveMediaChange} />)
 
     await waitFor(() => expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-b.jpg'))
+    await waitFor(() => expect(onActiveMediaChange).toHaveBeenLastCalledWith('post-1', 'photo-b'))
     expect(screen.getByTestId('photo-discussion')).toHaveAttribute('data-target-id', 'post-1')
     expect(screen.getByTestId('photo-discussion')).toHaveAttribute('data-variant', 'photo-sidebar')
     expect(screen.getByRole('button', { name: 'nextPhoto' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'nextPhoto' }))
     expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-a.jpg')
+    await waitFor(() => expect(onActiveMediaChange).toHaveBeenLastCalledWith('post-1', 'photo-a'))
     fireEvent.click(screen.getByRole('button', { name: 'previousPhoto' }))
     expect(document.querySelector<HTMLImageElement>('.post-photo-viewer-image')).toHaveAttribute('src', '/photo-b.jpg')
     expect(screen.getByRole('button', { name: 'nextPhoto' })).toBeInTheDocument()

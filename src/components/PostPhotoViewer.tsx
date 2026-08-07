@@ -35,6 +35,8 @@ export interface PostPhotoViewerProps {
   mediaEntries?: PostPhotoViewerMediaEntry[]
   unavailableAuthor?: GatewayPost['author']
   onClose: () => void
+  routeOwned?: boolean
+  onActiveMediaChange?: (contentId: string, mediaId: string) => void
   onNavigate?: (path: string) => void
   onMessage?: (profileId: string) => Promise<void>
   onStoryCreated?: (story: SharedStory) => void
@@ -133,7 +135,7 @@ function UnavailablePhotoDiscussion({ viewerId, author, onNavigate }: { viewerId
   </section>
 }
 
-export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMediaUrl, initialPlaybackTime = 0, initialPost, mediaEntries, unavailableAuthor, onClose, onNavigate, onMessage, onStoryCreated }: PostPhotoViewerProps) {
+export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMediaUrl, initialPlaybackTime = 0, initialPost, mediaEntries, unavailableAuthor, routeOwned = false, onClose, onActiveMediaChange, onNavigate, onMessage, onStoryCreated }: PostPhotoViewerProps) {
   useBodyInteractionLock(true, ['content-detail-open', 'post-photo-viewer-open'])
   const { t } = useI18n()
   const usableInitialPost = initialPost?.__typename === 'ReelDetail' ? null : initialPost ?? null
@@ -154,6 +156,7 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
   const imageRef = useRef<HTMLImageElement>(null)
   const dragStartRef = useRef<{ pointerId: number; x: number; y: number; offsetX: number; offsetY: number } | null>(null)
   const playbackTimesRef = useRef<Record<string, number>>({})
+  const reportedMediaKeyRef = useRef('')
   const viewerEntries = useMemo<PostPhotoViewerMediaEntry[]>(() => {
     if (mediaEntries?.length) return mediaEntries.filter((entry) => entry.post?.__typename !== 'ReelDetail' && (entry.media.type === 0 || entry.media.type === 1))
     if (!post || post.__typename === 'ReelDetail') return []
@@ -281,6 +284,16 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
   }, [activeIndex])
 
   useEffect(() => {
+    const media = activeEntry?.media
+    if (!media || !onActiveMediaChange) return
+    const nextContentId = activeEntry.post?.id ?? contentId
+    const key = `${nextContentId}:${media.id}`
+    if (reportedMediaKeyRef.current === key) return
+    reportedMediaKeyRef.current = key
+    onActiveMediaChange(nextContentId, media.id)
+  }, [activeEntry, contentId, onActiveMediaChange])
+
+  useEffect(() => {
     if (viewerEntries.length < 2) return
     const adjacentIndexes = new Set([
       (activeIndex - 1 + viewerEntries.length) % viewerEntries.length,
@@ -340,13 +353,14 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
     : activePost?.id ?? contentId
 
   function navigateFromViewer(path: string) {
-    // Commit removal of every portal owned by the viewer before the preserved
-    // destination underneath it is hidden during navigation.
-    flushSync(() => {
-      setShareOpen(false)
-      onClose()
-    })
-    onNavigate?.(path)
+    setShareOpen(false)
+    if (routeOwned && onNavigate) {
+      // The route owner performs a single replace/push operation. Calling
+      // onClose first would send Back to the background and race this link.
+      onNavigate(path)
+      return
+    }
+    flushSync(onClose)
   }
 
   return createPortal(<>

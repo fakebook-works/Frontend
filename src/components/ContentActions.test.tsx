@@ -55,6 +55,15 @@ const post: GatewayPost = {
 }
 
 describe('ContentActions refreshed overlays', () => {
+  it('delegates post comments to the canonical route when the app shell owns overlays', async () => {
+    const onNavigate = vi.fn()
+    render(<ContentActions viewerId="1" contentId="90" post={post} routeComments onNavigate={onNavigate} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+    expect(onNavigate).toHaveBeenCalledWith('/content/90')
+    expect(screen.queryByRole('dialog', { name: 'comments' })).not.toBeInTheDocument()
+  })
+
   beforeEach(() => {
     clearAllPrefetchedCommentPagesForTests()
     window.sessionStorage.clear()

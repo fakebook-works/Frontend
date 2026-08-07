@@ -359,7 +359,7 @@ describe('GatewayHomePage', () => {
     expect(card?.querySelector('.post-author-avatar .avatar')).toHaveStyle({ width: '40px', height: '40px', fontSize: '17px' })
     expect(card?.querySelector('video')).toHaveAttribute('src', 'https://uploads.example.com/reels/reel-71.mp4')
     fireEvent.click(card!.querySelector('video')!)
-    expect(onNavigate).toHaveBeenCalledWith('/reels?source=for-you&reel=reel-71')
+    expect(onNavigate).toHaveBeenCalledWith('/reel/reel-71?source=for-you')
     expect(container.querySelectorAll('.feed-section > article.gateway-post')).toHaveLength(1)
     expect(await within(card as HTMLElement).findByTestId('content-actions')).toBeInTheDocument()
   })

@@ -14,7 +14,9 @@ import { PostPrivacyIcon, type PostPrivacy } from './PostPrivacyIcon'
 import { SharedPostSourceCard } from './SharedPostSourceCard'
 import { VerifiedBadge } from './VerifiedBadge'
 import { useI18n } from '../i18n'
+import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
 import { rememberOwnUnseenStory } from '../lib/ownStoryUnseen'
+import { contentOverlayHref, reelOverlayHref } from '../lib/overlayRoutes'
 
 const EMPTY_ENGAGEMENT: ContentEngagement = {
   targetId: '',
@@ -70,6 +72,7 @@ interface ContentActionsProps {
   canReshare?: boolean
   commentsPresentation?: 'modal' | 'sidebar'
   commentsOpen?: boolean
+  routeComments?: boolean
   /** Hide the action rail while keeping this instance available for a persistent comments surface. */
   renderActions?: boolean
   /** Render the comments surface from this instance (the Reel page owns one persistent instance). */
@@ -86,7 +89,7 @@ interface ContentActionsProps {
   onContentDeleted?: (contentId: string) => void
 }
 
-export function ContentActions({ viewerId, contentId, post, variant = 'post', canShare = true, canReshare = canShare, commentsPresentation = 'modal', commentsOpen: controlledCommentsOpen, renderActions = true, renderComments = true, engagementEnabled = true, reelPlaybackRate, onReelPlaybackRateChange, onCommentsOpenChange, onNavigate, onMessage, onStoryCreated, onOpenImage, onOpenReel, onContentDeleted }: ContentActionsProps) {
+export function ContentActions({ viewerId, contentId, post, variant = 'post', canShare = true, canReshare = canShare, commentsPresentation = 'modal', commentsOpen: controlledCommentsOpen, routeComments = false, renderActions = true, renderComments = true, engagementEnabled = true, reelPlaybackRate, onReelPlaybackRateChange, onCommentsOpenChange, onNavigate, onMessage, onStoryCreated, onOpenImage, onOpenReel, onContentDeleted }: ContentActionsProps) {
   const { t, locale } = useI18n()
   const [engagement, setEngagement] = useState<ContentEngagement>({ ...EMPTY_ENGAGEMENT, targetId: contentId })
   const [loading, setLoading] = useState(true)
@@ -239,10 +242,18 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
     onNavigate?.(path)
   }
 
+  function openComments() {
+    if (routeComments && onNavigate && commentsPresentation === 'modal' && controlledCommentsOpen === undefined) {
+      navigateFromContentAction(contentOverlayHref(contentId))
+      return
+    }
+    setCommentsOpen(true)
+  }
+
   async function copyReelLink() {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
-      await navigator.clipboard.writeText(`${window.location.origin}/content/${encodeURIComponent(contentId)}`)
+      await navigator.clipboard.writeText(`${window.location.origin}${reelOverlayHref(contentId)}`)
       setReelOptionsOpen(false)
       setReelSpeedOpen(false)
     } catch {
@@ -277,7 +288,7 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
       </div>}
       <footer className={`gateway-post-actions${canShare ? '' : ' no-share'}`}>
         <button type="button" className={engagement.viewerHasLiked ? 'active' : ''} disabled={loading || busy != null} onClick={() => void toggleLike()}><Icon name={engagement.viewerHasLiked ? 'like' : 'likeOutline'} size={21} />{t('like')}</button>
-        <button type="button" onClick={() => setCommentsOpen(true)}><Icon name="commentOutline" size={21} />{t('commentAction')}</button>
+        <button type="button" onClick={openComments}><Icon name="commentOutline" size={21} />{t('commentAction')}</button>
         {canShare && <button type="button" disabled={!sharingAllowed} aria-disabled={!sharingAllowed} onClick={() => setShareOpen(true)}><Icon name="shareOutline" size={22} />{t('shareAction')}</button>}
       </footer>
       {error && <p className="content-action-error">{error}</p>}
@@ -306,9 +317,10 @@ export function ContentActions({ viewerId, contentId, post, variant = 'post', ca
   </>
 }
 
-export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate, onMessage, onStoryCreated, onOpenImage, onOpenReel }: {
+export function ContentDetailOverlay({ viewerId, contentId, routeOwned = false, onClose, onNavigate, onMessage, onStoryCreated, onOpenImage, onOpenReel }: {
   viewerId: string
   contentId: string
+  routeOwned?: boolean
   onClose: () => void
   onNavigate?: (path: string) => void
   onMessage?: (profileId: string) => Promise<void>
@@ -316,6 +328,8 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
   onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void
   onOpenReel?: (post: GatewayReelPost) => void
 }) {
+  useBodyInteractionLock(true, ['content-detail-open'])
+  const { t } = useI18n()
   const [post, setPost] = useState<GatewayPost | null>(null)
   const [engagement, setEngagement] = useState<ContentEngagement>({ ...EMPTY_ENGAGEMENT, targetId: contentId })
   const [loading, setLoading] = useState(true)
@@ -324,9 +338,13 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
   const [shareOpen, setShareOpen] = useState(false)
 
   function navigateFromDetail(path: string) {
-    // Unmount portalled detail chrome before its route owner is hidden.
-    flushSync(onClose)
-    onNavigate?.(path)
+    // The parent route owns this overlay. Navigating in one history operation
+    // avoids a close-then-open race that briefly reveals a different page.
+    if (routeOwned && onNavigate) onNavigate(path)
+    else {
+      flushSync(onClose)
+      onNavigate?.(path)
+    }
   }
 
   useEffect(() => {
@@ -366,7 +384,10 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
   }
 
   if (loading) {
-    return <div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation" onClick={onClose}><span className="spinner" /></div>
+    return <>
+      <button type="button" className="content-detail-shell-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>
+      <div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation" onClick={onClose}><span className="spinner" /></div>
+    </>
   }
   if (loadError || !post) {
     return <UnavailableContentDetail viewerId={viewerId} onClose={onClose} />
@@ -395,11 +416,15 @@ export function ContentDetailOverlay({ viewerId, contentId, onClose, onNavigate,
     onClose={onClose}
     onNavigate={navigateFromDetail}
     onPostChanged={setPost}
-    onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => { onClose(); onOpenImage(detailPost, media, index, initialPlaybackTime) } : undefined}
+    onOpenImage={onOpenImage ? (detailPost, media, index, initialPlaybackTime) => {
+      if (!routeOwned) onClose()
+      onOpenImage(detailPost, media, index, initialPlaybackTime)
+    } : undefined}
     onOpenReel={(detailPost) => {
-      onClose()
+      if (!routeOwned) onClose()
       if (onOpenReel) onOpenReel(detailPost)
-      else onNavigate?.(`/reels?source=for-you&reel=${encodeURIComponent(detailPost.id)}`)
+      else if (onNavigate) onNavigate(reelOverlayHref(detailPost.id))
+      else onClose()
     }}
     onCommentCreated={() => setEngagement((current) => ({ ...current, commentCount: current.commentCount + 1 }))}
   />
@@ -593,7 +618,9 @@ export function ShareModal({ viewerId, sourceId, canReshare, allowStory = true, 
   const canShareToStory = canReshare && allowStory
   const contentUrl = sourcePreview?.type === 1
     ? `${window.location.origin}/groups/${encodeURIComponent(sourcePreview.group?.id ?? sourceId)}`
-    : `${window.location.origin}/content/${encodeURIComponent(sourceId)}`
+    : sourcePreview?.type === 4
+      ? `${window.location.origin}${reelOverlayHref(sourceId)}`
+      : `${window.location.origin}/content/${encodeURIComponent(sourceId)}`
 
   function conversationPresentation(conversation: MessengerConversationDto) {
     const other = conversation.participants.find((person) => person.id !== viewerId)

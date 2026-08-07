@@ -150,7 +150,7 @@ describe('StoryViewerPage', () => {
     expect(within(container.querySelector('.story-shared-post-card') as HTMLElement).getByLabelText('privacyFriends')).toBeInTheDocument()
     fireEvent.click(screen.getByText('The original post is visible inside this story'))
     expect(onClose).toHaveBeenCalled()
-    expect(onNavigate).toHaveBeenCalledWith('/home?post=source-post-1')
+    expect(onNavigate).toHaveBeenCalledWith('/content/source-post-1')
   })
 
   it('waits for the complete shared post instead of flashing its single story preview image', async () => {

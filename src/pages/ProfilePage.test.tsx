@@ -961,7 +961,7 @@ describe('ProfilePage messaging', () => {
     expect(screen.getByText('profileSavedReels')).toBeInTheDocument()
     expect(await screen.findByText('12')).toBeInTheDocument()
     fireEvent.click(container.querySelector<HTMLButtonElement>('.self-profile-reels-grid > button')!)
-    expect(onNavigate).toHaveBeenCalledWith('/reels?source=profile&owner=me&reel=reel-1')
+    expect(onNavigate).toHaveBeenCalledWith('/reel/reel-1?source=profile&owner=me')
     const createReelButton = screen.getByRole('button', { name: 'profileCreateReel' })
     expect(createReelButton).toHaveClass('self-profile-section-action')
     fireEvent.click(createReelButton)
@@ -1306,21 +1306,18 @@ describe('ProfilePage messaging', () => {
 
     fireEvent.click(reelCard.querySelector<HTMLButtonElement>('.profile-post-grid-media-item')!)
     expect(screen.queryByTestId('profile-content-detail')).not.toBeInTheDocument()
-    expect(onNavigate).toHaveBeenCalledWith('/reels?source=profile&owner=me&reel=reel-july')
+    expect(onNavigate).toHaveBeenCalledWith('/reel/reel-july?source=profile&owner=me')
 
     fireEvent.click(feedVideoButton)
     expect(await screen.findByTestId('profile-photo-viewer')).toHaveAttribute('data-content-id', 'feed-july')
     fireEvent.click(feedCard.querySelector<HTMLButtonElement>('.profile-post-grid-footer')!)
-    expect(await screen.findByTestId('profile-content-detail')).toHaveAttribute('data-content-id', 'feed-july')
-    fireEvent.click(screen.getByRole('button', { name: 'close-profile-detail' }))
-    await waitFor(() => expect(screen.queryByTestId('profile-content-detail')).not.toBeInTheDocument())
+    expect(onNavigate).toHaveBeenCalledWith('/content/feed-july')
 
     fireEvent.click(plainCard.querySelector<HTMLButtonElement>('.profile-post-grid-text')!)
-    expect(await screen.findByTestId('profile-content-detail')).toHaveAttribute('data-content-id', 'text-june')
-    expect(onNavigate).toHaveBeenCalledTimes(1)
+    expect(onNavigate).toHaveBeenCalledWith('/content/text-june')
   })
 
-  it('scrolls both owner-profile columns together and clamps the shorter column at its end', async () => {
+  it('leaves profile wheel scrolling to the outer page when the columns are not scroll containers', async () => {
     const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(document.documentElement, 'scrollHeight')
     vi.stubGlobal('innerHeight', 800)
     vi.stubGlobal('scrollY', 800)
@@ -1356,14 +1353,14 @@ describe('ProfilePage messaging', () => {
 
     fireEvent.wheel(grid, { deltaY: 250 })
     await waitFor(() => {
-      expect(infoColumn.scrollTop).toBe(500)
-      expect(postColumn.scrollTop).toBeCloseTo(550, 1)
+      expect(infoColumn.scrollTop).toBe(400)
+      expect(postColumn.scrollTop).toBe(300)
     })
 
     fireEvent.wheel(grid, { deltaY: 250 })
     await waitFor(() => {
-      expect(infoColumn.scrollTop).toBe(500)
-      expect(postColumn.scrollTop).toBeCloseTo(800, 1)
+      expect(infoColumn.scrollTop).toBe(400)
+      expect(postColumn.scrollTop).toBe(300)
     })
 
     unmount()

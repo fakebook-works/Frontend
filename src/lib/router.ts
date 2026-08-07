@@ -4,6 +4,12 @@ export interface AppLocation {
   pathname: string
   search: string
   params: URLSearchParams
+  state: unknown
+}
+
+export interface NavigateOptions {
+  replace?: boolean
+  state?: unknown
 }
 
 function readLocation(): AppLocation {
@@ -11,19 +17,24 @@ function readLocation(): AppLocation {
     pathname: window.location.pathname.replace(/\/+$/, '') || '/',
     search: window.location.search,
     params: new URLSearchParams(window.location.search),
+    state: window.history.state,
   }
 }
 
-export function navigate(to: string, options: { replace?: boolean } = {}) {
+export function navigate(to: string, options: NavigateOptions = {}) {
   const next = new URL(to, window.location.origin)
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
   const target = `${next.pathname}${next.search}${next.hash}`
-  if (current === target) return
-  window.history[options.replace ? 'replaceState' : 'pushState']({}, '', target)
-  window.dispatchEvent(new PopStateEvent('popstate'))
+  const hasState = Object.prototype.hasOwnProperty.call(options, 'state')
+  // Preserve the existing no-op for same-URL navigation, while still allowing
+  // callers to attach or replace route metadata on the current history entry.
+  if (current === target && !hasState) return
+  const state = hasState ? options.state : {}
+  window.history[options.replace ? 'replaceState' : 'pushState'](state, '', target)
+  window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
 }
 
-export function useAppLocation(): [AppLocation, (to: string, options?: { replace?: boolean }) => void] {
+export function useAppLocation(): [AppLocation, (to: string, options?: NavigateOptions) => void] {
   const [location, setLocation] = useState(readLocation)
 
   useEffect(() => {
@@ -32,7 +43,7 @@ export function useAppLocation(): [AppLocation, (to: string, options?: { replace
     return () => window.removeEventListener('popstate', update)
   }, [])
 
-  const go = useCallback((to: string, options?: { replace?: boolean }) => navigate(to, options), [])
+  const go = useCallback((to: string, options?: NavigateOptions) => navigate(to, options), [])
   return [location, go]
 }
 
