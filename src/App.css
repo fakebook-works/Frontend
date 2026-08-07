@@ -8013,19 +8013,21 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 .content-thread-modal {
   width: min(630px, calc(100vw - 28px));
   max-width: min(630px, calc(100vw - 28px));
-  height: min(760px, calc(100dvh - 56px));
-  max-height: min(760px, calc(100dvh - 56px));
+  height: min(680px, calc(100dvh - 56px));
+  max-height: min(680px, calc(100dvh - 56px));
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   border-radius: 12px;
 }
 .modal-backdrop.content-modal-backdrop {
   --content-detail-vertical-gap: 10px;
+  --content-detail-scrim: rgb(0 0 0 / 42%);
   padding-top: calc(var(--fb-safe-top, 0px) + var(--content-detail-vertical-gap));
   padding-bottom: calc(var(--fb-safe-bottom, 0px) + var(--content-detail-vertical-gap));
+  background: var(--content-detail-scrim);
 }
 .content-modal-backdrop > .content-thread-modal:not(.photo-detail-discussion) {
-  height: min(760px, calc(100dvh - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - var(--content-detail-vertical-gap) - var(--content-detail-vertical-gap)));
-  max-height: min(760px, calc(100dvh - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - var(--content-detail-vertical-gap) - var(--content-detail-vertical-gap)));
+  height: min(680px, calc(100dvh - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - var(--content-detail-vertical-gap) - var(--content-detail-vertical-gap)));
+  max-height: min(680px, calc(100dvh - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - var(--content-detail-vertical-gap) - var(--content-detail-vertical-gap)));
 }
 .content-thread-head {
   min-height: 54px;
@@ -8665,22 +8667,21 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
    the preserved page. */
 body.content-detail-open:not(.story-viewer-open) .app-shell-topbar,
 .app-shell-topbar.is-content-detail {
-  z-index: 1900;
+  position: absolute;
+  z-index: auto;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   pointer-events: none;
 }
 body.content-detail-open:not(.story-viewer-open) .app-shell-topbar::before,
 .app-shell-topbar.is-content-detail::before {
-  content: '';
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  background: var(--overlay);
-  pointer-events: auto;
+  display: none;
 }
 body.content-detail-open:not(.story-viewer-open) .app-shell-nav,
 .app-shell-topbar.is-content-detail .app-shell-nav {
   position: relative;
-  z-index: 0;
+  z-index: auto;
+  grid-column: 2;
   pointer-events: none;
   user-select: none;
 }
@@ -8690,8 +8691,22 @@ body.content-detail-open .shell-brand-search,
 .app-shell-topbar.is-content-detail .shell-brand-search,
 body.content-detail-open .app-shell-actions,
 .app-shell-topbar.is-content-detail .app-shell-actions {
-  position: relative;
-  z-index: 2;
+  z-index: 1900;
+}
+body.content-detail-open .shell-brand-search-anchor,
+.app-shell-topbar.is-content-detail .shell-brand-search-anchor {
+  position: fixed;
+  z-index: 1900;
+  top: 0;
+  left: 16px;
+  height: var(--topbar-h);
+}
+body.content-detail-open .app-shell-actions,
+.app-shell-topbar.is-content-detail .app-shell-actions {
+  position: fixed;
+  top: 0;
+  right: 16px;
+  height: var(--topbar-h);
 }
 body.content-detail-open .shell-brand-search,
 .app-shell-topbar.is-content-detail .shell-brand-search,
@@ -8708,8 +8723,6 @@ body.content-detail-open .content-detail-shell-left-controls,
 .app-shell-topbar.is-content-detail .content-detail-shell-left-controls { display: flex; }
 body.content-detail-open .shell-brand-search-anchor,
 .app-shell-topbar.is-content-detail .shell-brand-search-anchor {
-  position: relative;
-  z-index: 2;
   gap: 8px;
 }
 body.content-detail-open .account-dropdown,
@@ -10535,6 +10548,9 @@ body.reels-library-viewer-open.mini-chat-bubble-rail-open .reels-page.is-library
 }
 
 @media (min-width: 861px) {
-  body.home-page-scroll .authenticated-destination-scroll .gateway-left-rail { top: 10px; }
+  body.home-page-scroll .authenticated-destination-scroll .gateway-left-rail {
+    top: 10px;
+    margin-top: -8px;
+  }
   body.home-page-scroll .authenticated-destination-scroll .gateway-right-rail { top: 6px; }
 }

@@ -300,6 +300,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   const wheelResetTimerRef = useRef<number | null>(null)
   const programmaticTargetIndexRef = useRef<number | null>(null)
   const programmaticSettleTimerRef = useRef<number | null>(null)
+  const entryCloseRequestedRef = useRef(false)
   const reelsRef = useRef(reels)
   const activeIndexRef = useRef(activeIndex)
   reelsRef.current = reels
@@ -310,6 +311,15 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     programmaticSettleTimerRef.current = null
     programmaticTargetIndexRef.current = null
   }, [])
+
+  const requestViewerClose = useCallback(() => {
+    cancelProgrammaticScroll()
+    setCommentReelId(null)
+    setLibraryViewerOpen(false)
+    if (!entryViewer || entryCloseRequestedRef.current) return
+    entryCloseRequestedRef.current = true
+    onEntryClose?.()
+  }, [cancelProgrammaticScroll, entryViewer, onEntryClose])
 
   const settleProgrammaticScroll = useCallback(() => {
     const targetIndex = programmaticTargetIndexRef.current
@@ -329,7 +339,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     setLoading(!entrySeed)
     setError(null)
     setCommentReelId(null)
-    setLibraryViewerOpen(entryViewer)
+    setLibraryViewerOpen(entryViewer && !entryCloseRequestedRef.current)
     setViewCounts({})
     cancelProgrammaticScroll()
     if (scrollFrameRef.current != null && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(scrollFrameRef.current)
@@ -347,7 +357,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
       activeIndexRef.current = nextIndex
       setActiveIndex(nextIndex)
       reelPositionCacheRef.current.set(requestKey, { reelId: nextReels[nextIndex]?.id ?? null, index: nextIndex })
-      setLibraryViewerOpen(entryViewer)
+      setLibraryViewerOpen(entryViewer && !entryCloseRequestedRef.current)
       // Reset the stage scroll to 0 instantly before the rAF scroll so that
       // handleStageScroll cannot misread the stale position from the previous
       // tab against the new (shorter or differently-ordered) reel list and flip
@@ -474,7 +484,9 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   // close/navigation may have left the local viewer flag off. Route intent
   // must reopen the viewer independently from whether data needs refetching.
   useLayoutEffect(() => {
-    if (active && entryViewer) setLibraryViewerOpen(true)
+    if (!active || !entryViewer) return
+    entryCloseRequestedRef.current = false
+    setLibraryViewerOpen(true)
   }, [active, entryReelId, entrySource, entryViewer])
 
   useEffect(() => {
@@ -544,12 +556,11 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     if (!libraryViewerOpen) return
     const closeViewerOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || commentReelId) return
-      if (entryViewer) onEntryClose?.()
-      else setLibraryViewerOpen(false)
+      requestViewerClose()
     }
     window.addEventListener('keydown', closeViewerOnEscape)
     return () => window.removeEventListener('keydown', closeViewerOnEscape)
-  }, [commentReelId, entryViewer, libraryViewerOpen, onEntryClose])
+  }, [commentReelId, libraryViewerOpen, requestViewerClose])
 
   useEffect(() => {
     if (creatorProfileUserRef.current === userId) return
@@ -828,10 +839,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   }
 
   function closeLibraryViewer() {
-    cancelProgrammaticScroll()
-    setCommentReelId(null)
-    if (entryViewer) onEntryClose?.()
-    else setLibraryViewerOpen(false)
+    requestViewerClose()
   }
 
   const navigateFromReel = useCallback((path: string) => {
@@ -878,14 +886,16 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     }
 
     if (next.length === 0 && entryViewer) {
-      onEntryClose?.()
+      requestViewerClose()
       return
     }
     window.requestAnimationFrame?.(() => {
       const stage = stageRef.current
       if (stage && stage.clientHeight > 0) scrollReelStage(stage, nextIndex * stage.clientHeight)
     })
-  }, [cancelProgrammaticScroll, entryViewer, onEntryClose])
+  }, [cancelProgrammaticScroll, entryViewer, requestViewerClose])
+
+  if (entryViewer && !libraryViewerOpen) return null
 
   return <><main ref={pageRef} className={`reels-page${libraryMode && !libraryViewerOpen ? ' is-library' : ''}${libraryViewerOpen ? ' is-library-viewer' : ''}${commentsSidebarOpen ? ' has-comments-sidebar' : ''}`}>
     {!libraryViewerOpen && <aside className="reels-sidebar">
@@ -900,7 +910,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
       </nav>
     </aside>}
 
-    {libraryMode && !libraryViewerOpen && <ReelLibrary
+    {!entryViewer && libraryMode && !libraryViewerOpen && <ReelLibrary
       contentRef={libraryContentRef}
       mode={mode}
       reels={reels}

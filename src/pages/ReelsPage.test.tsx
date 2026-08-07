@@ -532,7 +532,7 @@ describe('ReelsPage media discussion layout', () => {
     expect(socialMocks.getRecommendedReels).toHaveBeenCalledWith('1', 'FOR_YOU', 0, 24)
   })
 
-  it('keeps profile Reels ordered around the selected Reel and hides its close control with the preserved route', async () => {
+  it('keeps profile Reels ordered around the selected Reel and closes its route viewer immediately once', async () => {
     const [first] = await socialMocks.getRecommendedReels()
     const profileReels = [
       { ...first, id: '9007199254740995', content: 'Newer Reel' },
@@ -559,9 +559,13 @@ describe('ReelsPage media discussion layout', () => {
     expect(document.documentElement).not.toHaveClass('reels-page-scroll')
     expect(document.body).not.toHaveClass('reels-page-scroll')
 
-    fireEvent.click(screen.getByRole('button', { name: 'close' }))
+    const close = screen.getByRole('button', { name: 'close' })
+    fireEvent.click(close)
+    fireEvent.click(close)
     expect(onEntryClose).toHaveBeenCalledTimes(1)
-    expect(container.querySelector('.reels-page')).toHaveClass('is-library-viewer')
+    expect(container.querySelector('.reels-page')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'close' })).not.toBeInTheDocument()
+    await waitFor(() => expect(document.body).not.toHaveClass('reels-library-viewer-open'))
 
     rerender(<Activity mode="hidden"><ReelsPage userId="1" mode="for-you" active={false} entrySource="profile" entryOwnerId="2" entryReelId="9007199254740994" onEntryClose={onEntryClose} onNavigate={vi.fn()} /></Activity>)
     expect(screen.queryByRole('button', { name: 'close' })).not.toBeInTheDocument()

@@ -128,6 +128,7 @@ export function AuthenticatedApp() {
   const destinationScrollPositionsRef = useRef<Partial<Record<PrimaryDestination, number>>>({})
   const destinationViewportRef = useRef<HTMLDivElement>(null)
   const overlayContentSeedRef = useRef<{ viewerId: string; contentId: string; post: GatewayPost } | null>(null)
+  const overlayClosePendingRef = useRef(false)
   const lastFriendsSectionRef = useRef(normalizeFriendSection(isFriendsRoute ? pathSegment(location.pathname, 1) : null))
   const lastReelModeRef = useRef(normalizeReelMode(isReelsRoute ? pathSegment(location.pathname, 1) : null))
 
@@ -151,6 +152,10 @@ export function AuthenticatedApp() {
     }
     navigate(canonicalHref, { replace: true, state })
   }, [browserLocation, navigate, overlayRoute])
+
+  useEffect(() => {
+    overlayClosePendingRef.current = false
+  }, [browserLocation.pathname, browserLocation.search])
 
   useEffect(() => {
     if (overlayRoute) return
@@ -424,14 +429,16 @@ export function AuthenticatedApp() {
   }
 
   function closeOverlay() {
-    if (!overlayRoute) return
+    if (!overlayRoute || overlayClosePendingRef.current) return
+    overlayClosePendingRef.current = true
     setReelSeed(null)
     setPhotoSeed(null)
-    if (overlayBackgroundHref(browserLocation.state) && overlayReturnsWithBack(browserLocation.state)) {
+    const backgroundHref = overlayBackgroundHref(browserLocation.state)
+    if (backgroundHref && overlayReturnsWithBack(browserLocation.state)) {
       window.history.back()
       return
     }
-    navigate(fallbackBackgroundHref(overlayRoute), { replace: true, state: {} })
+    navigate(backgroundHref ?? fallbackBackgroundHref(overlayRoute), { replace: true, state: {} })
   }
 
   function replaceMediaOverlay(contentId: string, mediaId: string) {
@@ -441,8 +448,10 @@ export function AuthenticatedApp() {
   }
 
   function replaceReelOverlayAddress(reelId: string) {
-    if (overlayRoute?.kind !== 'reel') return
-    const nextHref = reelOverlayHref(reelId, overlayRoute.source, overlayRoute.ownerId)
+    if (overlayClosePendingRef.current) return
+    const currentOverlay = parseOverlayRoute(locationFromHref(`${window.location.pathname}${window.location.search}`))
+    if (currentOverlay?.kind !== 'reel') return
+    const nextHref = reelOverlayHref(reelId, currentOverlay.source, currentOverlay.ownerId)
     if (`${window.location.pathname}${window.location.search}` === nextHref) return
     window.history.replaceState(window.history.state, '', nextHref)
   }
@@ -662,7 +671,7 @@ export function AuthenticatedApp() {
     {(activePrimaryDestination === 'friends' || mountedDestinations.has('friends')) && <Activity name="friends-destination" mode={activePrimaryDestination === 'friends' ? 'visible' : 'hidden'}><FriendsPage userId={user.userId} section={lastFriendsSectionRef.current} onNavigate={go} onOpenReel={openProfileReel} onOpenPhoto={openProfilePhoto} onMessage={openDirectMessage} /></Activity>}
     {(activePrimaryDestination === 'reels' || mountedDestinations.has('reels')) && REEL_MODES.map((reelMode) => {
       if (!mountedReelModes.has(reelMode) && !(activePrimaryDestination === 'reels' && currentReelMode === reelMode)) return null
-      const reelModeActive = activePrimaryDestination === 'reels' && currentReelMode === reelMode
+      const reelModeActive = activePrimaryDestination === 'reels' && currentReelMode === reelMode && overlayRoute?.kind !== 'reel'
       return <Activity key={reelMode} name={`reels-${reelMode}-destination`} mode={reelModeActive ? 'visible' : 'hidden'}><ReelsPage
         key={`reels-${reelMode}-${reelsRefreshToken}`}
         userId={user.userId}
