@@ -7,6 +7,7 @@ import { socialApi, type ContentEngagement } from '../api/social'
 import { useI18n } from '../i18n'
 import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
 import { Avatar } from './Avatar'
+import { ContentDetailShellClose } from './ContentDetailShellClose'
 import { HoverTooltip } from './HoverTooltip'
 import { Icon } from './Icon'
 import { PostDetailCommentsModal } from './PostDetailCommentsModal'
@@ -373,7 +374,7 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
   }
 
   return createPortal(<>
-    <button type="button" className="content-detail-shell-close post-photo-viewer-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>
+    {!routeOwned && <ContentDetailShellClose className="post-photo-viewer-close" onClose={onClose} />}
     <div className={`post-photo-viewer${fullscreen ? ' is-fullscreen' : ''}${activePost || showUnavailableSource ? '' : ' no-sidebar'}`} role="dialog" aria-modal="true" aria-label={t('photoViewer')}>
       <section ref={stageRef} className="post-photo-viewer-stage">
         {loading && !activeMedia ? <span className="spinner" /> : loadError || !activeMedia ? <div className="post-photo-viewer-error"><Icon name="photo" size={30} /><strong>{t('contentUnavailable')}</strong></div> : activeMedia.type === 1

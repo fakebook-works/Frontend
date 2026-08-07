@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { RefObject } from 'react'
 
 interface ProfileColumnScrollOptions {
@@ -17,9 +17,6 @@ interface ProfileColumnScrollOptions {
 export function useProfileColumnScroll({ active, pageRef, firstColumnRef, secondColumnRef, resetKey }: ProfileColumnScrollOptions) {
   useEffect(() => {
     if (!active) return
-    // The responsive layout intentionally uses one native page scroller. The
-    // two-column hand-off only exists on the desktop profile grid.
-    if (typeof window !== 'undefined' && window.innerWidth <= 980) return
     const page = pageRef.current
     const firstColumn = firstColumnRef.current
     const secondColumn = secondColumnRef.current
@@ -134,6 +131,13 @@ export function useProfileColumnScroll({ active, pageRef, firstColumnRef, second
     }
 
     const routeWheel = (event: WheelEvent) => {
+      // The responsive layout intentionally uses one native page scroller.
+      // Keep the listener mounted so resizing across the breakpoint works
+      // without remounting the profile, but only intercept desktop wheels.
+      if (window.innerWidth <= 980) {
+        stopAnimation()
+        return
+      }
       if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
       const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE
         ? event.deltaY * 16
@@ -153,7 +157,8 @@ export function useProfileColumnScroll({ active, pageRef, firstColumnRef, second
     page.addEventListener('wheel', routeWheel, { passive: false })
     const handleResize = () => {
       stopAnimation()
-      clampColumns()
+      if (window.innerWidth <= 980) columns.forEach((column) => { column.scrollTop = 0 })
+      else clampColumns()
     }
     window.addEventListener('resize', handleResize)
     return () => {
@@ -162,6 +167,19 @@ export function useProfileColumnScroll({ active, pageRef, firstColumnRef, second
       window.removeEventListener('resize', handleResize)
     }
   }, [active, firstColumnRef, pageRef, resetKey, secondColumnRef])
+}
+
+export function useProfileDesktopLayout() {
+  const [desktop, setDesktop] = useState(() => typeof window !== 'undefined' && window.innerWidth > 980)
+
+  useEffect(() => {
+    const sync = () => setDesktop(window.innerWidth > 980)
+    sync()
+    window.addEventListener('resize', sync)
+    return () => window.removeEventListener('resize', sync)
+  }, [])
+
+  return desktop
 }
 
 export function useProfilePageScrollMode() {

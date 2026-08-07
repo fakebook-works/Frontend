@@ -8,6 +8,7 @@ import { useI18n } from '../i18n'
 import { clampReelFocalPoint, MAX_REEL_ASPECT_RATIO, MAX_REEL_BYTES, MIN_REEL_ASPECT_RATIO, ratioFromSlider, sliderFromRatio } from '../lib/reelPresentation'
 import { cropReelVideoFile, ReelCropError } from '../lib/reelCrop'
 import { Avatar } from './Avatar'
+import { BodyPortal } from './BodyPortal'
 import { Icon, ReelIcon } from './Icon'
 import { PostPrivacyIcon, type PostPrivacy } from './PostPrivacyIcon'
 import { PostVideoPlayer } from './PostVideoPlayer'
@@ -226,7 +227,7 @@ export default function CreateReelModal({ userId, displayName, avatarUrl, isVeri
     }
   }
 
-  return <div className="modal-backdrop reel-composer-backdrop" role="presentation" onClick={() => !busy && onClose()}>
+  return <BodyPortal><div className="modal-backdrop reel-composer-backdrop" role="presentation" onClick={() => !busy && onClose()}>
     <form className="modal reel-composer-modal" role="dialog" aria-modal="true" aria-label={t('createReel')} onSubmit={submit} onClick={(event) => event.stopPropagation()}>
       <header className="modal-head reel-composer-head">
         <h2>{t('createReel')}</h2>
@@ -277,5 +278,5 @@ export default function CreateReelModal({ userId, displayName, avatarUrl, isVeri
         </section>
       </div>
     </form>
-  </div>
+  </div></BodyPortal>
 }

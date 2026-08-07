@@ -179,13 +179,13 @@
   .reel-composer-backdrop,
   .image-crop-backdrop,
   body .story-creator-backdrop,
-  .content-modal-backdrop { padding: 0; }
+  .modal-backdrop.content-modal-backdrop { padding: 0; }
 
   .home-post-modal,
   .reel-composer-modal,
   .image-crop-modal,
   .story-creator-backdrop > .story-creator-dialog,
-  .content-thread-modal:not(.photo-detail-discussion) {
+  .content-modal-backdrop > .content-thread-modal:not(.photo-detail-discussion) {
     width: 100vw;
     max-width: 100vw;
     height: 100dvh;

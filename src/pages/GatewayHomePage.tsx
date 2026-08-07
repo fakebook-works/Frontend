@@ -7,6 +7,8 @@ import { searchApi } from '../api/search'
 import { socialApi, type ContentEngagement, type SocialProfile } from '../api/social'
 import type { MediaUpload, MessengerConversationDto, UserProfile, UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
+import { BodyPortal } from '../components/BodyPortal'
+import { CreatorModalLoadingFallback } from '../components/CreatorModalLoadingFallback'
 import { GroupPostAvatar } from '../components/GroupPostAvatar'
 import { HoverTooltip } from '../components/HoverTooltip'
 import { MentionSuggestions } from '../components/MentionSuggestions'
@@ -20,6 +22,7 @@ import { PostPrivacyControl } from '../components/PostPrivacyControl'
 import { SharedPostSourceCard } from '../components/SharedPostSourceCard'
 import { SharedStoryMiniPreview } from '../components/SharedStoryMiniPreview'
 import { StoryMediaPreview } from '../components/StoryMediaPreview'
+import { StoryViewerLoadingFallback } from '../components/StoryViewerLoadingFallback'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
@@ -1041,7 +1044,7 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
       {message && !open && <p className="form-error home-composer-message">{message}</p>}
     </section>}
 
-    {open && <div className="modal-backdrop home-composer-backdrop" role="presentation" onClick={closeComposer}>
+    {open && <BodyPortal><div className="modal-backdrop home-composer-backdrop" role="presentation" onClick={closeComposer}>
       <form className={selectedFiles.length > 0 ? 'modal home-post-modal has-media' : 'modal home-post-modal'} role="dialog" aria-modal="true" aria-label={t('createPost')} onSubmit={submit} onClick={(event) => event.stopPropagation()}>
         <header className="modal-head home-post-modal-head"><h2>{t('createPost')}</h2><button type="button" className="icon-circle" aria-label={t('close')} onClick={closeComposer}><Icon name="close" /></button></header>
         <div className={selectedFiles.length > 0 ? 'home-post-modal-body has-media' : 'home-post-modal-body'}>
@@ -1066,9 +1069,9 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
           <button type="submit" className="btn-primary home-post-submit" disabled={busy || (!content.trim() && files.length === 0)}>{busy ? t('posting') : t('post')}</button>
         </div>
       </form>
-    </div>}
-    {open && tagPickerOpen && <Suspense fallback={<div className="modal-backdrop home-tag-picker-backdrop"><span className="spinner" /></div>}><TagPeoplePicker people={friends} selected={taggedPeople} onToggle={toggleTaggedPerson} onDone={() => setTagPickerOpen(false)} onCancel={() => setTagPickerOpen(false)} /></Suspense>}
-    {reelOpen && <Suspense fallback={<div className="modal-backdrop reel-composer-backdrop" role="presentation"><span className="spinner" /></div>}><CreateReelModal
+    </div></BodyPortal>}
+    {open && tagPickerOpen && <BodyPortal><Suspense fallback={<div className="modal-backdrop home-tag-picker-backdrop"><span className="spinner" /></div>}><TagPeoplePicker people={friends} selected={taggedPeople} onToggle={toggleTaggedPerson} onDone={() => setTagPickerOpen(false)} onCancel={() => setTagPickerOpen(false)} /></Suspense></BodyPortal>}
+    {reelOpen && <Suspense fallback={<CreatorModalLoadingFallback kind="reel" onClose={() => setReelOpen(false)} />}><CreateReelModal
       userId={userId}
       displayName={displayName}
       avatarUrl={avatarUrl}
@@ -1154,13 +1157,13 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
     </div>
     {error && !creatorOpen && <p className="form-error story-section-message">{error}</p>}
 
-    {creatorOpen && <Suspense fallback={<div className="modal-backdrop story-creator-loading-backdrop" role="presentation"><span className="spinner" /></div>}><StoryCreatorModal
+    {creatorOpen && <Suspense fallback={<CreatorModalLoadingFallback kind="story" onClose={() => setCreatorOpen(false)} />}><StoryCreatorModal
       open
       authorId={userId}
       onClose={() => setCreatorOpen(false)}
       onCreated={(story) => onStoryCreated(story)}
     /></Suspense>}
-    {selectedBucket && <Suspense fallback={<div className="story-viewer-backdrop"><span className="spinner" /></div>}><StoryViewerPage
+    {selectedBucket && <Suspense fallback={<StoryViewerLoadingFallback onClose={() => setSelectedBucket(null)} />}><StoryViewerPage
       buckets={orderedBuckets}
       initialBucketId={selectedBucket.author.id}
       viewerId={userId}

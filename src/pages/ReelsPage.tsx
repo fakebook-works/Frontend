@@ -19,6 +19,7 @@ import {
 } from '../api/social'
 import type { GatewayPost } from '../api/gatewayTypes'
 import { Avatar } from '../components/Avatar'
+import { CreatorModalLoadingFallback } from '../components/CreatorModalLoadingFallback'
 import { Icon } from '../components/Icon'
 import { MentionContent } from '../components/MentionContent'
 import { PostPrivacyIcon, type PostPrivacy } from '../components/PostPrivacyIcon'
@@ -977,7 +978,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
       </button>
     </nav>}
 
-    {creating && <Suspense fallback={<div className="modal-backdrop reel-composer-backdrop"><span className="spinner" /></div>}>
+    {creating && <Suspense fallback={<CreatorModalLoadingFallback kind="reel" onClose={() => setCreating(false)} />}>
       <CreateReelModal
         userId={userId}
         displayName={creatorProfile?.displayName ?? t('fakebookUser')}

@@ -160,9 +160,12 @@ describe('ProfilePage messaging', () => {
   })
 
   it('loads the next user-profile post page automatically near the feed end', async () => {
+    vi.stubGlobal('innerWidth', 1024)
     let intersect: (() => void) | null = null
+    let observerOptions: IntersectionObserverInit | undefined
     class IntersectionObserverMock {
-      constructor(callback: IntersectionObserverCallback) {
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+        observerOptions = options
         intersect = () => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
       }
       observe() {}
@@ -184,7 +187,7 @@ describe('ProfilePage messaging', () => {
       .mockResolvedValueOnce({ items: [firstPost], endCursor: 'next-profile-page', hasNextPage: true })
       .mockResolvedValueOnce({ items: [{ ...firstPost, id: 'post-2', content: 'second profile page' }], endCursor: null, hasNextPage: false })
 
-    render(<ProfilePage
+    const { container } = render(<ProfilePage
       profile={{ id: 'me', username: 'owner', email: 'owner@example.com', displayName: 'Owner Name', avatarUrl: null, backgroundUrl: null, bio: null, location: null, birthDate: null, gender: null, privacy: 0, isVerified: false, friendCount: 0, postCount: 2, followerCount: 0, followingCount: 0, createdAt: '' }}
       loading={false}
       error={null}
@@ -195,6 +198,19 @@ describe('ProfilePage messaging', () => {
       onMessage={vi.fn()}
     />)
     await waitFor(() => expect(intersect).not.toBeNull())
+    expect(observerOptions?.root).toBe(container.querySelector('.profile-post-list'))
+    expect(observerOptions?.rootMargin).toBe('520px 0px')
+
+    act(() => {
+      vi.stubGlobal('innerWidth', 900)
+      window.dispatchEvent(new Event('resize'))
+    })
+    await waitFor(() => expect(observerOptions?.root).toBeNull())
+    act(() => {
+      vi.stubGlobal('innerWidth', 1024)
+      window.dispatchEvent(new Event('resize'))
+    })
+    await waitFor(() => expect(observerOptions?.root).toBe(container.querySelector('.profile-post-list')))
 
     act(() => intersect?.())
 
@@ -565,6 +581,7 @@ describe('ProfilePage messaging', () => {
     expect(screen.queryByRole('button', { name: 'following' })).not.toBeInTheDocument()
 
     fireEvent.click(friendButton)
+    expect(friendButton).toHaveAttribute('aria-expanded', 'true')
     let menu = await screen.findByRole('menu')
     expect(within(menu).getByRole('menuitem', { name: /removeFriend/ })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: /block/ })).toBeInTheDocument()
@@ -1318,6 +1335,7 @@ describe('ProfilePage messaging', () => {
   })
 
   it('scrolls the embedded profile page first, then both columns while clamping the shorter one', async () => {
+    vi.stubGlobal('innerWidth', 900)
     const { container } = render(<div className="authenticated-destination-scroll"><ProfilePage
       profile={{
         id: 'me', username: 'owner', email: 'owner@example.com', displayName: 'Owner Name', avatarUrl: null,
@@ -1352,6 +1370,15 @@ describe('ProfilePage messaging', () => {
     })
     infoColumn.scrollTop = 400
     postColumn.scrollTop = 300
+
+    expect(fireEvent.wheel(grid, { deltaY: 250 })).toBe(true)
+    expect(destinationViewport.scrollTop).toBe(0)
+    expect(infoColumn.scrollTop).toBe(400)
+    expect(postColumn.scrollTop).toBe(300)
+    act(() => {
+      vi.stubGlobal('innerWidth', 1024)
+      window.dispatchEvent(new Event('resize'))
+    })
 
     fireEvent.wheel(grid, { deltaY: 250 })
     await waitFor(() => {

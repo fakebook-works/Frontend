@@ -607,6 +607,7 @@ export function AuthenticatedApp() {
       <div className="shell-brand-search-anchor">
         <div id={CONTENT_DETAIL_SHELL_CLOSE_TARGET_ID} className="content-detail-shell-left-controls">
           {overlayRoute?.kind === 'content' && <button type="button" className="content-detail-shell-close" aria-label={t('close')} onClick={closeOverlay}><Icon name="close" size={24} /></button>}
+          {overlayRoute?.kind === 'media' && <button type="button" className="content-detail-shell-close post-photo-viewer-close" aria-label={t('close')} onClick={closeOverlay}><Icon name="close" size={24} /></button>}
         </div>
         <div className={quickShellOpen ? `shell-brand-search is-searching${quickClosing ? ' is-closing' : ''}${quickOpen && searchText.trim().length === 0 ? ' has-recent-empty' : ''}` : 'shell-brand-search'}>
         <span className={quickOpen ? 'shell-search-leading-slot is-searching' : 'shell-search-leading-slot'}>
@@ -718,7 +719,7 @@ export function AuthenticatedApp() {
       onActiveReelAddressChange={replaceReelOverlayAddress}
       onNavigate={go}
     />}
-    {overlayRoute?.kind === 'media' && <Suspense fallback={<div className="post-photo-viewer"><button type="button" className="content-detail-shell-close post-photo-viewer-close" aria-label={t('close')} onClick={closeOverlay}><Icon name="close" size={24} /></button><span className="spinner" /></div>}><PostPhotoViewer
+    {overlayRoute?.kind === 'media' && <Suspense fallback={<div className="post-photo-viewer"><span className="spinner" /></div>}><PostPhotoViewer
       viewerId={user.userId}
       contentId={overlayRoute.contentId}
       initialMediaId={overlayRoute.mediaId}

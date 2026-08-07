@@ -227,4 +227,20 @@ describe('PostPhotoViewer', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('places its close action in the shared shell slot', () => {
+    const shellTarget = document.createElement('div')
+    shellTarget.id = 'content-detail-shell-close-target'
+    document.body.append(shellTarget)
+    const onClose = vi.fn()
+    const view = render(<PostPhotoViewer viewerId="viewer-1" contentId="post-1" initialMediaId="photo-a" initialPost={post} onClose={onClose} />)
+
+    const closeButton = shellTarget.querySelector<HTMLButtonElement>('.post-photo-viewer-close')
+    expect(closeButton).toBeInTheDocument()
+    fireEvent.click(closeButton!)
+    expect(onClose).toHaveBeenCalledTimes(1)
+
+    view.unmount()
+    shellTarget.remove()
+  })
 })

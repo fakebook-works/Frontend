@@ -22,7 +22,7 @@ import { useI18n } from '../i18n'
 import { useInlineImageCrop } from '../lib/useInlineImageCrop'
 import { useImageAmbientColor } from '../lib/useImageAmbientColor'
 import { groupProfilePostsByMonth } from '../lib/profilePostGrid'
-import { useProfileColumnScroll, useProfilePageScrollMode } from '../lib/useProfileColumnScroll'
+import { useProfileColumnScroll, useProfileDesktopLayout, useProfilePageScrollMode } from '../lib/useProfileColumnScroll'
 import { contentOverlayHref } from '../lib/overlayRoutes'
 import { PostComposer, GatewayPostCard } from './GatewayHomePage'
 import './GroupProfilePage.css'
@@ -429,6 +429,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
     secondColumnRef: groupInfoColumnRef,
     resetKey: groupId,
   })
+  const profileDesktopLayout = useProfileDesktopLayout()
 
   useLayoutEffect(() => {
     if (loading || !group) return
@@ -609,12 +610,13 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   useEffect(() => {
     const sentinel = groupPostSentinelRef.current
     if (tab !== 'discussion' || !sentinel || !membership.canViewPosts || postsLoading || postsLoadingMore || postsMoreError || !postsHaveMore || !postCursor || posts.length === 0 || typeof IntersectionObserver === 'undefined') return
+    const observerRoot = profileDesktopLayout ? groupPostColumnRef.current : null
     const observer = new IntersectionObserver(([entry]) => {
       if (entry?.isIntersecting) void loadPosts(postCursor, true)
-    }, { rootMargin: '520px 0px', threshold: 0.01 })
+    }, { root: observerRoot, rootMargin: '520px 0px', threshold: 0.01 })
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [loadPosts, membership.canViewPosts, postCursor, posts.length, postsHaveMore, postsLoading, postsLoadingMore, postsMoreError, tab])
+  }, [loadPosts, membership.canViewPosts, postCursor, posts.length, postsHaveMore, postsLoading, postsLoadingMore, postsMoreError, profileDesktopLayout, tab])
   useEffect(() => { void loadPeople() }, [loadPeople])
   useEffect(() => {
     setPostFilter('all')

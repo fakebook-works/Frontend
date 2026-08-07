@@ -11,6 +11,7 @@ import {
   encodeStoryContent,
 } from '../lib/storyContent'
 import { createEditedStoryImage } from '../lib/storyImage'
+import { BodyPortal } from './BodyPortal'
 import { Icon } from './Icon'
 import './StoryCreatorModal.css'
 
@@ -144,7 +145,7 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
     adjustZoom(event.deltaY < 0 ? .1 : -.1)
   }
 
-  return <div className="story-creator-backdrop" role="presentation" onMouseDown={() => !busy && onClose()}>
+  return <BodyPortal><div className="story-creator-backdrop" role="presentation" onMouseDown={() => !busy && onClose()}>
     <form className="story-creator-dialog" role="dialog" aria-modal="true" aria-label={t('storyCreate')} onSubmit={publish} onMouseDown={(event) => event.stopPropagation()}>
       <header className="story-creator-head">
         <h2>{t('storyCreate')}</h2>
@@ -218,7 +219,7 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
         <button type="submit" className="btn-primary story-publish-button" disabled={busy || (!content.trim() && !file)}>{busy ? t('posting') : t('publishStory')}</button>
       </footer>
     </form>
-  </div>
+  </div></BodyPortal>
 }
 
 export default StoryCreatorModal

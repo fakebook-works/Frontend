@@ -62,11 +62,12 @@ describe('CreateReelModal', () => {
     const onClose = vi.fn()
     const onCreated = vi.fn()
     const view = render(<CreateReelModal userId="9007199254740993123" displayName="Owner" avatarUrl={null} onClose={onClose} onCreated={onCreated} />)
-    return { ...view, onClose, onCreated }
+    return { ...view, container: document.body, onClose, onCreated }
   }
 
   it('publishes the selected crop and privacy then emits a hydrated Home reel shape', async () => {
     const { container, onClose, onCreated } = renderComposer()
+    expect(container.querySelector('.reel-composer-backdrop')?.parentElement).toBe(document.body)
     const file = new File(['reel'], 'reel.mp4', { type: 'video/mp4' })
     fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [file] } })
     expect(container.querySelector('[aria-label="videoSettings"]')).not.toBeInTheDocument()

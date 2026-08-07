@@ -44,6 +44,7 @@ describe('StoryCreatorModal', () => {
     render(<StoryCreatorModal open authorId="42" onCreated={onCreated} onClose={onClose} />)
 
     expect(document.body).toHaveClass('modal-interaction-locked', 'story-creator-open')
+    expect(document.querySelector('.story-creator-backdrop')?.parentElement).toBe(document.body)
     expect(document.querySelector('.story-editor-canvas')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'storyCreate' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'close' }).querySelector('path')).toHaveAttribute('d', 'M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z')

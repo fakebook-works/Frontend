@@ -8,12 +8,14 @@ import { socialApi, type ProfileRelationshipState, type SocialContent, type Soci
 import { searchApi } from '../api/search'
 import { Avatar } from '../components/Avatar'
 import { AnchoredMenuPortal } from '../components/AnchoredMenuPortal'
+import { CreatorModalLoadingFallback } from '../components/CreatorModalLoadingFallback'
 import { FriendPersonActionGlyph } from '../components/FriendPeopleGlyph'
 import { Icon } from '../components/Icon'
 import { PostPrivacyIcon } from '../components/PostPrivacyIcon'
 import { ProfilePostGridCard, ProfilePostGridIcon, ProfilePostListIcon } from '../components/ProfilePostGrid'
 import { SharedStoryMiniPreview } from '../components/SharedStoryMiniPreview'
 import { StoryMediaPreview } from '../components/StoryMediaPreview'
+import { StoryViewerLoadingFallback } from '../components/StoryViewerLoadingFallback'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import type { PostPhotoViewerMediaEntry } from '../components/PostPhotoViewer'
 import { useI18n } from '../i18n'
@@ -26,7 +28,7 @@ import { contentOverlayHref, reelOverlayHref } from '../lib/overlayRoutes'
 import { decodeStoryContent } from '../lib/storyContent'
 import { useInlineImageCrop } from '../lib/useInlineImageCrop'
 import { useImageAmbientColor } from '../lib/useImageAmbientColor'
-import { useProfileColumnScroll } from '../lib/useProfileColumnScroll'
+import { useProfileColumnScroll, useProfileDesktopLayout } from '../lib/useProfileColumnScroll'
 import { GatewayPostCard, PostComposer } from './GatewayHomePage'
 import { birthDateBounds, isAllowedBirthDate } from './birthDate'
 
@@ -598,6 +600,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
     secondColumnRef: profilePostColumnRef,
     resetKey: profile?.id ?? '',
   })
+  const profileDesktopLayout = useProfileDesktopLayout()
 
   useLayoutEffect(() => {
     if (loading || !profile) return
@@ -770,12 +773,13 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
   useEffect(() => {
     const sentinel = profilePostSentinelRef.current
     if (tab !== 'posts' || !sentinel || postsLoading || postsLoadingMore || postsMoreError || !postsHaveMore || !postCursor || posts.length === 0 || typeof IntersectionObserver === 'undefined') return
+    const observerRoot = profileDesktopLayout ? profilePostColumnRef.current : null
     const observer = new IntersectionObserver(([entry]) => {
       if (entry?.isIntersecting) void loadProfilePosts(postCursor, true)
-    }, { rootMargin: '520px 0px', threshold: 0.01 })
+    }, { root: observerRoot, rootMargin: '520px 0px', threshold: 0.01 })
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [loadProfilePosts, postCursor, posts.length, postsHaveMore, postsLoading, postsLoadingMore, postsMoreError, tab])
+  }, [loadProfilePosts, postCursor, posts.length, postsHaveMore, postsLoading, postsLoadingMore, postsMoreError, profileDesktopLayout, tab])
 
   useEffect(() => {
     if (!profile?.id || canEdit) {
@@ -1595,7 +1599,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
       </div>
     </main>
 
-    {canEdit && storyCreatorOpen && <Suspense fallback={<div className="modal-backdrop"><span className="spinner" /></div>}><StoryCreatorModal open authorId={profile.id} onClose={() => setStoryCreatorOpen(false)} onCreated={(story) => {
+    {canEdit && storyCreatorOpen && <Suspense fallback={<CreatorModalLoadingFallback kind="story" onClose={() => setStoryCreatorOpen(false)} />}><StoryCreatorModal open authorId={profile.id} onClose={() => setStoryCreatorOpen(false)} onCreated={(story) => {
       rememberOwnUnseenStory(profile.id, story.id)
       setMyStories((current) => ({
         author: { id: profile.id, name: profile.displayName, avatar: profile.avatarUrl ?? '', isVerified: Boolean(profile.isVerified) },
@@ -1605,7 +1609,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
         stories: [story, ...(current?.stories ?? []).filter((item) => item.id !== story.id)],
       }))
     }} /></Suspense>}
-    {storyViewerOpen && profileStoryBucket && <Suspense fallback={<div className="story-viewer-backdrop"><span className="spinner" /></div>}><StoryViewerPage buckets={storyViewerBuckets} initialBucketId={profile.id} viewerId={viewerId} onClose={() => setStoryViewerOpen(false)} onNavigate={onNavigate} onViewed={markProfileStoryViewed} onCreateStory={canEdit ? () => { setStoryViewerOpen(false); setStoryCreatorOpen(true) } : undefined} onStoryDeleted={canEdit ? (storyId) => {
+    {storyViewerOpen && profileStoryBucket && <Suspense fallback={<StoryViewerLoadingFallback onClose={() => setStoryViewerOpen(false)} />}><StoryViewerPage buckets={storyViewerBuckets} initialBucketId={profile.id} viewerId={viewerId} onClose={() => setStoryViewerOpen(false)} onNavigate={onNavigate} onViewed={markProfileStoryViewed} onCreateStory={canEdit ? () => { setStoryViewerOpen(false); setStoryCreatorOpen(true) } : undefined} onStoryDeleted={canEdit ? (storyId) => {
       const wasUnseen = forgetOwnUnseenStory(activeProfileId, storyId)
       setMyStories((current) => {
         if (!current) return null
@@ -2113,7 +2117,7 @@ function ProfileActions({ profile, relationship, loading, busyAction, onFriend, 
   const [menu, setMenu] = useState<'following' | 'friend' | null>(null)
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
 
-  useEffect(() => { setMenu(null); setMenuAnchor(null) }, [profile.id, relationship.friendship, relationship.isBlocked, relationship.isFollowing])
+  useLayoutEffect(() => { setMenu(null); setMenuAnchor(null) }, [profile.id, relationship.friendship, relationship.isBlocked, relationship.isFollowing])
 
   if (loading) return <div className="self-profile-header-actions visitor-profile-header-actions"><span className="spinner" /></div>
   if (relationship.isBlocked || relationship.isBlockedBy) return <div className="self-profile-header-actions visitor-profile-header-actions"><span className="role-pill muted-pill">{t('profileRestricted')}</span></div>

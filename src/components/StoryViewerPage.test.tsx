@@ -346,6 +346,22 @@ describe('StoryViewerPage', () => {
     expect(document.querySelector('.story-viewer-shell-close')).not.toBeInTheDocument()
   })
 
+  it('places its close action in the shell slot and closes from that control', () => {
+    const shellTarget = document.createElement('div')
+    shellTarget.id = 'content-detail-shell-close-target'
+    document.body.append(shellTarget)
+    const onClose = vi.fn()
+    const view = renderViewer([textBucket(ownerId, 'Owner')], ownerId, { onClose })
+
+    const closeButton = shellTarget.querySelector<HTMLButtonElement>('.story-viewer-shell-close')
+    expect(closeButton).toBeInTheDocument()
+    fireEvent.click(closeButton!)
+    expect(onClose).toHaveBeenCalledTimes(1)
+
+    view.unmount()
+    shellTarget.remove()
+  })
+
   it('uses the compact no-viewers state and hides a zero owner like count', async () => {
     const ownerBucket = textBucket(ownerId, 'Owner')
     socialMocks.getContentEngagement.mockResolvedValue({

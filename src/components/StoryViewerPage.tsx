@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { api } from '../api/client'
 import type { GatewayPost, GatewayStory, SharedPostSource, SharedStorySource, StoryBucket } from '../api/gatewayTypes'
 import { socialApi, type ContentEngagement, type ProfileRelationshipState } from '../api/social'
@@ -10,6 +9,7 @@ import { contentOverlayHref } from '../lib/overlayRoutes'
 import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
 import { decodeStoryContent } from '../lib/storyContent'
 import { Avatar } from './Avatar'
+import { ContentDetailShellClose } from './ContentDetailShellClose'
 import { Icon } from './Icon'
 import { StoryControlIcon } from './StoryControlIcon'
 import { StoryImageMedia } from './StoryImageMedia'
@@ -614,7 +614,7 @@ export function StoryViewerPage({
       : t('storyNoViewersShort')
 
   return <>
-    {createPortal(<button type="button" className="content-detail-shell-close story-viewer-shell-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>, document.body)}
+    <ContentDetailShellClose className="story-viewer-shell-close" onClose={onClose} />
     <div className="story-viewer-backdrop" role="presentation" onClick={onClose}>
     <aside className="story-viewer-sidebar" onClick={(event) => event.stopPropagation()}>
       <header className="story-sidebar-heading"><h2>{t('stories')}</h2></header>

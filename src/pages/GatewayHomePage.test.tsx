@@ -421,6 +421,7 @@ describe('GatewayHomePage', () => {
     await screen.findByText('Older post')
     fireEvent.click(screen.getByRole('button', { name: 'postComposerPlaceholder' }))
     const composerDialog = screen.getByRole('dialog', { name: 'createPost' })
+    expect(composerDialog.closest('.home-composer-backdrop')?.parentElement).toBe(document.body)
     expect(within(composerDialog).getByRole('button', { name: 'close' }).querySelector('path')).toHaveAttribute('d', 'M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z')
     const privacyButton = within(composerDialog).getByRole('button', { name: 'privacy' })
     expect(privacyButton).toHaveTextContent('privacyPublic')
@@ -706,13 +707,13 @@ describe('GatewayHomePage', () => {
     })))
     apiMocks.createFeedPost.mockResolvedValue({ id: '44' })
     apiMocks.postDetail.mockResolvedValue(null)
-    const { container } = render(<GatewayHomePage />)
+    render(<GatewayHomePage />)
 
     fireEvent.change(screen.getAllByLabelText('photoVideo')[0], { target: { files } })
 
     expect(await screen.findByText('+2')).toBeInTheDocument()
     expect(screen.getByLabelText('mediaPreview')).toHaveClass('media-count-5')
-    expect(container.querySelectorAll('.home-media-slot')).toHaveLength(5)
+    expect(document.querySelectorAll('.home-media-slot')).toHaveLength(5)
     fireEvent.change(screen.getByPlaceholderText('postComposerPersonalPlaceholder'), { target: { value: 'Seven photos' } })
     fireEvent.click(screen.getByRole('button', { name: 'post' }))
 

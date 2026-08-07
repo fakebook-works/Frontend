@@ -336,8 +336,11 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(screen.getByTestId('home-page')).toBe(homePage)
     expect(document.querySelector('.app-shell-topbar')).toHaveClass('is-media-overlay')
     expect(document.querySelector('.app-shell-topbar')).not.toHaveClass('is-content-detail')
+    const mediaShellAnchor = document.querySelector('.app-shell-topbar .shell-brand-search-anchor')!
+    expect(mediaShellAnchor.querySelector('.app-brand')).toBeInTheDocument()
+    expect(mediaShellAnchor.querySelector('#content-detail-shell-close-target .post-photo-viewer-close')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'close-photo-overlay' }))
+    fireEvent.click(mediaShellAnchor.querySelector<HTMLButtonElement>('.post-photo-viewer-close')!)
     await waitFor(() => expect(screen.queryByTestId('photo-overlay')).not.toBeInTheDocument())
     expect(window.location.pathname).toBe('/')
     expect(screen.getByTestId('home-page')).toBe(homePage)

@@ -138,9 +138,12 @@ describe('GroupProfilePage', () => {
   })
 
   it('loads the next group-post page automatically when the feed sentinel approaches', async () => {
+    vi.stubGlobal('innerWidth', 1024)
     let intersect: (() => void) | null = null
+    let observerOptions: IntersectionObserverInit | undefined
     class IntersectionObserverMock {
-      constructor(callback: IntersectionObserverCallback) {
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+        observerOptions = options
         intersect = () => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
       }
       observe() {}
@@ -156,9 +159,22 @@ describe('GroupProfilePage', () => {
       .mockResolvedValueOnce({ items: [post], endCursor: 'next-page', hasNextPage: true })
       .mockResolvedValueOnce({ items: [{ ...post, id: '82', content: 'second group page' }], endCursor: null, hasNextPage: false })
 
-    render(<GroupProfilePage groupId="61" userId="71" onBack={vi.fn()} onNavigate={vi.fn()} />)
+    const { container } = render(<GroupProfilePage groupId="61" userId="71" onBack={vi.fn()} onNavigate={vi.fn()} />)
     await screen.findByTestId(`group-profile-post-${post.id}`)
     await waitFor(() => expect(intersect).not.toBeNull())
+    expect(observerOptions?.root).toBe(container.querySelector('.group-profile-post-column'))
+    expect(observerOptions?.rootMargin).toBe('520px 0px')
+
+    act(() => {
+      vi.stubGlobal('innerWidth', 900)
+      window.dispatchEvent(new Event('resize'))
+    })
+    await waitFor(() => expect(observerOptions?.root).toBeNull())
+    act(() => {
+      vi.stubGlobal('innerWidth', 1024)
+      window.dispatchEvent(new Event('resize'))
+    })
+    await waitFor(() => expect(observerOptions?.root).toBe(container.querySelector('.group-profile-post-column')))
 
     act(() => intersect?.())
 

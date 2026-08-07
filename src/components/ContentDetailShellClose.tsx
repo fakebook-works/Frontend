@@ -4,9 +4,9 @@ import { Icon } from './Icon'
 
 export const CONTENT_DETAIL_SHELL_CLOSE_TARGET_ID = 'content-detail-shell-close-target'
 
-export function ContentDetailShellClose({ onClose }: { onClose: () => void }) {
+export function ContentDetailShellClose({ onClose, className = '' }: { onClose: () => void; className?: string }) {
   const { t } = useI18n()
-  const button = <button type="button" className="content-detail-shell-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>
+  const button = <button type="button" className={`content-detail-shell-close${className ? ` ${className}` : ''}`} aria-label={t('close')} onClick={onClose}><Icon name="close" size={24} /></button>
   const target = typeof document === 'undefined'
     ? null
     : document.getElementById(CONTENT_DETAIL_SHELL_CLOSE_TARGET_ID) ?? document.body
