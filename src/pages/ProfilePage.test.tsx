@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProfilePage } from './ProfilePage'
 
@@ -139,7 +139,10 @@ describe('ProfilePage messaging', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
 
   it('shows a stable profile-shaped skeleton while either owner or visitor data is loading', () => {
     const { container, rerender } = render(<ProfilePage profile={null} loading error={null} canEdit viewerId="me" onEdit={vi.fn()} onNavigate={vi.fn()} onMessage={vi.fn()} />)
@@ -154,6 +157,48 @@ describe('ProfilePage messaging', () => {
     rerender(<ProfilePage profile={null} loading error={null} canEdit={false} viewerId="me" onEdit={vi.fn()} onNavigate={vi.fn()} onMessage={vi.fn()} />)
     expect(container.querySelector('.profile-page-skeleton')).toHaveAttribute('aria-busy', 'true')
     expect(container.querySelector('.profile-skeleton-tools')).toBeInTheDocument()
+  })
+
+  it('loads the next user-profile post page automatically near the feed end', async () => {
+    let intersect: (() => void) | null = null
+    class IntersectionObserverMock {
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = () => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+      takeRecords(): IntersectionObserverEntry[] { return [] }
+      root = null
+      rootMargin = '0px'
+      thresholds = [0]
+    }
+    vi.stubGlobal('IntersectionObserver', IntersectionObserverMock)
+    const firstPost = {
+      __typename: 'FeedPostDetail' as const,
+      id: 'post-1', type: 1, content: 'first profile page', privacy: 0, create: '2026-08-01T00:00:00Z',
+      author: { id: 'me', name: 'Owner Name', avatar: '', isVerified: false, canFollow: false },
+      media: [], mentions: [], taggedUsers: [], sharedSource: null,
+    }
+    socialMocks.getProfilePosts
+      .mockResolvedValueOnce({ items: [firstPost], endCursor: 'next-profile-page', hasNextPage: true })
+      .mockResolvedValueOnce({ items: [{ ...firstPost, id: 'post-2', content: 'second profile page' }], endCursor: null, hasNextPage: false })
+
+    render(<ProfilePage
+      profile={{ id: 'me', username: 'owner', email: 'owner@example.com', displayName: 'Owner Name', avatarUrl: null, backgroundUrl: null, bio: null, location: null, birthDate: null, gender: null, privacy: 0, isVerified: false, friendCount: 0, postCount: 2, followerCount: 0, followingCount: 0, createdAt: '' }}
+      loading={false}
+      error={null}
+      canEdit
+      viewerId="me"
+      onEdit={vi.fn()}
+      onNavigate={vi.fn()}
+      onMessage={vi.fn()}
+    />)
+    await waitFor(() => expect(intersect).not.toBeNull())
+
+    act(() => intersect?.())
+
+    await waitFor(() => expect(socialMocks.getProfilePosts).toHaveBeenNthCalledWith(2, 'me', 20, 'next-profile-page'))
   })
 
   it('opens the idempotent direct-message flow from a friend profile', async () => {

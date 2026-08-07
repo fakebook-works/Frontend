@@ -22,7 +22,7 @@ import { FriendsPage } from './FriendsPage'
 import { GatewayHomePage } from './GatewayHomePage'
 import { GroupProfilePage, GroupsPage } from './GroupsPage'
 import { ProfilePage } from './ProfilePage'
-import { ReelsPage } from './ReelsPage'
+import { ReelsPage, type ReelMode } from './ReelsPage'
 import { SavedPage, type SavedSection } from './SavedPage'
 import { SearchPage } from './SearchPage'
 import { SettingsPage } from './SettingsPage'
@@ -36,6 +36,7 @@ import { MessengerDock, MessengerPage, type MessengerDockHandle } from './messen
 
 const SETTINGS = new Set<SettingsSection>(['overview', 'profile', 'security', 'privacy', 'sessions', 'language', 'appearance', 'premium'])
 type PrimaryDestination = 'home' | 'friends' | 'reels' | 'groups'
+const REEL_MODES: readonly ReelMode[] = ['for-you', 'following', 'mine', 'saved', 'liked', 'shared', 'watched']
 type ReelOverlayState = {
   source: 'for-you' | 'profile'
   reelId: string
@@ -75,6 +76,9 @@ export function AuthenticatedApp() {
   const [reelOverlay, setReelOverlay] = useState<ReelOverlayState | null>(null)
   const [photoOverlay, setPhotoOverlay] = useState<PhotoOverlayState | null>(null)
   const [mountedDestinations, setMountedDestinations] = useState<Set<PrimaryDestination>>(() => activePrimaryDestination ? new Set([activePrimaryDestination]) : new Set())
+  const [mountedReelModes, setMountedReelModes] = useState<Set<ReelMode>>(() => isReelsRoute
+    ? new Set([normalizeReelMode(pathSegment(location.pathname, 1))])
+    : new Set())
   const [menuOpen, setMenuOpen] = useState(false)
   const [appsMenuOpen, setAppsMenuOpen] = useState(false)
   const [menuView, setMenuView] = useState<'root' | 'settings'>('root')
@@ -115,6 +119,27 @@ export function AuthenticatedApp() {
       return next
     })
   }, [activePrimaryDestination])
+
+  useEffect(() => {
+    if (!isReelsRoute) return
+    const nextMode = normalizeReelMode(pathSegment(location.pathname, 1))
+    setMountedReelModes((current) => {
+      if (current.has(nextMode)) return current
+      const next = new Set(current)
+      next.add(nextMode)
+      return next
+    })
+  }, [isReelsRoute, location.pathname])
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.add('authenticated-shell-scroll')
+    document.body.classList.add('authenticated-shell-scroll')
+    return () => {
+      root.classList.remove('authenticated-shell-scroll')
+      document.body.classList.remove('authenticated-shell-scroll')
+    }
+  }, [])
 
   useLayoutEffect(() => {
     if (!activePrimaryDestination) return
@@ -302,6 +327,7 @@ export function AuthenticatedApp() {
   if (isHomeRoute) lastHomeDetailPostIdRef.current = homeDetailPostId
   if (isFriendsRoute) lastFriendsSectionRef.current = normalizeFriendSection(pathSegment(location.pathname, 1))
   if (isReelsRoute) lastReelModeRef.current = normalizeReelMode(pathSegment(location.pathname, 1))
+  const currentReelMode = lastReelModeRef.current
   const quickShellOpen = quickOpen || quickClosing
 
   function resetQuickSearch() {
@@ -484,7 +510,21 @@ export function AuthenticatedApp() {
     {(activePrimaryDestination === 'home' || mountedDestinations.has('home')) && <Activity name="home-destination" mode={activePrimaryDestination === 'home' ? 'visible' : 'hidden'}><GatewayHomePage profile={currentProfile} refreshToken={homeRefreshToken} detailPostId={lastHomeDetailPostIdRef.current} onDetailClose={() => navigate('/home', { replace: true })} onNavigate={go} onOpenReel={openHomeReel} onMessage={openDirectMessage} onNewConversation={() => messengerDockRef.current?.openComposer()} onConversation={(conversation) => messengerDockRef.current?.openConversation(conversation)} /></Activity>}
     {location.pathname === '/search' && <SearchPage query={location.params.get('q') ?? ''} tab={searchTab} userId={user.userId} onNavigate={go} onMessage={openDirectMessage} />}
     {(activePrimaryDestination === 'friends' || mountedDestinations.has('friends')) && <Activity name="friends-destination" mode={activePrimaryDestination === 'friends' ? 'visible' : 'hidden'}><FriendsPage userId={user.userId} section={lastFriendsSectionRef.current} onNavigate={go} onMessage={openDirectMessage} /></Activity>}
-    {(activePrimaryDestination === 'reels' || mountedDestinations.has('reels')) && <Activity name="reels-destination" mode={activePrimaryDestination === 'reels' ? 'visible' : 'hidden'}><ReelsPage key={`reels-${reelsRefreshToken}`} userId={user.userId} mode={lastReelModeRef.current} active={activePrimaryDestination === 'reels'} entrySource={reelEntrySource} entryReelId={reelEntryId} entryOwnerId={reelEntryOwnerId} onEntryClose={() => reelEntrySource === 'profile' && reelEntryOwnerId ? go(`/profile/${reelEntryOwnerId}?tab=reels`) : go('/home')} onNavigate={go} /></Activity>}
+    {(activePrimaryDestination === 'reels' || mountedDestinations.has('reels')) && REEL_MODES.map((reelMode) => {
+      if (!mountedReelModes.has(reelMode) && !(activePrimaryDestination === 'reels' && currentReelMode === reelMode)) return null
+      const reelModeActive = activePrimaryDestination === 'reels' && currentReelMode === reelMode
+      return <Activity key={reelMode} name={`reels-${reelMode}-destination`} mode={reelModeActive ? 'visible' : 'hidden'}><ReelsPage
+        key={`reels-${reelMode}-${reelsRefreshToken}`}
+        userId={user.userId}
+        mode={reelMode}
+        active={reelModeActive}
+        entrySource={reelModeActive ? reelEntrySource : null}
+        entryReelId={reelModeActive ? reelEntryId : null}
+        entryOwnerId={reelModeActive ? reelEntryOwnerId : null}
+        onEntryClose={() => reelEntrySource === 'profile' && reelEntryOwnerId ? go(`/profile/${reelEntryOwnerId}?tab=reels`) : go('/home')}
+        onNavigate={go}
+      /></Activity>
+    })}
     {(activePrimaryDestination === 'groups' || mountedDestinations.has('groups')) && <Activity name="groups-destination" mode={activePrimaryDestination === 'groups' ? 'visible' : 'hidden'}><GroupsPage key={`groups-${groupsRefreshToken}`} userId={user.userId} profile={currentProfile} onNavigate={go} /></Activity>}
     {groupId && <GroupProfilePage groupId={groupId} userId={user.userId} onBack={() => go('/groups')} onNavigate={go} onOpenReel={openHomeReel} />}
     {groupRouteId && groupMemberProfileId && <UserInGroupProfilePage groupId={groupRouteId} profileId={groupMemberProfileId} viewerId={user.userId} onBack={() => go(`/groups/${groupRouteId}`)} onNavigate={go} />}
@@ -677,7 +717,7 @@ function normalizeFriendSection(value: string | null): 'home' | 'friends' | 'inc
   return value === 'friends' || value === 'incoming' || value === 'outgoing' || value === 'suggestions' || value === 'blocked' ? value : 'home'
 }
 
-function normalizeReelMode(value: string | null): 'for-you' | 'following' | 'mine' | 'saved' | 'liked' | 'shared' | 'watched' {
+function normalizeReelMode(value: string | null): ReelMode {
   return value === 'following' || value === 'mine' || value === 'saved' || value === 'liked' || value === 'shared' || value === 'watched' ? value : 'for-you'
 }
 

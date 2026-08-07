@@ -30,7 +30,7 @@ import { prefetchCommentPage } from '../lib/commentPagePrefetch'
 import { parseMentionContent, type MentionDisplayUser } from '../lib/mentions'
 import { gatewayReelToSocialContent } from '../lib/reelEntry'
 
-type ReelMode = 'for-you' | 'following' | 'mine' | 'saved' | 'liked' | 'shared' | 'watched'
+export type ReelMode = 'for-you' | 'following' | 'mine' | 'saved' | 'liked' | 'shared' | 'watched'
 type ReelSidebarItem = 'for-you' | 'following' | 'profile'
 type ReelEntrySource = 'for-you' | 'profile'
 

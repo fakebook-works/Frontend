@@ -4470,9 +4470,9 @@ select option {
 .discovery-sidebar nav button { width: 100%; height: var(--topbar-h); min-height: var(--topbar-h); display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 12px; padding: 0 8px; border: 0; border-radius: 8px; color: var(--text); text-align: left; background: transparent; }
 .discovery-sidebar nav button:hover:not(.active) { background: var(--hover); }
 .discovery-sidebar nav button.active { color: #e4e6eb; background: #1c1c1d; }
-.discovery-sidebar nav button > span { --discovery-nav-icon-bg: var(--circle); --group-members-icon-cutout: var(--discovery-nav-icon-bg); width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; color: var(--text); background: var(--circle); transition: background-color .14s ease; }
-.discovery-sidebar nav button:hover:not(.active) > span { --discovery-nav-icon-bg: var(--circle-hover); --group-members-icon-cutout: var(--discovery-nav-icon-bg); background: var(--circle-hover); }
-.discovery-sidebar nav button.active > span { --discovery-nav-icon-bg: var(--blue); --group-members-icon-cutout: var(--discovery-nav-icon-bg); color: #fff; background: var(--blue); }
+.discovery-sidebar nav button > span { --discovery-nav-icon-bg: var(--circle); --friend-people-cutout: var(--discovery-nav-icon-bg); --group-members-icon-cutout: var(--discovery-nav-icon-bg); width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; color: var(--text); background: var(--circle); transition: background-color .14s ease; }
+.discovery-sidebar nav button:hover:not(.active) > span { --discovery-nav-icon-bg: var(--circle-hover); --friend-people-cutout: var(--discovery-nav-icon-bg); --group-members-icon-cutout: var(--discovery-nav-icon-bg); background: var(--circle-hover); }
+.discovery-sidebar nav button.active > span { --discovery-nav-icon-bg: var(--blue); --friend-people-cutout: var(--discovery-nav-icon-bg); --group-members-icon-cutout: var(--discovery-nav-icon-bg); color: #fff; background: var(--blue); }
 .discovery-sidebar nav strong { overflow: hidden; font-size: 1.02rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .discovery-posts-glyph { width: 24px; height: 24px; display: block; overflow: visible; }
 .discovery-posts-back { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
@@ -6115,7 +6115,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 .shared-private-group-message { display: flex; align-items: center; gap: 10px; padding: 13px 14px 4px; color: var(--secondary); border-top: 1px solid var(--divider); }
 .shared-private-group-message strong { color: var(--text); font-size: .9rem; font-weight: 590; }
 .shared-private-group-message p { margin: 2px 0 0; font-size: .8rem; }
-.shared-group-join-link { min-height: 36px; margin: 10px 12px 12px; border-radius: 7px; }
+.shared-group-join-link { height: 34px; min-height: 34px; display: flex; align-items: center; justify-content: center; gap: 0; margin: 10px 12px 12px; padding: 0 13px; border-radius: 8px; font-size: .9rem; font-weight: 600; }
 .shared-source-group-author { min-width: 0; max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shared-source-body { border-top: 0; }
 .shared-source-head { display: flex; align-items: flex-start; gap: 10px; padding: 12px 12px 8px; }
@@ -6154,7 +6154,10 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 .content-thread-head { position: relative; justify-content: center; }
 .content-thread-head h2 { max-width: calc(100% - 100px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
 .content-thread-head button { position: absolute; right: 14px; }
-.content-thread-scroll { min-height: 0; overflow-y: auto; background: var(--card);   }
+.content-thread-scroll { min-height: 0; overflow-y: auto; scrollbar-width: none; background: var(--card);   }
+.content-thread-scroll::-webkit-scrollbar { display: none; }
+.profile-posts-auto-loader { min-height: 64px; display: grid; place-items: center; padding: 10px 0 18px; }
+.profile-posts-auto-loader .spinner { width: 24px; height: 24px; }
 .thread-post-preview > header { display: flex; align-items: center; gap: 10px; padding: 14px 14px 8px; }
 .thread-post-preview > header > button,
 .thread-post-preview > header > div > button,
@@ -10001,6 +10004,8 @@ body.reels-library-viewer-open.mini-chat-bubble-rail-open .reels-page.is-library
   
   background: #000;
 }
+.reels-page:not(.is-library) .reels-stage { scrollbar-width: none; }
+.reels-page:not(.is-library) .reels-stage::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .reels-stage:focus-visible { outline: 0; }
 .reels-stage-state { width: min(600px, calc(100% - 32px)); min-height: 300px; margin: auto; }
 .reel-feed-skeleton {

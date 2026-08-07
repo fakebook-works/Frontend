@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const socialMocks = vi.hoisted(() => ({
@@ -86,6 +86,7 @@ describe('GroupProfilePage', () => {
 
   afterEach(() => {
     cleanup()
+    vi.unstubAllGlobals()
     vi.restoreAllMocks()
     vi.clearAllMocks()
   })
@@ -134,6 +135,36 @@ describe('GroupProfilePage', () => {
     expect(photosCard.querySelector('header > div > small')).toHaveTextContent('profilePhotoStat')
     expect(photosCard.querySelector('header > button')).toHaveTextContent('profileSeeAllPhotos')
     expect(photosCard.querySelector('.self-profile-photo-preview button')).toHaveClass('round-top-left', 'round-top-right', 'round-bottom-left', 'round-bottom-right')
+  })
+
+  it('loads the next group-post page automatically when the feed sentinel approaches', async () => {
+    let intersect: (() => void) | null = null
+    class IntersectionObserverMock {
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = () => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+      }
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+      takeRecords(): IntersectionObserverEntry[] { return [] }
+      root = null
+      rootMargin = '0px'
+      thresholds = [0]
+    }
+    vi.stubGlobal('IntersectionObserver', IntersectionObserverMock)
+    socialMocks.getGroupPosts
+      .mockResolvedValueOnce({ items: [post], endCursor: 'next-page', hasNextPage: true })
+      .mockResolvedValueOnce({ items: [{ ...post, id: '82', content: 'second group page' }], endCursor: null, hasNextPage: false })
+
+    render(<GroupProfilePage groupId="61" userId="71" onBack={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByTestId(`group-profile-post-${post.id}`)
+    await waitFor(() => expect(intersect).not.toBeNull())
+
+    act(() => intersect?.())
+
+    await screen.findByTestId('group-profile-post-82')
+    expect(socialMocks.getGroupPosts).toHaveBeenNthCalledWith(2, '61', 20, 'next-page')
+    expect(screen.queryByRole('button', { name: 'seeMore' })).not.toBeInTheDocument()
   })
 
   it('uses the same month-grouped browse cards as the user profile', async () => {

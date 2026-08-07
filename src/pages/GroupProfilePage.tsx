@@ -379,6 +379,8 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const [manageMode, setManageMode] = useState(false)
   const [loading, setLoading] = useState(true)
   const [postsLoading, setPostsLoading] = useState(false)
+  const [postsLoadingMore, setPostsLoadingMore] = useState(false)
+  const [postsMoreError, setPostsMoreError] = useState(false)
   const [peopleLoading, setPeopleLoading] = useState(false)
   const [requestsLoading, setRequestsLoading] = useState(false)
   const [mediaLoading, setMediaLoading] = useState(false)
@@ -403,6 +405,9 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const profileWidthRulerRef = useRef<HTMLElement>(null)
   const groupPostColumnRef = useRef<HTMLElement>(null)
   const groupInfoColumnRef = useRef<HTMLElement>(null)
+  const groupPostSentinelRef = useRef<HTMLDivElement>(null)
+  const postRequestSequenceRef = useRef(0)
+  const postsLoadMoreBusyRef = useRef(false)
   const avatarEditor = useInlineImageCrop(groupId)
   const coverEditor = useInlineImageCrop(groupId)
   const coverAmbientColor = useImageAmbientColor(coverEditor.target?.previewUrl ?? group?.backgroundUrl)
@@ -498,22 +503,45 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
 
   const loadPosts = useCallback(async (cursor: string | null = null, append = false) => {
     if (!membership.canViewPosts) {
+      postRequestSequenceRef.current += 1
+      postsLoadMoreBusyRef.current = false
       setPosts([])
       setPostCursor(null)
       setPostsHaveMore(false)
+      setPostsLoading(false)
+      setPostsLoadingMore(false)
+      setPostsMoreError(false)
       return
     }
-    setPostsLoading(true)
+    if (append && postsLoadMoreBusyRef.current) return
+    const requestSequence = ++postRequestSequenceRef.current
+    if (append) {
+      postsLoadMoreBusyRef.current = true
+      setPostsLoadingMore(true)
+    } else {
+      postsLoadMoreBusyRef.current = false
+      setPostsLoading(true)
+    }
+    setPostsMoreError(false)
     try {
       const page = await socialApi.getGroupPosts(groupId, 20, cursor)
-      setPosts((current) => append ? [...current, ...page.items] : page.items)
+      if (requestSequence !== postRequestSequenceRef.current) return
+      setPosts((current) => append
+        ? [...new Map([...current, ...page.items].map((post) => [post.id, post])).values()]
+        : page.items)
       setPostCursor(page.endCursor)
-      setPostsHaveMore(page.hasNextPage)
+      setPostsHaveMore(page.hasNextPage && Boolean(page.endCursor))
     } catch {
+      if (requestSequence !== postRequestSequenceRef.current) return
       if (!append) setPosts([])
+      else setPostsMoreError(true)
       setError(t('groupPostsLoadError'))
     } finally {
-      setPostsLoading(false)
+      if (requestSequence === postRequestSequenceRef.current) {
+        setPostsLoading(false)
+        setPostsLoadingMore(false)
+        postsLoadMoreBusyRef.current = false
+      }
     }
   }, [groupId, membership.canViewPosts, t])
 
@@ -569,6 +597,15 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
 
   useEffect(() => { void loadCore() }, [loadCore])
   useEffect(() => { void loadPosts() }, [loadPosts])
+  useEffect(() => {
+    const sentinel = groupPostSentinelRef.current
+    if (tab !== 'discussion' || !sentinel || !membership.canViewPosts || postsLoading || postsLoadingMore || postsMoreError || !postsHaveMore || !postCursor || posts.length === 0 || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) void loadPosts(postCursor, true)
+    }, { rootMargin: '520px 0px', threshold: 0.01 })
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [loadPosts, membership.canViewPosts, postCursor, posts.length, postsHaveMore, postsLoading, postsLoadingMore, postsMoreError, tab])
   useEffect(() => { void loadPeople() }, [loadPeople])
   useEffect(() => {
     setPostFilter('all')
@@ -866,7 +903,10 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
           {participant && viewer && <PostComposer variant="group" userId={viewer.id} displayName={viewer.displayName} avatarUrl={viewer.avatarUrl} isVerified={viewer.isVerified} friends={eligibleTagPeople} groupId={group.id} groupName={group.name} groupAvatarUrl={group.avatarUrl} groupPrivacy={group.privacy} onNavigate={onNavigate} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
           <GroupPostViewTools filter={postFilter} view={postView} manageMode={manageMode} onFilterChange={setPostFilter} onViewChange={setPostView} onManageToggle={() => setManageMode((value) => !value)} />
           {!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupFeedEmpty')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : filteredPosts.length === 0 ? <div className="card state-card"><h2>{t('profileNoPosts')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : postView === 'grid' ? <div className="self-profile-post-months">{groupPostMonthGroups.map((month) => <section className="card self-profile-post-month" key={month.id}><h3>{month.label}</h3><div className="self-profile-post-grid">{month.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} groupPrivacy onOpenDetail={() => setGroupDetailPostId(post.id)} onOpenMedia={(item: ProfileGridMediaTarget) => setPhotoViewer({ contentId: item.contentId, media: { id: item.mediaId, type: item.mediaType, url: item.mediaUrl } })} onOpenReel={post.__typename === 'ReelDetail' && onOpenReel ? () => onOpenReel(post) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} onOpenReel={onOpenReel} groupContextId={group.id} viewerCanModerateGroupPosts={membership.isAdmin} />)}
-          {postView === 'list' && postsHaveMore && <button type="button" className="btn-soft group-profile-load-more" disabled={postsLoading || !postCursor} onClick={() => void loadPosts(postCursor, true)}>{postsLoading ? t('loadingMore') : t('seeMore')}</button>}
+          {posts.length > 0 && (postsHaveMore || postsLoadingMore || postsMoreError) && <div ref={groupPostSentinelRef} className="profile-posts-auto-loader" aria-live="polite">
+            {postsLoadingMore && <span className="spinner" aria-label={t('loadingMore')} />}
+            {postsMoreError && <button type="button" className="btn-soft" disabled={!postCursor} onClick={() => void loadPosts(postCursor, true)}>{t('tryAgain')}</button>}
+          </div>}
         </section>
         <aside ref={groupInfoColumnRef} className="self-profile-left-column group-profile-info-column"><GroupAboutCard group={group} locale={locale} admin={membership.isAdmin} compact onUpdated={setGroup} /><GroupPeoplePreview people={visiblePeople} count={groupMemberCount} onNavigate={onNavigate} onOpen={() => setTab('people')} /><GroupMediaPreview media={media} hasMore={mediaHaveMore} onOpenTab={() => setTab('media')} onOpenMedia={(item) => setPhotoViewer(item)} /></aside>
       </div>}

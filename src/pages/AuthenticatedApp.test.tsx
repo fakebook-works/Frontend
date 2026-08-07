@@ -51,7 +51,7 @@ vi.mock('./GatewayHomePage', () => ({ GatewayHomePage: ({ refreshToken = 0, onOp
 vi.mock('./FriendsPage', () => ({ FriendsPage: () => <div>friends-page</div> }))
 vi.mock('./ProfilePage', () => ({ ProfilePage: ({ onOpenReel }: { onOpenReel?: (ownerId: string, reelId: string, reel: { id: string; type: number; content: string; privacy: number; createdAt: string; authorId: string; media: never[] }) => void }) => <div data-testid="profile-page" data-active-tab="posts">profile-page<button type="button" onClick={() => onOpenReel?.('2', 'profile-reel', { id: 'profile-reel', type: 2, content: 'Profile reel', privacy: 0, createdAt: '2026-08-02T00:00:00Z', authorId: '2', media: [] })}>open-profile-reel</button></div> }))
 vi.mock('./GroupsPage', () => ({ GroupsPage: () => <div>groups-page</div>, GroupProfilePage: () => <div>group-profile-page</div> }))
-vi.mock('./ReelsPage', () => ({ ReelsPage: ({ entryReelId, entryReel, onEntryClose }: { entryReelId?: string | null; entryReel?: { id: string } | null; onEntryClose?: () => void }) => <div data-testid={entryReelId ? 'reel-overlay' : 'reels-page'} data-reel-id={entryReelId ?? undefined} data-has-seed={entryReel?.id === entryReelId ? 'true' : 'false'}>reels-page{entryReelId && <button type="button" onClick={onEntryClose}>close-reel-overlay</button>}</div> }))
+vi.mock('./ReelsPage', () => ({ ReelsPage: ({ mode, active, entryReelId, entryReel, onEntryClose, onNavigate }: { mode: string; active?: boolean; entryReelId?: string | null; entryReel?: { id: string } | null; onEntryClose?: () => void; onNavigate: (path: string) => void }) => <div data-testid={entryReelId ? 'reel-overlay' : `reels-page-${mode}`} data-active={active ? 'true' : 'false'} data-reel-id={entryReelId ?? undefined} data-has-seed={entryReel?.id === entryReelId ? 'true' : 'false'}>reels-page{!entryReelId && <><input aria-label={`reel-position-${mode}`} defaultValue="" /><button type="button" onClick={() => onNavigate('/reels/for-you')}>open-for-you</button><button type="button" onClick={() => onNavigate('/reels/following')}>open-following</button></>}{entryReelId && <button type="button" onClick={onEntryClose}>close-reel-overlay</button>}</div> }))
 vi.mock('./SavedPage', () => ({ SavedPage: () => <div>saved-page</div> }))
 vi.mock('./SettingsPage', () => ({ SettingsPage: ({ initialSection }: { initialSection: string }) => <div>settings-{initialSection}</div> }))
 
@@ -220,6 +220,25 @@ describe('AuthenticatedApp routing and navigation', () => {
     fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="friends"]')!)
     expect(screen.getByText('friends-page')).toBe(friendsPage)
     expect(scrollRoot.scrollTop).toBe(175)
+  })
+
+  it('keeps each visited Reel feed tab mounted with its own viewer position', () => {
+    window.history.replaceState({}, '', '/reels/for-you')
+    render(<AuthenticatedApp />)
+
+    const forYouPosition = screen.getByRole('textbox', { name: 'reel-position-for-you' })
+    fireEvent.change(forYouPosition, { target: { value: 'reel-8' } })
+    fireEvent.click(screen.getByRole('button', { name: 'open-following' }))
+
+    const followingPosition = screen.getByRole('textbox', { name: 'reel-position-following' })
+    fireEvent.change(followingPosition, { target: { value: 'reel-3' } })
+    fireEvent.click(screen.getByRole('button', { name: 'open-for-you' }))
+
+    expect(screen.getByRole('textbox', { name: 'reel-position-for-you' })).toBe(forYouPosition)
+    expect(forYouPosition).toHaveValue('reel-8')
+    fireEvent.click(screen.getByRole('button', { name: 'open-following' }))
+    expect(screen.getByRole('textbox', { name: 'reel-position-following' })).toBe(followingPosition)
+    expect(followingPosition).toHaveValue('reel-3')
   })
 
   it('opens and closes a Home Reel as an overlay without navigating or losing the feed position', () => {
