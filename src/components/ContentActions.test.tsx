@@ -179,6 +179,9 @@ describe('ContentActions refreshed overlays', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
     const dialog = await screen.findByRole('dialog', { name: 'comments' })
+    expect(dialog).toHaveClass('content-thread-modal')
+    expect(dialog).not.toHaveClass('photo-detail-discussion')
+    expect(dialog.parentElement).toHaveClass('content-modal-backdrop')
     await screen.findByText('noCommentsYet')
     expect(dialog.querySelector('.thread-post-engagement')).toHaveClass('no-summary')
     expect(dialog.querySelector('.thread-post-engagement > div')).not.toBeInTheDocument()

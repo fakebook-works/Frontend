@@ -321,12 +321,15 @@ describe('AuthenticatedApp routing and navigation', () => {
   it('keeps one background history entry while replacing post detail with its photo viewer', async () => {
     render(<AuthenticatedApp />)
     const homePage = screen.getByTestId('home-page')
+    const homeNavigation = screen.getByRole('navigation', { name: 'appNavigation' })
 
     fireEvent.click(screen.getByRole('button', { name: 'open-home-post' }))
     expect(window.location.pathname).toBe('/content/home-post')
     expect(await screen.findByTestId('content-overlay')).toHaveAttribute('data-content-id', 'home-post')
     expect(screen.getByTestId('home-page')).toBe(homePage)
     expect(document.querySelector('.app-shell-topbar')).toHaveClass('is-content-detail')
+    expect(screen.getByRole('navigation', { name: 'appNavigation' })).toBe(homeNavigation)
+    expect(document.querySelectorAll('.app-shell-nav')).toHaveLength(1)
     expect(document.querySelector('#content-detail-shell-close-target .content-detail-shell-close')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'open-detail-photo' }))
