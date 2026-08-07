@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { navigate } from '../lib/router';
-import { useI18n } from '../i18n';
 import { HELP_CATEGORIES } from './data/helpData';
 import { 
   FaSearch, 
   FaChevronDown, 
+  FaGlobe, 
   FaArrowLeft,
   FaKey,
   FaUserCircle,
@@ -39,16 +39,16 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeArticle, setActiveArticle] = useState<HelpArticle | null>(null);
-  const { t, locale } = useI18n();
+  const [isVi, setIsVi] = useState(true);
 
   // Popular topics for the landing grid
   const popularTopics = [
-    { title: t('helpAccountSettings'), desc: t('helpAccountSettingsDesc'), icon: <FaUserCircle /> },
-    { title: t('helpLoginPassword'), desc: t('helpLoginPasswordDesc'), icon: <FaKey /> },
-    { title: t('helpPrivacySecurity'), desc: t('helpPrivacySecurityDesc'), icon: <FaShieldAlt /> },
-    { title: t('helpMarketplace'), desc: t('helpMarketplaceDesc'), icon: <FaStore /> },
-    { title: t('helpGroups'), desc: t('helpGroupsDesc'), icon: <FaUsers /> },
-    { title: t('helpPages'), desc: t('helpPagesDesc'), icon: <FaFileAlt /> }
+    { title: 'Account settings', desc: 'Adjust settings, manage notifications, learn about name changes and more.', icon: <FaUserCircle /> },
+    { title: 'Login and password', desc: 'Fix login issues and learn how to change or reset your password.', icon: <FaKey /> },
+    { title: 'Privacy and security', desc: 'Control who can see what you share and add extra protection to your account.', icon: <FaShieldAlt /> },
+    { title: 'Marketplace', desc: 'Learn how to buy and sell things on Facebook.', icon: <FaStore /> },
+    { title: 'Groups', desc: 'Learn how to create, manage and use Groups.', icon: <FaUsers /> },
+    { title: 'Pages', desc: 'Learn how to create, use, follow and manage a Page.', icon: <FaFileAlt /> }
   ];
 
   const handleCategoryClick = (cat: HelpCategory) => {
@@ -56,7 +56,7 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   };
 
   const handleArticleClick = (art: HelpArticle, cat: HelpCategory) => {
-    setActiveArticle({ ...art, categoryTitle: locale === 'vi' ? cat.titleVi : cat.titleEn });
+    setActiveArticle({ ...art, categoryTitle: isVi ? cat.titleVi : cat.titleEn });
   };
 
   const goHome = () => {
@@ -70,7 +70,7 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
       <header className="help-header">
         <div className="help-header-left">
           <img src={logo} alt="Fakebook Logo" className="help-logo-icon" onClick={() => { if (onBack) onBack(); else navigate('/'); }} style={{cursor: 'pointer'}} />
-          <span className="help-logo-text" onClick={(e) => { e.stopPropagation(); if (onBack) onBack(); else navigate('/'); }} style={{cursor: 'pointer'}}>{t('helpTitle')}</span>
+          <span className="help-logo-text" onClick={(e) => { e.stopPropagation(); if (onBack) onBack(); else navigate('/'); }} style={{cursor: 'pointer'}}>Help Centre</span>
         </div>
         
         {/* Only show search in header if in article view */}
@@ -79,7 +79,7 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             <FaSearch className="search-icon" />
             <input 
               type="text" 
-              placeholder={t('helpSearchPlaceholder')} 
+              placeholder="Search help articles..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -87,6 +87,9 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         )}
 
         <div className="help-header-right">
+          <button className="lang-btn" onClick={() => setIsVi(!isVi)}>
+            <FaGlobe /> {isVi ? 'Tiếng Việt' : 'English (UK)'}
+          </button>
         </div>
       </header>
 
@@ -102,7 +105,7 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 >
                   <div className="cat-btn-left">
                     <span className="cat-icon">{cat.icon}</span>
-                    <span className="cat-title">{locale === 'vi' ? cat.titleVi : cat.titleEn}</span>
+                    <span className="cat-title">{isVi ? cat.titleVi : cat.titleEn}</span>
                   </div>
                   <FaChevronDown className={`cat-chevron ${activeCategory === cat.id ? 'open' : ''}`} />
                 </button>
@@ -115,7 +118,7 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         className={`help-nav-art-btn ${activeArticle?.id === art.id ? 'active' : ''}`}
                         onClick={() => handleArticleClick(art, cat)}
                       >
-                        {locale === 'vi' ? art.titleVi : art.titleEn}
+                        {isVi ? art.titleVi : art.titleEn}
                       </button>
                     ))}
                   </div>
@@ -131,11 +134,11 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             <div className="help-landing">
               <div className="help-landing-hero">
                 <FaFileAlt className="help-hero-icon" style={{color: '#1877f2'}} />
-                <h1>{t('helpHeroTitle')}</h1>
+                <h1>Hey, how can I help?</h1>
                 <div className="help-hero-search">
                   <input 
                     type="text" 
-                    placeholder={t('helpSearchPlaceholder')} 
+                    placeholder="Ask a question or describe your issue..." 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -144,22 +147,22 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                   </button>
                 </div>
                 <p className="help-hero-terms">
-                  {t('helpTermsNote')}
+                  By using this service, you agree to Group 36's terms.
                 </p>
               </div>
 
               <div className="help-popular-topics">
-                <h2>{t('helpPopularTopics')}</h2>
+                <h2>Popular topics</h2>
                 
                 <div className="help-banner-blue">
                   <div className="banner-icon-bg">
                     <FaKey className="banner-icon" />
                   </div>
                   <div className="banner-text">
-                    <h3>{t('helpLoginBannerTitle')}</h3>
-                    <p>{t('helpLoginBannerDesc')}</p>
+                    <h3>Need help with logging in?</h3>
+                    <p>Learn what to do if you're having trouble with getting back on Fakebook.</p>
                   </div>
-                  <button className="banner-btn">{t('helpGetHelp')}</button>
+                  <button className="banner-btn">Get Help</button>
                 </div>
 
                 <div className="help-topics-grid">
@@ -175,13 +178,13 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 </div>
                 
                 <div className="help-other-ways">
-                  <h2>{t('helpOtherWays')}</h2>
+                  <h2>Other ways to get help</h2>
                   <div className="help-action-card">
                     <div className="action-left">
                       <FaSearch className="action-icon" />
                       <div>
-                        <h3>{t('helpSearchCentre')}</h3>
-                        <p>{t('helpSearchCentreDesc')}</p>
+                        <h3>Search Help Centre</h3>
+                        <p>Find answers to common questions</p>
                       </div>
                     </div>
                     <FaChevronRight className="action-arrow" />
@@ -194,26 +197,26 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
               <div className="breadcrumb">
                 <span onClick={goHome}>{activeArticle.categoryTitle}</span>
                 <FaChevronRight className="bc-sep" />
-                <span className="current">{locale === 'vi' ? activeArticle.titleVi : activeArticle.titleEn}</span>
+                <span className="current">{isVi ? activeArticle.titleVi : activeArticle.titleEn}</span>
               </div>
               
-              <h1 className="article-main-title">{locale === 'vi' ? activeArticle.titleVi : activeArticle.titleEn}</h1>
+              <h1 className="article-main-title">{isVi ? activeArticle.titleVi : activeArticle.titleEn}</h1>
               
               <div className="article-pill-buttons">
-                <button className="pill-btn"><FaFileAlt style={{marginRight: 8, color: '#1877f2'}}/> {locale === 'vi' ? activeArticle.titleVi : activeArticle.titleEn}</button>
-                <button className="pill-btn">{t('helpDifferentQuestion')}</button>
+                <button className="pill-btn"><FaFileAlt style={{marginRight: 8, color: '#1877f2'}}/> {isVi ? activeArticle.titleVi : activeArticle.titleEn}</button>
+                <button className="pill-btn">I have a different question</button>
               </div>
 
               <div className="article-content-body">
-                {locale === 'vi' ? activeArticle.contentVi : activeArticle.contentEn}
+                {isVi ? activeArticle.contentVi : activeArticle.contentEn}
               </div>
               
               <div className="article-feedback">
                 <div className="feedback-box">
-                  <h3>{t('helpWasHelpful')}</h3>
+                  <h3>Was this helpful?</h3>
                   <div className="feedback-btns">
-                    <button>{t('helpYes')}</button>
-                    <button>{t('helpNo')}</button>
+                    <button>Yes</button>
+                    <button>No</button>
                   </div>
                 </div>
               </div>

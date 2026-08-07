@@ -279,16 +279,13 @@
   padding: 24px 0;
   font-size: 18px;
   font-weight: 600;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   cursor: pointer;
   color: #1c1e21;
-  text-align: left;
 }
 
 .about-chevron {
   transition: transform 0.2s;
   color: #65676b;
-  flex-shrink: 0;
 }
 
 .about-accordion-header.open .about-chevron {
@@ -297,61 +294,7 @@
 
 .about-accordion-body {
   padding-bottom: 24px;
-  color: #1c1e21;
 }
-
-/* Normalize all content inside accordion (rendered via dangerouslySetInnerHTML) */
-.about-accordion-body p,
-.about-accordion-body li,
-.about-accordion-body h2,
-.about-accordion-body h3,
-.about-accordion-body h4,
-.about-accordion-body strong,
-.about-accordion-body span {
-  color: #1c1e21;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 15px;
-  line-height: 1.65;
-}
-
-.about-accordion-body h2 { font-size: 20px; font-weight: 700; margin: 16px 0 8px; }
-.about-accordion-body h3 { font-size: 17px; font-weight: 600; margin: 14px 0 6px; }
-.about-accordion-body h4 { font-size: 15px; font-weight: 600; margin: 12px 0 4px; }
-
-.about-accordion-body p {
-  margin: 0 0 10px;
-  color: #1c1e21;
-}
-
-.about-accordion-body ul,
-.about-accordion-body ol {
-  padding-left: 22px;
-  margin: 0 0 10px;
-}
-
-.about-accordion-body li {
-  margin-bottom: 4px;
-  color: #1c1e21;
-}
-
-.about-accordion-body a {
-  color: #1877f2;
-}
-
-.about-accordion-body strong {
-  font-weight: 600;
-}
-
-.about-accordion-body code,
-.about-accordion-body pre {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-  font-size: 13px;
-  background: #f0f2f5;
-  color: #1c1e21;
-  border-radius: 4px;
-  padding: 2px 5px;
-}
-
 
 /* Footer */
 .about-footer {

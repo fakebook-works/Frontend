@@ -298,8 +298,8 @@ describe('AuthenticatedApp routing and navigation', () => {
   it('opens the application menu and navigates to saved content', () => {
     render(<AuthenticatedApp />)
     fireEvent.click(screen.getByRole('button', { name: 'menu' }))
-    expect(screen.getByRole('menu')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('menuitem', { name: /saved/i }))
+    expect(screen.getByRole('dialog', { name: 'menu' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'saved' }))
     expect(screen.getByText('saved-page')).toBeInTheDocument()
   })
 

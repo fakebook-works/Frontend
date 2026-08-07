@@ -30,22 +30,22 @@ describe('HelpPage Component', () => {
   it('renders Help Centre with sidebar and category content', () => {
     render(<HelpPage />)
 
-    expect(screen.getAllByText(/helpTitle/i).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/helpAccountSettings/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Help Centre/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/Account settings/i)).toBeInTheDocument()
   })
 
   it('renders home view when initialTopic is home', () => {
     render(<HelpPage />)
 
-    expect(screen.getByText(/helpHeroTitle/i)).toBeInTheDocument()
-    expect(screen.getByText(/helpPopularTopics/i)).toBeInTheDocument()
-    expect(screen.getAllByText(/helpAccountSettings/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/Hey, how can I help\?/i)).toBeInTheDocument()
+    expect(screen.getByText(/Popular topics/i)).toBeInTheDocument()
+    expect(screen.getByText(/Account settings/i)).toBeInTheDocument()
   })
 
   it('renders sidebar with all navigation groups', () => {
     render(<HelpPage />)
 
     // Using general text match for sidebar instead of checking for specific categories which might be translated or removed
-    expect(screen.getAllByText(/helpTitle/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Help Centre/i).length).toBeGreaterThan(0)
   })
 })

@@ -403,7 +403,6 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const profileWidthRulerRef = useRef<HTMLElement>(null)
   const groupPostColumnRef = useRef<HTMLElement>(null)
   const groupInfoColumnRef = useRef<HTMLElement>(null)
-  const postsSentinelRef = useRef<HTMLDivElement>(null)
   const avatarEditor = useInlineImageCrop(groupId)
   const coverEditor = useInlineImageCrop(groupId)
   const coverAmbientColor = useImageAmbientColor(coverEditor.target?.previewUrl ?? group?.backgroundUrl)
@@ -570,18 +569,6 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
 
   useEffect(() => { void loadCore() }, [loadCore])
   useEffect(() => { void loadPosts() }, [loadPosts])
-
-  // Auto-load more posts when sentinel scrolls into view (infinite scroll)
-  useEffect(() => {
-    const sentinel = postsSentinelRef.current
-    if (!sentinel || postsLoading || !postsHaveMore || !postCursor) return
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) void loadPosts(postCursor, true)
-    }, { root: groupPageRef.current, rootMargin: '200px' })
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [postsLoading, postsHaveMore, postCursor, loadPosts])
-
   useEffect(() => { void loadPeople() }, [loadPeople])
   useEffect(() => {
     setPostFilter('all')
@@ -781,30 +768,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   }
 
   if (loading) return <GroupProfileSkeleton />
-  if (!group) return (
-    <main className="group-profile-page">
-      <section className="profile-cover-card self-profile-cover-card">
-        <div className="self-profile-header-shell">
-          <div className="profile-cover" />
-          <div className="profile-destination-header">
-            <div className="self-profile-avatar-wrap group-profile-avatar-wrap">
-              <Avatar name="?" size={138} />
-            </div>
-            <div className="profile-destination-title group-profile-title">
-              <h1>{t('groupUnavailable')}</h1>
-            </div>
-          </div>
-        </div>
-      </section>
-      <div className="profile-destination-grid self-profile-destination-grid">
-        <div className="card state-card privacy-wall profile-unavailable">
-          <h2>{t('groupUnavailable')}</h2>
-          <p>{error}</p>
-          <button type="button" className="btn-soft" onClick={onBack}>{t('back')}</button>
-        </div>
-      </div>
-    </main>
-  )
+  if (!group) return <main className="group-profile-page"><div className="card state-card"><h2>{t('groupUnavailable')}</h2><p>{error}</p><button type="button" className="btn-soft" onClick={onBack}>{t('back')}</button></div></main>
 
   const participant = membership.isMember || membership.isAdmin
   const groupMemberCount = group.memberCount ?? allPeople.length
@@ -902,7 +866,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
           {participant && viewer && <PostComposer variant="group" userId={viewer.id} displayName={viewer.displayName} avatarUrl={viewer.avatarUrl} isVerified={viewer.isVerified} friends={eligibleTagPeople} groupId={group.id} groupName={group.name} groupAvatarUrl={group.avatarUrl} groupPrivacy={group.privacy} onNavigate={onNavigate} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
           <GroupPostViewTools filter={postFilter} view={postView} manageMode={manageMode} onFilterChange={setPostFilter} onViewChange={setPostView} onManageToggle={() => setManageMode((value) => !value)} />
           {!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupFeedEmpty')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : filteredPosts.length === 0 ? <div className="card state-card"><h2>{t('profileNoPosts')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : postView === 'grid' ? <div className="self-profile-post-months">{groupPostMonthGroups.map((month) => <section className="card self-profile-post-month" key={month.id}><h3>{month.label}</h3><div className="self-profile-post-grid">{month.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} groupPrivacy onOpenDetail={() => setGroupDetailPostId(post.id)} onOpenMedia={(item: ProfileGridMediaTarget) => setPhotoViewer({ contentId: item.contentId, media: { id: item.mediaId, type: item.mediaType, url: item.mediaUrl } })} onOpenReel={post.__typename === 'ReelDetail' && onOpenReel ? () => onOpenReel(post) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} onOpenReel={onOpenReel} groupContextId={group.id} viewerCanModerateGroupPosts={membership.isAdmin} />)}
-          {postView === 'list' && <div ref={postsSentinelRef} className="feed-more feed-auto-loader" aria-live="polite">{postsLoading && postsHaveMore && <span className="spinner" />}{!postsHaveMore && posts.length > 0 && <p className="muted">{t('endOfFeed')}</p>}</div>}
+          {postView === 'list' && postsHaveMore && <button type="button" className="btn-soft group-profile-load-more" disabled={postsLoading || !postCursor} onClick={() => void loadPosts(postCursor, true)}>{postsLoading ? t('loadingMore') : t('seeMore')}</button>}
         </section>
         <aside ref={groupInfoColumnRef} className="self-profile-left-column group-profile-info-column"><GroupAboutCard group={group} locale={locale} admin={membership.isAdmin} compact onUpdated={setGroup} /><GroupPeoplePreview people={visiblePeople} count={groupMemberCount} onNavigate={onNavigate} onOpen={() => setTab('people')} /><GroupMediaPreview media={media} hasMore={mediaHaveMore} onOpenTab={() => setTab('media')} onOpenMedia={(item) => setPhotoViewer(item)} /></aside>
       </div>}

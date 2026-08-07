@@ -39,8 +39,7 @@ export function privacyMeta(value: number): PrivacyMeta {
   return PRIVACY.find((p) => p.value === value) ?? PRIVACY[0]
 }
 
-export function initials(name: string | undefined | null): string {
-  if (!name) return 'F'
+export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2)
   return parts.map((p) => p.charAt(0).toUpperCase()).join('') || 'F'
 }

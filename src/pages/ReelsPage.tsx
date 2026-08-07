@@ -248,23 +248,6 @@ function ReelCaption({ content, mentions, onNavigate }: {
   </div>
 }
 
-// Module-level caches — survive component remounts so tab positions are preserved session-wide
-const _reelsCache = new Map<string, SocialContent[]>()
-const _viewCountsCache = new Map<string, Record<string, number>>()
-const _relationshipsCache = new Map<string, Record<string, ProfileRelationshipState>>()
-const _reelPositionCache = new Map<string, { reelId: string | null; index: number }>()
-const _tabIndexCache: Record<string, number> = {}
-
-// Test utility: clear all module-level caches between tests
-// eslint-disable-next-line react-refresh/only-export-components
-export function __clearReelsCacheForTesting(): void {
-  _reelsCache.clear()
-  _viewCountsCache.clear()
-  _relationshipsCache.clear()
-  _reelPositionCache.clear()
-  for (const key in _tabIndexCache) delete _tabIndexCache[key]
-}
-
 export function ReelsPage({ userId, mode, active = true, entrySource = null, entryReelId = null, entryOwnerId = null, entryReel = null, onEntryClose, onNavigate }: {
   userId: string
   mode: ReelMode
@@ -293,11 +276,10 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   const [relationships, setRelationships] = useState<Record<string, ProfileRelationshipState>>({})
   const loadedRequestRef = useRef<string | null>(null)
   const requestSequenceRef = useRef(0)
-  const reelsCacheRef = useRef(_reelsCache)
-  const viewCountsCacheRef = useRef(_viewCountsCache)
-  const relationshipsCacheRef = useRef(_relationshipsCache)
-  const reelPositionCacheRef = useRef(_reelPositionCache)
-  const tabIndexMap = useRef<Record<string, number>>(_tabIndexCache)
+  const reelsCacheRef = useRef(new Map<string, SocialContent[]>())
+  const viewCountsCacheRef = useRef(new Map<string, Record<string, number>>())
+  const relationshipsCacheRef = useRef(new Map<string, Record<string, ProfileRelationshipState>>())
+  const reelPositionCacheRef = useRef(new Map<string, { reelId: string | null; index: number }>())
   const deletedReelIdsRef = useRef(new Set<string>())
   const creatorProfileUserRef = useRef<string | null>(null)
   const pageRef = useRef<HTMLElement>(null)
@@ -354,7 +336,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
         ? nextReels.findIndex((reel) => reel.id === entryReelId)
         : savedReelIndex >= 0
           ? savedReelIndex
-          : Math.min(tabIndexMap.current[mode] ?? savedPosition?.index ?? 0, Math.max(0, nextReels.length - 1))
+          : Math.min(savedPosition?.index ?? 0, Math.max(0, nextReels.length - 1))
       const nextIndex = Math.max(0, selectedIndex)
       setReels(nextReels)
       activeIndexRef.current = nextIndex
@@ -449,8 +431,6 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     if (loadedRequestRef.current === requestKey) return
     const previousRequestKey = loadedRequestRef.current
     if (previousRequestKey) {
-      const oldMode = previousRequestKey.split(':')[1]
-      if (oldMode) tabIndexMap.current[oldMode] = activeIndexRef.current
       const previousIndex = activeIndexRef.current
       reelPositionCacheRef.current.set(previousRequestKey, {
         reelId: reelsRef.current[previousIndex]?.id ?? null,
