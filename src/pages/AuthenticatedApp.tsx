@@ -75,7 +75,7 @@ export function AuthenticatedApp() {
   const overlayRoute = parseOverlayRoute(browserLocation)
   const overlayBackground = overlayRoute ? overlayBackgroundHref(browserLocation.state) : null
   const location = overlayRoute
-    ? locationFromHref(overlayBackground ?? DIRECT_OVERLAY_BACKGROUND_HREF)
+    ? locationFromHref(overlayBackground ?? (overlayRoute.kind === 'content' ? fallbackBackgroundHref(overlayRoute) : DIRECT_OVERLAY_BACKGROUND_HREF))
     : browserLocation
   const isHomeRoute = location.pathname === '/' || location.pathname === '/home'
   const isFriendsRoute = location.pathname.startsWith('/friends')
@@ -603,7 +603,7 @@ export function AuthenticatedApp() {
   }
 
   return <div className={isGroupsRoute ? 'authenticated-app groups-route' : isFriendsRoute ? 'authenticated-app friends-route' : isSearchRoute ? 'authenticated-app search-results-route' : 'authenticated-app'}>
-    <header className={overlayRoute?.kind === 'content' ? 'app-shell-topbar is-content-detail' : 'app-shell-topbar'}>
+    <header className={overlayRoute?.kind === 'content' ? 'app-shell-topbar is-content-detail' : overlayRoute ? 'app-shell-topbar is-media-overlay' : 'app-shell-topbar'}>
       <div className="shell-brand-search-anchor">
         <div id={CONTENT_DETAIL_SHELL_CLOSE_TARGET_ID} className="content-detail-shell-left-controls">
           {overlayRoute?.kind === 'content' && <button type="button" className="content-detail-shell-close" aria-label={t('close')} onClick={closeOverlay}><Icon name="close" size={24} /></button>}

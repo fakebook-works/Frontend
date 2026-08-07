@@ -602,6 +602,55 @@
   .app-shell-nav button::before { inset: 5px 3px; }
 }
 
+/* Keep the Home feed and the navigation indicator on one exact horizontal
+   axis. At compact-desktop widths the previous two-column Home grid centered
+   `feed + contacts` as a group, which pulled the feed itself to the left. */
+@media (min-width: 960px) and (max-width: 1179px) {
+  .authenticated-app {
+    --home-alignment-side-min: 180px;
+    --home-alignment-gap: clamp(6px, 1vw, 14px);
+    --home-aligned-center-width: min(
+      var(--home-center-width),
+      calc(100vw - 32px - var(--home-alignment-side-min) - var(--home-alignment-side-min) - var(--home-alignment-gap) - var(--home-alignment-gap))
+    );
+  }
+
+  .app-shell-topbar {
+    grid-template-columns: minmax(var(--home-alignment-side-min), 1fr) minmax(0, var(--home-aligned-center-width)) minmax(var(--home-alignment-side-min), 1fr);
+    gap: var(--home-alignment-gap);
+  }
+
+  .gateway-home {
+    width: calc(var(--home-aligned-center-width) + 16px);
+    max-width: calc(var(--home-aligned-center-width) + 16px);
+    grid-template-columns: minmax(0, var(--home-aligned-center-width));
+    justify-content: center;
+    gap: 0;
+    padding-inline: 8px;
+  }
+
+  .gateway-feed-column { grid-column: 1; }
+  .gateway-right-rail { display: none; }
+}
+
+@media (min-width: 960px) {
+  /* The destination scroller owns the vertical scrollbar while the fixed
+     topbar spans the full viewport. Offset Home by half that gutter so both
+     center axes remain identical on non-overlay scrollbars (notably Windows). */
+  .gateway-home {
+    position: relative;
+    left: calc(50vw - 50%);
+  }
+}
+
+@media (min-width: 1180px) and (max-width: 1365px) {
+  .app-shell-topbar {
+    grid-template-columns: minmax(230px, 1fr) minmax(300px, var(--home-center-width)) minmax(230px, 1fr);
+  }
+
+  .gateway-home { padding-right: 8px; }
+}
+
 /* A real two-row top header. Row one owns brand/search/actions and row two
    owns the four primary destinations. `--topbar-h` remains the canonical page
    offset so every destination starts below both rows. */

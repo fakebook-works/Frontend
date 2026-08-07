@@ -7617,7 +7617,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 
 /* Home left rail: one icon axis from the shell logo through recent groups. */
 @media (min-width: 861px) {
-  .gateway-home { padding-left: 17px; }
+  .gateway-home { padding-inline: 17px; }
   .shell-brand-search {
     margin-left: max(8px, calc((100vw - 1560px) / 2 + 8px));
   }
@@ -8009,12 +8009,13 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
   border-radius: 12px;
 }
 .modal-backdrop.content-modal-backdrop {
-  padding-top: calc(var(--topbar-h) + var(--fb-safe-top, 0px) + 14px);
-  padding-bottom: calc(var(--fb-safe-bottom, 0px) + 14px);
+  --content-detail-vertical-gap: 10px;
+  padding-top: calc(var(--fb-safe-top, 0px) + var(--content-detail-vertical-gap));
+  padding-bottom: calc(var(--fb-safe-bottom, 0px) + var(--content-detail-vertical-gap));
 }
 .content-modal-backdrop > .content-thread-modal:not(.photo-detail-discussion) {
-  height: min(864px, calc(100dvh - var(--topbar-h) - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - 28px));
-  max-height: min(864px, calc(100dvh - var(--topbar-h) - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - 28px));
+  height: min(920px, calc(100dvh - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - var(--content-detail-vertical-gap) - var(--content-detail-vertical-gap)));
+  max-height: min(920px, calc(100dvh - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - var(--content-detail-vertical-gap) - var(--content-detail-vertical-gap)));
 }
 .content-thread-head {
   min-height: 54px;
@@ -8703,6 +8704,37 @@ body.content-detail-open .apps-menu-panel,
 body.content-detail-open .messenger-popover,
 body.content-detail-open .notification-popover { z-index: 2200; }
 body.content-detail-open .mini-chat-region { z-index: 2150; }
+.app-shell-topbar.is-media-overlay {
+  z-index: 1900;
+  border-bottom-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: none;
+}
+.app-shell-topbar.is-media-overlay .shell-search-wrap { display: none; }
+.app-shell-topbar.is-media-overlay .app-shell-nav {
+  visibility: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+.app-shell-topbar.is-media-overlay .shell-brand-search {
+  position: relative;
+  transform: translateX(43px);
+  pointer-events: auto;
+}
+.app-shell-topbar.is-media-overlay .app-brand { pointer-events: auto; }
+.app-shell-topbar.is-media-overlay .app-shell-actions {
+  position: relative;
+  pointer-events: none;
+}
+.app-shell-topbar.is-media-overlay .app-shell-actions > * { pointer-events: auto; }
+body:is(.post-photo-viewer-open, .reels-library-viewer-open) .account-dropdown,
+body:is(.post-photo-viewer-open, .reels-library-viewer-open) .apps-menu-panel,
+body:is(.post-photo-viewer-open, .reels-library-viewer-open) .messenger-popover,
+body:is(.post-photo-viewer-open, .reels-library-viewer-open) .notification-popover { z-index: 2200; }
+body:is(.post-photo-viewer-open, .reels-library-viewer-open) .mini-chat-region { z-index: 2150; }
 .content-detail-shell-close {
   position: fixed;
   z-index: 2300;
