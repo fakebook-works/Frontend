@@ -258,7 +258,7 @@ export function FriendsPage({
     </section> : <section className="friends-page-content">
       <header className="friends-page-content-head"><h2>{title}</h2>{section !== 'home' && !loading && <span>{t('peopleCount', { count: people.length })}</span>}</header>
       {error && <p className="form-error friends-page-error" role="alert">{error}</p>}
-      {loading ? <div className="friends-page-state"><span className="spinner" /></div> : people.length === 0 ? <div className="friends-page-state"><Icon name="friends" size={44} /><h3>{emptyState.title}</h3><p>{emptyState.description}</p></div> : <div className="friends-card-grid">
+      {loading ? <div className="friends-card-grid search-entity-results-skeleton" aria-hidden="true" style={{ width: '100%' }}>{Array.from({ length: 8 }, (_, index) => <article className="card search-entity-result search-entity-skeleton" key={index}><span className="search-skeleton-avatar" /><span className="search-skeleton-copy"><i /><i /><i /></span><span className="search-skeleton-action" /></article>)}</div> : people.length === 0 ? <div className="friends-page-state"><Icon name="friends" size={44} /><h3>{emptyState.title}</h3><p>{emptyState.description}</p></div> : <div className="friends-card-grid">
         {people.map((item) => <FriendCard
           key={item.profile.id}
           item={item}

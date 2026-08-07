@@ -102,3 +102,8 @@ img {
 ::-webkit-scrollbar-button:single-button:vertical:increment:hover {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' fill='%2365676b'><polygon points='50,75 10,25 90,25'/></svg>") !important;
 }
+
+/* Hide scrollbars for post detail and reels */
+.reels-stage::-webkit-scrollbar, .content-thread-scroll::-webkit-scrollbar, .modal-backdrop::-webkit-scrollbar, .reels-page-scroll::-webkit-scrollbar { display: none; }
+.reels-stage, .content-thread-scroll, .modal-backdrop, .reels-page-scroll { scrollbar-width: none; }
+

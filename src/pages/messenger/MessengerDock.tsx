@@ -240,6 +240,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const [editDraft, setEditDraft] = useState('')
   const [editBusy, setEditBusy] = useState(false)
   const [composeToolsConversationId, setComposeToolsConversationId] = useState<string | null>(null)
+  const [miniChatMenuId, setMiniChatMenuId] = useState<string | null>(null)
   const [expandedEditHistoryIds, setExpandedEditHistoryIds] = useState<Set<string>>(() => new Set())
   const [bubblePreviewAnchor, setBubblePreviewAnchor] = useState<BubblePreviewAnchor | null>(null)
   const translateRef = useRef(t)
@@ -276,7 +277,8 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
 
   useEffect(() => {
     if (composeToolsConversationId && !fullOpenIds.includes(composeToolsConversationId)) setComposeToolsConversationId(null)
-  }, [composeToolsConversationId, fullOpenIds])
+    if (miniChatMenuId && !fullOpenIds.includes(miniChatMenuId)) setMiniChatMenuId(null)
+  }, [composeToolsConversationId, miniChatMenuId, fullOpenIds])
 
   useEffect(() => {
     if (!composeToolsConversationId) return
@@ -294,6 +296,23 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       document.removeEventListener('keydown', closeOnEscape)
     }
   }, [composeToolsConversationId])
+
+  useEffect(() => {
+    if (!miniChatMenuId) return
+    const close = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      if (!target?.closest('.mini-chat-name')) setMiniChatMenuId(null)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMiniChatMenuId(null)
+    }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [miniChatMenuId])
   const collapsedOpenIds = useMemo(
     () => openIds.filter((id) => !fullOpenIds.includes(id)),
     [fullOpenIds, openIds],
@@ -1402,7 +1421,32 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
             if (conversation.type === 'GROUP') setManagedGroupId(conversation.id)
             else if (other) onOpenProfile(other.id)
           }}><Avatar name={name} src={conversationAvatar(conversation, me)} size={29} online={isOnline} /></button>
-          <div className="mini-chat-name"><strong>{name}<VerifiedBadge verified={other?.isVerified} size={12} /></strong><small className={isTyping ? 'typing' : isOnline ? 'online' : 'offline'}>{isTyping ? t('typingNow') : conversation.type === 'GROUP' ? groupPresence?.label ?? t('offline') : formatPresence(presence, t, presenceNow)}</small></div>
+          <div className="mini-chat-name">
+            <strong>
+              {name}<VerifiedBadge verified={other?.isVerified} size={12} />
+              <button type="button" className="mini-chat-menu-btn" aria-label={t('menu')} onClick={() => setMiniChatMenuId(current => current === conversation.id ? null : conversation.id)}>
+                <Icon name="caret" size={16} />
+              </button>
+            </strong>
+            <small className={isTyping ? 'typing' : isOnline ? 'online' : 'offline'}>{isTyping ? t('typingNow') : conversation.type === 'GROUP' ? groupPresence?.label ?? t('offline') : formatPresence(presence, t, presenceNow)}</small>
+            {miniChatMenuId === conversation.id && (
+              <div className="mini-chat-menu" role="menu">
+                <button type="button" role="menuitem" onClick={() => { setMiniChatMenuId(null); onNavigate?.(`/messenger/${conversation.id}`) }}><Icon name="messenger" size={16} />{t('openInMessenger', { defaultValue: 'M\u1edf trong Messenger' })}</button>
+                {conversation.type === 'GROUP' ? <>
+                  <div className="mini-chat-menu-divider" />
+                  <button type="button" role="menuitem" onClick={() => { setMiniChatMenuId(null); setManagedGroupId(conversation.id) }}><Icon name="edit" size={16} />{t('renameConversation', { defaultValue: '\u0110\u1ed5i t\u00ean \u0111o\u1ea1n chat' })}</button>
+                  <button type="button" role="menuitem" onClick={() => { setMiniChatMenuId(null); setManagedGroupId(conversation.id) }}><Icon name="photo" size={16} />{t('changePhoto', { defaultValue: 'Thay \u0111\u1ed5i \u1ea3nh' })}</button>
+                  <div className="mini-chat-menu-divider" />
+                  <button type="button" role="menuitem" onClick={() => { setMiniChatMenuId(null); setManagedGroupId(conversation.id) }}><Icon name="groups" size={16} />{t('members', { defaultValue: 'Th\u00e0nh vi\u00ean' })}</button>
+                  <button type="button" role="menuitem" onClick={() => { setMiniChatMenuId(null); setManagedGroupId(conversation.id) }}><Icon name="plus" size={16} />{t('addPeople', { defaultValue: 'Th\u00eam ng\u01b0\u1eddi' })}</button>
+                  <div className="mini-chat-menu-divider" />
+                  <button type="button" role="menuitem" className="danger" onClick={() => { setMiniChatMenuId(null); setManagedGroupId(conversation.id) }}><Icon name="logout" size={16} />{t('leaveGroup', { defaultValue: 'R\u1eddi kh\u1ecfi nh\u00f3m' })}</button>
+                </> : <>
+                  <button type="button" role="menuitem" onClick={() => { setMiniChatMenuId(null); if (other) onOpenProfile(other.id) }}><Icon name="user" size={16} />{t('viewProfile', { defaultValue: 'Xem trang c\u00e1 nh\u00e2n' })}</button>
+                </>}
+              </div>
+            )}
+          </div>
           <div className="mini-chat-controls">
             <button type="button" className="mini-ctrl mini-minimize" data-chat-read-ignore="true" aria-label={t('minimize')} onClick={() => minimizeConversation(conversation.id)}>−</button>
             <button type="button" className="mini-ctrl" data-chat-read-ignore="true" aria-label={t('close')} onClick={() => closeChat(conversation.id)}><Icon name="close" size={20} className="mini-chat-close-icon" /></button>
@@ -1593,5 +1637,65 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
 
     {forwardingMessage && <ForwardMessageDialog message={forwardingMessage} conversations={conversations} me={me} onForward={forwardDockMessage} onClose={() => setForwardingMessage(null)} />}
     {managedGroup && <GroupConversationManager me={me} friends={friends} conversation={managedGroup} onClose={() => setManagedGroupId(null)} onUpdated={updateManagedConversation} onRemoved={removeConversationLocally} onOpenProfile={onOpenProfile} />}
+    <style dangerouslySetInnerHTML={{ __html: `
+      .mini-chat-name {
+        position: relative;
+      }
+      .mini-chat-menu-btn {
+        background: none;
+        border: none;
+        padding: 0;
+        margin-left: 4px;
+        cursor: pointer;
+        border-radius: 4px;
+        color: var(--text-secondary, #b0b3b8);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        vertical-align: middle;
+      }
+      .mini-chat-menu-btn:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+      }
+      .mini-chat-menu {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        width: 250px;
+        background-color: #242526;
+        border-radius: 8px;
+        box-shadow: 0 12px 28px 0 rgba(0, 0, 0, 0.2), 0 2px 4px 0 rgba(0, 0, 0, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+        padding: 8px;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+      }
+      .mini-chat-menu button {
+        background: none;
+        border: none;
+        padding: 8px;
+        border-radius: 6px;
+        color: #e4e6eb;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        cursor: pointer;
+        font-size: 15px;
+        font-weight: 500;
+        font-family: inherit;
+      }
+      .mini-chat-menu button:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+      }
+      .mini-chat-menu button.danger {
+        color: #fa383e;
+      }
+      .mini-chat-menu-divider {
+        height: 1px;
+        background-color: rgba(255, 255, 255, 0.1);
+        margin: 4px 0;
+      }
+    ` }} />
   </>
 })

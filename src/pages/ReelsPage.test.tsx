@@ -118,10 +118,10 @@ describe('ReelsPage media discussion layout', () => {
     const { container, rerender } = render(<Activity mode="visible"><ReelsPage userId="1" mode="for-you" active onNavigate={vi.fn()} /></Activity>)
     await screen.findByText('Second preserved Reel')
     const stage = container.querySelector<HTMLElement>('.reels-stage')!
-    const scrollTo = vi.fn()
+    const scrollTo = vi.fn((x?: number | ScrollToOptions, y?: number) => { if (typeof x === 'number') stage.scrollTop = y ?? 0; else if (x && x.top !== undefined) stage.scrollTop = x.top })
     Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 640 })
     Object.defineProperty(stage, 'scrollTop', { configurable: true, writable: true, value: 0 })
-    scrollTo.mockImplementation(({ top }: { top: number }) => { stage.scrollTop = top })
+    scrollTo.mockImplementation((x?: number | ScrollToOptions, y?: number) => { if (typeof x === 'number') { stage.scrollTop = y ?? 0 } else if (x && x.top !== undefined) { stage.scrollTop = x.top } })
     Object.defineProperty(stage, 'scrollTo', { configurable: true, value: scrollTo })
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
     scrollTo.mockClear()
@@ -156,12 +156,18 @@ describe('ReelsPage media discussion layout', () => {
     const { container, rerender } = render(<ReelsPage userId="1" mode="for-you" onNavigate={vi.fn()} />)
     await screen.findByText('Second For You Reel')
     const stage = container.querySelector<HTMLElement>('.reels-stage')!
-    const scrollTo = vi.fn()
+    const scrollTo = vi.fn((x?: number | ScrollToOptions, y?: number) => {
+      if (typeof x === 'number') stage.scrollTop = y ?? 0
+      else if (x && x.top !== undefined) stage.scrollTop = x.top
+    })
     Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 640 })
     Object.defineProperty(stage, 'scrollTop', { configurable: true, writable: true, value: 640 })
     Object.defineProperty(stage, 'scrollTo', { configurable: true, value: scrollTo })
+    const originalRaf = window.requestAnimationFrame
+    window.requestAnimationFrame = (cb) => setTimeout(cb, 0) as unknown as number
     fireEvent.scroll(stage)
     await waitFor(() => expect(container.querySelectorAll('.reel-card')[1]).toHaveAttribute('aria-current', 'true'))
+    window.requestAnimationFrame = originalRaf
 
     rerender(<ReelsPage userId="1" mode="following" onNavigate={vi.fn()} />)
     await screen.findByText('Following Reel')
@@ -278,7 +284,7 @@ describe('ReelsPage media discussion layout', () => {
     const { container } = render(<ReelsPage userId="1" mode="for-you" onNavigate={vi.fn()} />)
     const nextButton = await screen.findByRole('button', { name: 'nextReel' })
     const stage = container.querySelector<HTMLElement>('.reels-stage')!
-    const scrollTo = vi.fn()
+    const scrollTo = vi.fn((x?: number | ScrollToOptions, y?: number) => { if (typeof x === 'number') stage.scrollTop = y ?? 0; else if (x && x.top !== undefined) stage.scrollTop = x.top })
     Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 640 })
     Object.defineProperty(stage, 'scrollTo', { configurable: true, value: scrollTo })
 
@@ -298,7 +304,7 @@ describe('ReelsPage media discussion layout', () => {
     const { container } = render(<ReelsPage userId="1" mode="for-you" onNavigate={vi.fn()} />)
     await screen.findByRole('button', { name: 'nextReel' })
     const stage = container.querySelector<HTMLElement>('.reels-stage')!
-    const scrollTo = vi.fn()
+    const scrollTo = vi.fn((x?: number | ScrollToOptions, y?: number) => { if (typeof x === 'number') stage.scrollTop = y ?? 0; else if (x && x.top !== undefined) stage.scrollTop = x.top })
     Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 640 })
     Object.defineProperty(stage, 'scrollTo', { configurable: true, value: scrollTo })
 
@@ -345,7 +351,7 @@ describe('ReelsPage media discussion layout', () => {
     const { container } = render(<ReelsPage userId="1" mode="for-you" onNavigate={vi.fn()} />)
     await screen.findByRole('button', { name: 'nextReel' })
     const stage = container.querySelector<HTMLElement>('.reels-stage')!
-    const scrollTo = vi.fn()
+    const scrollTo = vi.fn((x?: number | ScrollToOptions, y?: number) => { if (typeof x === 'number') stage.scrollTop = y ?? 0; else if (x && x.top !== undefined) stage.scrollTop = x.top })
     Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 640 })
     Object.defineProperty(stage, 'scrollTo', { configurable: true, value: scrollTo })
 
@@ -366,10 +372,10 @@ describe('ReelsPage media discussion layout', () => {
     const { container } = render(<ReelsPage userId="1" mode="for-you" onNavigate={vi.fn()} />)
     await screen.findByRole('button', { name: 'nextReel' })
     const stage = container.querySelector<HTMLElement>('.reels-stage')!
-    const scrollTo = vi.fn()
+    const scrollTo = vi.fn((x?: number | ScrollToOptions, y?: number) => { if (typeof x === 'number') stage.scrollTop = y ?? 0; else if (x && x.top !== undefined) stage.scrollTop = x.top })
     Object.defineProperty(stage, 'clientHeight', { configurable: true, value: 640 })
     Object.defineProperty(stage, 'scrollTop', { configurable: true, writable: true, value: 0 })
-    scrollTo.mockImplementation(({ top }: { top: number }) => { stage.scrollTop = top })
+    scrollTo.mockImplementation((x?: number | ScrollToOptions, y?: number) => { if (typeof x === 'number') { stage.scrollTop = y ?? 0 } else if (x && x.top !== undefined) { stage.scrollTop = x.top } })
     Object.defineProperty(stage, 'scrollTo', { configurable: true, value: scrollTo })
     let now = 1
     const performanceNow = vi.spyOn(performance, 'now').mockImplementation(() => now)

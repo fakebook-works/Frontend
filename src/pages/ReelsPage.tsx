@@ -343,17 +343,11 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
       setActiveIndex(nextIndex)
       reelPositionCacheRef.current.set(requestKey, { reelId: nextReels[nextIndex]?.id ?? null, index: nextIndex })
       setLibraryViewerOpen(entryViewer)
-      // Reset the stage scroll to 0 instantly before the rAF scroll so that
-      // handleStageScroll cannot misread the stale position from the previous
-      // tab against the new (shorter or differently-ordered) reel list and flip
-      // activeIndex to an unintended value mid-transition.
-      const stageEl = stageRef.current
-      if (stageEl) scrollReelStage(stageEl, 0)
-      window.requestAnimationFrame?.(() => {
-        const stage = stageRef.current
-        if (!stage || stage.clientHeight <= 0) return
-        scrollReelStage(stage, activeIndexRef.current * stage.clientHeight)
-      })
+      const stage = stageRef.current
+      if (stage && stage.clientHeight > 0) {
+        scrollReelStage(stage, 0)
+        scrollReelStage(stage, nextIndex * stage.clientHeight)
+      }
     }
     // Paint the selected Reel immediately from the projection already present
     // on Home/Profile. The longer queue request below is only enrichment.

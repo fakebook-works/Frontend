@@ -700,18 +700,6 @@ function profileLandingRouteForPath(pathname: string) {
   return null
 }
 
-function documentScrollTop() {
-  return document.scrollingElement?.scrollTop ?? document.documentElement.scrollTop ?? document.body.scrollTop ?? 0
-}
-
-function setDocumentScrollTop(value: number) {
-  const top = Math.max(0, Number.isFinite(value) ? value : 0)
-  const scrollingElement = document.scrollingElement ?? document.documentElement
-  scrollingElement.scrollTop = top
-  if (scrollingElement !== document.documentElement) document.documentElement.scrollTop = top
-  if (scrollingElement !== document.body) document.body.scrollTop = top
-}
-
 function isKnownPath(pathname: string) {
   return pathname === '/' || pathname === '/home' || pathname === '/search' || pathname === '/groups' || pathname === '/messenger' || pathname === '/saved' || pathname.startsWith('/saved/') || pathname === '/premium' || pathname === '/premium/payment' || ['/friends', '/reels', '/groups/', '/profile/', '/settings', '/content/', '/help', '/privacy', '/about', '/policies'].some((prefix) => pathname.startsWith(prefix))
 }
@@ -764,3 +752,16 @@ function GroupShellNavGlyph({ active }: { active: boolean }) {
 function NavButton({ icon, label, active, onClick }: { icon: ShellNavIcon; label: string; active: boolean; onClick: () => void }) {
   return <button type="button" className={active ? 'active' : ''} onClick={onClick} aria-label={label} title={label}><ShellNavGlyph icon={icon} active={active} /><span>{label}</span></button>
 }
+
+function documentScrollTop() {
+  return document.scrollingElement?.scrollTop ?? document.documentElement.scrollTop ?? document.body.scrollTop ?? 0
+}
+
+function setDocumentScrollTop(value: number) {
+  const top = Math.max(0, Number.isFinite(value) ? value : 0)
+  const scrollingElement = document.scrollingElement ?? document.documentElement
+  scrollingElement.scrollTop = top
+  if (scrollingElement !== document.documentElement) document.documentElement.scrollTop = top
+  if (scrollingElement !== document.body) document.body.scrollTop = top
+}
+

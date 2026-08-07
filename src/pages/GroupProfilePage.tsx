@@ -23,7 +23,7 @@ import { useInlineImageCrop } from '../lib/useInlineImageCrop'
 import { useImageAmbientColor } from '../lib/useImageAmbientColor'
 import { groupProfilePostsByMonth } from '../lib/profilePostGrid'
 import { useProfileColumnScroll, useProfilePageScrollMode } from '../lib/useProfileColumnScroll'
-import { PostComposer, GatewayPostCard } from './GatewayHomePage'
+import { GatewayPostCard, PostComposer, HomeFeedSkeleton } from './GatewayHomePage'
 import './GroupProfilePage.css'
 
 const PostPhotoViewer = lazy(() => import('../components/PostPhotoViewer').then((module) => ({ default: module.PostPhotoViewer })))
@@ -88,7 +88,7 @@ function GroupProfileSkeletonBlock({ className = '' }: { className?: string }) {
   return <span className={`profile-skeleton-block${className ? ` ${className}` : ''}`} aria-hidden="true" />
 }
 
-function GroupProfileSkeleton() {
+export function GroupProfileSkeleton() {
   return <main className="profile-destination self-profile-page profile-page-skeleton group-profile-page group-profile-skeleton" aria-busy="true">
     <section className="self-profile-cover-card profile-skeleton-hero">
       <GroupProfileSkeletonBlock className="profile-skeleton-cover" />
@@ -394,6 +394,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const [existingPicker, setExistingPicker] = useState<GroupImageKind | null>(null)
   const [photoViewer, setPhotoViewer] = useState<GroupMediaViewerState | null>(null)
   const [groupDetailPostId, setGroupDetailPostId] = useState<string | null>(null)
+  const postSentinelRef = useRef<HTMLDivElement>(null)
   const coverActionRef = useRef<HTMLDivElement>(null)
   const avatarActionRef = useRef<HTMLDivElement>(null)
   const coverUploadInputRef = useRef<HTMLInputElement>(null)
@@ -569,6 +570,15 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
 
   useEffect(() => { void loadCore() }, [loadCore])
   useEffect(() => { void loadPosts() }, [loadPosts])
+  useEffect(() => {
+    const sentinel = postSentinelRef.current
+    if (!sentinel || postsLoading || !postsHaveMore || !postCursor || posts.length === 0 || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) void loadPosts(postCursor, true)
+    }, { rootMargin: '520px 0px', threshold: 0.01 })
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [postsLoading, postsHaveMore, postCursor, posts.length, loadPosts])
   useEffect(() => { void loadPeople() }, [loadPeople])
   useEffect(() => {
     setPostFilter('all')
@@ -865,8 +875,12 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
         <section ref={groupPostColumnRef} className="profile-post-list group-profile-post-column">
           {participant && viewer && <PostComposer variant="group" userId={viewer.id} displayName={viewer.displayName} avatarUrl={viewer.avatarUrl} isVerified={viewer.isVerified} friends={eligibleTagPeople} groupId={group.id} groupName={group.name} groupAvatarUrl={group.avatarUrl} groupPrivacy={group.privacy} onNavigate={onNavigate} onCreated={(post) => setPosts((current) => [post, ...current.filter((item) => item.id !== post.id)])} />}
           <GroupPostViewTools filter={postFilter} view={postView} manageMode={manageMode} onFilterChange={setPostFilter} onViewChange={setPostView} onManageToggle={() => setManageMode((value) => !value)} />
-          {!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <div className="card state-card"><span className="spinner" /></div> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupFeedEmpty')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : filteredPosts.length === 0 ? <div className="card state-card"><h2>{t('profileNoPosts')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : postView === 'grid' ? <div className="self-profile-post-months">{groupPostMonthGroups.map((month) => <section className="card self-profile-post-month" key={month.id}><h3>{month.label}</h3><div className="self-profile-post-grid">{month.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} groupPrivacy onOpenDetail={() => setGroupDetailPostId(post.id)} onOpenMedia={(item: ProfileGridMediaTarget) => setPhotoViewer({ contentId: item.contentId, media: { id: item.mediaId, type: item.mediaType, url: item.mediaUrl } })} onOpenReel={post.__typename === 'ReelDetail' && onOpenReel ? () => onOpenReel(post) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} onOpenReel={onOpenReel} groupContextId={group.id} viewerCanModerateGroupPosts={membership.isAdmin} />)}
-          {postView === 'list' && postsHaveMore && <button type="button" className="btn-soft group-profile-load-more" disabled={postsLoading || !postCursor} onClick={() => void loadPosts(postCursor, true)}>{postsLoading ? t('loadingMore') : t('seeMore')}</button>}
+          {!membership.canViewPosts ? <div className="card state-card"><h2>{t('privateGroup')}</h2><p>{t('joinToSeePosts')}</p></div> : postsLoading && posts.length === 0 ? <><HomeFeedSkeleton /><HomeFeedSkeleton /></> : posts.length === 0 ? <div className="card state-card"><h2>{t('groupFeedEmpty')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : filteredPosts.length === 0 ? <div className="card state-card"><h2>{t('profileNoPosts')}</h2><p>{t('groupFeedEmptyDesc')}</p></div> : postView === 'grid' ? <div className="self-profile-post-months">{groupPostMonthGroups.map((month) => <section className="card self-profile-post-month" key={month.id}><h3>{month.label}</h3><div className="self-profile-post-grid">{month.posts.map((post) => <ProfilePostGridCard key={post.id} post={post} locale={locale} groupPrivacy onOpenDetail={() => setGroupDetailPostId(post.id)} onOpenMedia={(item: ProfileGridMediaTarget) => setPhotoViewer({ contentId: item.contentId, media: { id: item.mediaId, type: item.mediaType, url: item.mediaUrl } })} onOpenReel={post.__typename === 'ReelDetail' && onOpenReel ? () => onOpenReel(post) : undefined} />)}</div></section>)}</div> : filteredPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} onOpenReel={onOpenReel} groupContextId={group.id} viewerCanModerateGroupPosts={membership.isAdmin} />)}
+          {postView === 'list' && postsHaveMore && (
+            <div ref={postSentinelRef} className="feed-auto-loader">
+              {postsLoading && <><HomeFeedSkeleton /><HomeFeedSkeleton /></>}
+            </div>
+          )}
         </section>
         <aside ref={groupInfoColumnRef} className="self-profile-left-column group-profile-info-column"><GroupAboutCard group={group} locale={locale} admin={membership.isAdmin} compact onUpdated={setGroup} /><GroupPeoplePreview people={visiblePeople} count={groupMemberCount} onNavigate={onNavigate} onOpen={() => setTab('people')} /><GroupMediaPreview media={media} hasMore={mediaHaveMore} onOpenTab={() => setTab('media')} onOpenMedia={(item) => setPhotoViewer(item)} /></aside>
       </div>}

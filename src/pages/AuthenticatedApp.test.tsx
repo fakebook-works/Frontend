@@ -81,44 +81,44 @@ describe('AuthenticatedApp routing and navigation', () => {
 
   it('keeps the Home-style new-conversation rail visible on profile routes with no open chats', () => {
     window.history.replaceState({}, '', '/profile/2')
-    const { container } = render(<AuthenticatedApp />)
+    render(<AuthenticatedApp />)
 
-    expect(container.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail', 'home-compose-rail')
-    expect(container.querySelector('.mini-chat-new-button')).toBeInTheDocument()
+    expect(document.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail', 'home-compose-rail')
+    expect(document.querySelector('.mini-chat-new-button')).toBeInTheDocument()
   })
 
   it.each(['/friends', '/groups'])('uses the Home chat-window and bubble layout on %s', (path) => {
     window.history.replaceState({}, '', path)
-    const { container } = render(<AuthenticatedApp />)
+    render(<AuthenticatedApp />)
 
-    expect(container.querySelector('.authenticated-app')).toHaveClass(path === '/friends' ? 'friends-route' : 'groups-route')
-    expect(container.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail', 'home-compose-rail')
-    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('media-viewer-compose-rail')
-    expect(container.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'default')
+    expect(document.querySelector('.authenticated-app')).toHaveClass(path === '/friends' ? 'friends-route' : 'groups-route')
+    expect(document.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail', 'home-compose-rail')
+    expect(document.querySelector('.mini-chat-region')).not.toHaveClass('media-viewer-compose-rail')
+    expect(document.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'default')
     expect(screen.getByRole('button', { name: 'newMessage' })).toBeInTheDocument()
   })
 
   it('uses the Home chat-window and pinned compose rail on Search results', () => {
     window.history.replaceState({}, '', '/search?q=fakebook&tab=groups')
-    const { container } = render(<AuthenticatedApp />)
+    render(<AuthenticatedApp />)
 
-    expect(container.querySelector('.authenticated-app')).toHaveClass('search-results-route')
-    expect(container.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail', 'home-compose-rail')
-    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('media-viewer-compose-rail')
-    expect(container.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'default')
+    expect(document.querySelector('.authenticated-app')).toHaveClass('search-results-route')
+    expect(document.querySelector('.mini-chat-region')).toHaveClass('has-bubble-rail', 'home-compose-rail')
+    expect(document.querySelector('.mini-chat-region')).not.toHaveClass('media-viewer-compose-rail')
+    expect(document.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'default')
     expect(screen.getByRole('button', { name: 'newMessage' })).toBeInTheDocument()
   })
 
   it('treats a group profile as a detail page with the regular search and no active Groups tab', () => {
     window.history.replaceState({}, '', '/groups/61')
-    const { container } = render(<AuthenticatedApp />)
+    render(<AuthenticatedApp />)
     const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
 
     expect(screen.getByText('group-profile-page')).toBeInTheDocument()
-    expect(container.querySelector('.authenticated-app')).not.toHaveClass('groups-route')
+    expect(document.querySelector('.authenticated-app')).not.toHaveClass('groups-route')
     expect(navigation.querySelector('button[aria-label="groups"]')).not.toHaveClass('active')
-    expect(container.querySelector('.shell-search')).not.toHaveStyle({ width: '36px', height: '36px' })
-    expect(container.querySelector('.mini-chat-region')).toHaveClass('home-compose-rail')
+    expect(document.querySelector('.shell-search')).not.toHaveStyle({ width: '36px', height: '36px' })
+    expect(document.querySelector('.mini-chat-region')).toHaveClass('home-compose-rail')
   })
 
   it.each([
@@ -126,7 +126,7 @@ describe('AuthenticatedApp routing and navigation', () => {
     { path: '/groups/61', page: 'group-profile-page' },
   ])('lands at the cover when navigating to the $path detail profile', ({ path, page }) => {
     render(<AuthenticatedApp />)
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = document.documentElement
     scrollRoot.scrollTop = 840
 
     window.history.pushState({}, '', path)
@@ -138,10 +138,10 @@ describe('AuthenticatedApp routing and navigation', () => {
 
   it('keeps the saved Home position while entering a user profile at its cover', () => {
     render(<AuthenticatedApp />)
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = document.documentElement
     const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
     scrollRoot.scrollTop = 675
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
 
     fireEvent.click(screen.getByRole('button', { name: 'test' }))
     fireEvent.click(screen.getByRole('button', { name: 'seeYourProfile' }))
@@ -154,14 +154,14 @@ describe('AuthenticatedApp routing and navigation', () => {
 
   it('uses the photo-viewer chat layout on Reels without reserving an empty rail', () => {
     window.history.replaceState({}, '', '/reels')
-    const { container } = render(<AuthenticatedApp />)
+    render(<AuthenticatedApp />)
 
-    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('has-bubble-rail')
-    expect(container.querySelector('.mini-chat-region')).toHaveClass('media-viewer-compose-rail')
-    expect(container.querySelector('.mini-chat-region')).not.toHaveClass('home-compose-rail')
-    expect(container.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'media-viewer')
+    expect(document.querySelector('.mini-chat-region')).not.toHaveClass('has-bubble-rail')
+    expect(document.querySelector('.mini-chat-region')).toHaveClass('media-viewer-compose-rail')
+    expect(document.querySelector('.mini-chat-region')).not.toHaveClass('home-compose-rail')
+    expect(document.querySelector('.mini-chat-region')).toHaveAttribute('data-layout', 'media-viewer')
     expect(screen.queryByRole('button', { name: 'newMessage' })).not.toBeInTheDocument()
-    expect(container.querySelector('.app-shell-nav button.active .reel-icon-divider')).toHaveAttribute('stroke', 'var(--card)')
+    expect(document.querySelector('.app-shell-nav button.active .reel-icon-divider')).toHaveAttribute('stroke', 'var(--card)')
   })
 
   it('uses a filled icon for the active destination and outlines for the others', () => {
@@ -188,31 +188,31 @@ describe('AuthenticatedApp routing and navigation', () => {
   })
 
   it('refreshes the current Home from either the active Home tab or the Fakebook logo', () => {
-    const { container } = render(<AuthenticatedApp />)
+    render(<AuthenticatedApp />)
     const homePage = screen.getByTestId('home-page')
     const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
 
     expect(homePage).toHaveAttribute('data-refresh-token', '0')
     fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="home"]')!)
     expect(homePage).toHaveAttribute('data-refresh-token', '1')
-    fireEvent.click(container.querySelector<HTMLButtonElement>('.app-brand')!)
+    fireEvent.click(document.querySelector<HTMLButtonElement>('.app-brand')!)
     expect(homePage).toHaveAttribute('data-refresh-token', '2')
   })
 
   it('keeps each visited primary destination mounted and restores its own scroll position', () => {
     render(<AuthenticatedApp />)
     const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = document.documentElement
     const homePage = screen.getByTestId('home-page')
 
     scrollRoot.scrollTop = 640
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
     fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="friends"]')!)
     const friendsPage = screen.getByText('friends-page')
     expect(scrollRoot.scrollTop).toBe(0)
 
     scrollRoot.scrollTop = 175
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
     fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="home"]')!)
     expect(screen.getByTestId('home-page')).toBe(homePage)
     expect(scrollRoot.scrollTop).toBe(640)
@@ -224,10 +224,10 @@ describe('AuthenticatedApp routing and navigation', () => {
 
   it('opens and closes a Home Reel as an overlay without navigating or losing the feed position', () => {
     render(<AuthenticatedApp />)
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = document.documentElement
     const homePage = screen.getByTestId('home-page')
     scrollRoot.scrollTop = 640
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
 
     fireEvent.click(screen.getByRole('button', { name: 'open-home-reel' }))
 
@@ -246,10 +246,10 @@ describe('AuthenticatedApp routing and navigation', () => {
   it('closes a Reel from Profile All without changing the tab or scroll position', () => {
     window.history.replaceState({}, '', '/profile/2')
     render(<AuthenticatedApp />)
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = document.documentElement
     const profilePage = screen.getByTestId('profile-page')
     scrollRoot.scrollTop = 510
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
 
     fireEvent.click(screen.getByRole('button', { name: 'open-profile-reel' }))
 
@@ -277,10 +277,10 @@ describe('AuthenticatedApp routing and navigation', () => {
     window.history.replaceState({}, '', path)
     render(<AuthenticatedApp />)
     const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
-    const scrollRoot = document.scrollingElement ?? document.documentElement
+    const scrollRoot = document.documentElement
     const originalPage = screen.getByText(pageText)
     scrollRoot.scrollTop = 480
-    fireEvent.scroll(window)
+    fireEvent.scroll(scrollRoot)
 
     fireEvent.click(navigation.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!)
 
@@ -384,13 +384,13 @@ describe('AuthenticatedApp routing and navigation', () => {
   })
 
   it('shows the recent-search empty state before a keyword is entered', () => {
-    const { container } = render(<AuthenticatedApp />)
+    render(<AuthenticatedApp />)
 
     fireEvent.focus(screen.getByRole('textbox', { name: 'searchPlaceholder' }))
 
     expect(screen.getByText('noRecentSearches')).toBeInTheDocument()
-    expect(container.querySelector('.shell-brand-search')).toHaveClass('has-recent-empty')
-    expect(container.querySelector('.quick-search-results')).toHaveClass('is-recent-empty')
+    expect(document.querySelector('.shell-brand-search')).toHaveClass('has-recent-empty')
+    expect(document.querySelector('.quick-search-results')).toHaveClass('is-recent-empty')
   })
 
   it('labels viewer relationships and renders group search avatars as rounded squares', async () => {
@@ -430,24 +430,24 @@ describe('AuthenticatedApp routing and navigation', () => {
   })
 
   it('swaps the Fakebook logo for a back button while search is focused', () => {
-    const { container } = render(<AuthenticatedApp />)
+    render(<AuthenticatedApp />)
     const input = screen.getByRole('textbox', { name: 'searchPlaceholder' })
 
-    expect(container.querySelector('.shell-search-glyph')).toBeInTheDocument()
+    expect(document.querySelector('.shell-search-glyph')).toBeInTheDocument()
     fireEvent.focus(input)
 
-    expect(container.querySelector('.shell-search-wrap')).toHaveClass('is-active')
-    expect(container.querySelector('.shell-search-glyph')).toHaveClass('is-hidden')
-    expect(container.querySelector('.app-brand')).toHaveAttribute('aria-hidden', 'true')
+    expect(document.querySelector('.shell-search-wrap')).toHaveClass('is-active')
+    expect(document.querySelector('.shell-search-glyph')).toHaveClass('is-hidden')
+    expect(document.querySelector('.app-brand')).toHaveAttribute('aria-hidden', 'true')
     expect(screen.getByRole('button', { name: 'back' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'back' }))
 
-    expect(container.querySelector('.shell-search-wrap')).not.toHaveClass('is-active')
-    expect(container.querySelector('.shell-search-wrap')).toHaveClass('is-closing')
-    expect(container.querySelector('.shell-brand-search')).toHaveClass('is-closing')
-    expect(container.querySelector('.shell-search-glyph')).not.toHaveClass('is-hidden')
-    expect(container.querySelector('.app-brand')).toHaveAttribute('aria-hidden', 'false')
+    expect(document.querySelector('.shell-search-wrap')).not.toHaveClass('is-active')
+    expect(document.querySelector('.shell-search-wrap')).toHaveClass('is-closing')
+    expect(document.querySelector('.shell-brand-search')).toHaveClass('is-closing')
+    expect(document.querySelector('.shell-search-glyph')).not.toHaveClass('is-hidden')
+    expect(document.querySelector('.app-brand')).toHaveAttribute('aria-hidden', 'false')
     expect(input).not.toHaveFocus()
   })
 })

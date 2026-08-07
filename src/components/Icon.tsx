@@ -216,6 +216,7 @@ export function ReelIcon({
 }: {
   size?: number
   className?: string
+
   filled?: boolean
   gradient?: boolean
   dividerColor?: string
@@ -281,6 +282,7 @@ export function Icon({
   name: IconName
   size?: number
   className?: string
+
 }) {
   if (name === 'friends') return <FriendPeopleGlyph className={className} filled size={size} />
   if (name === 'user') return <FriendPersonGlyph className={className} size={size} />
