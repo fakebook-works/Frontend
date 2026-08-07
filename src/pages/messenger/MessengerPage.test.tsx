@@ -103,6 +103,33 @@ describe('Messenger unavailable state', () => {
     await waitFor(() => expect(messengerMocks.createGroupConversation).toHaveBeenCalledWith('Weekend', ['friend-1', 'friend-2'], 'me'))
   })
 
+  it('filters the full Messenger list by unread and group conversations', async () => {
+    const me = { id: 'me', username: 'me', displayName: 'Me', avatarUrl: null }
+    const unreadFriend = { id: 'unread', username: 'unread', displayName: 'Unread Friend', avatarUrl: null }
+    const readFriend = { id: 'read', username: 'read', displayName: 'Read Friend', avatarUrl: null }
+    const groupFriend = { id: 'group-friend', username: 'group-friend', displayName: 'Group Friend', avatarUrl: null }
+    messengerMocks.conversations.mockResolvedValue([
+      { id: 'unread-chat', type: 'DIRECT', participants: [me, unreadFriend], title: null, avatarUrl: null, updatedAt: '2026-01-03', unreadCount: 2, lastMessage: null },
+      { id: 'read-chat', type: 'DIRECT', participants: [me, readFriend], title: null, avatarUrl: null, updatedAt: '2026-01-02', unreadCount: 0, lastMessage: null },
+      { id: 'group-chat', type: 'GROUP', participants: [me, groupFriend], title: 'Weekend Group', avatarUrl: null, updatedAt: '2026-01-01', unreadCount: 0, lastMessage: null },
+    ])
+
+    const { container } = render(<MessengerPage me={me} friends={[unreadFriend, readFriend, groupFriend]} onOpenProfile={vi.fn()} />)
+    await screen.findAllByText('Unread Friend')
+    const visibleRows = () => [...container.querySelectorAll('.messenger-row')].map((row) => row.textContent)
+    expect(visibleRows()).toHaveLength(3)
+
+    fireEvent.click(screen.getByRole('button', { name: 'unreadOnly' }))
+    expect(visibleRows()).toHaveLength(1)
+    expect(visibleRows()[0]).toContain('Unread Friend')
+
+    fireEvent.click(screen.getByRole('button', { name: 'groupChats' }))
+    expect(visibleRows()).toHaveLength(1)
+    expect(visibleRows()[0]).toContain('Weekend Group')
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.messenger-row')!)
+    expect(await screen.findByText('manageGroup')).toBeInTheDocument()
+  })
+
   it('finds a friend outside the initially loaded page before opening a direct conversation', async () => {
     const me = { id: 'me', username: 'me', displayName: 'Me', avatarUrl: null }
     const remoteFriend = { id: 'remote', username: 'remote', displayName: 'Remote Friend', avatarUrl: null }

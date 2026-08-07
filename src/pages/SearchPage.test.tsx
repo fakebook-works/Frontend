@@ -114,6 +114,7 @@ describe('SearchPage results redesign', () => {
     expect(container.querySelector('.discovery-sidebar > header')).toHaveTextContent('searchResults')
     expect(container.querySelector('.discovery-sidebar > p')).not.toBeInTheDocument()
     expect([...container.querySelectorAll('.discovery-sidebar nav strong')].map((node) => node.textContent)).toEqual(['searchPosts', 'searchPeople', 'reels', 'groups'])
+    expect(container.querySelector('.discovery-sidebar nav button.active .friend-people-glyph')).toHaveClass('is-filled')
     expect(container.querySelector('.search-person-result')).toHaveTextContent('livesIn:Da Nang')
     expect(container.querySelector('.search-person-result')).toHaveTextContent('mutualFriendsCount:2')
     expect(container.querySelector('.search-person-result')).toHaveTextContent('followersCount:12')

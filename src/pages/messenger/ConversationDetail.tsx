@@ -3,8 +3,8 @@ import type { MessengerConversationDto, UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { VerifiedBadge } from '../../components/VerifiedBadge'
-import { conversationAvatar, conversationName } from './helpers'
 import { useI18n } from '../../i18n'
+import { conversationAvatar, conversationName } from './helpers'
 
 interface ConversationDetailProps {
   me: UserSummary
@@ -19,7 +19,7 @@ export function ConversationDetail({ me, conversation, presence, onOpenProfile, 
   const { t } = useI18n()
   const name = conversationName(conversation, me)
   const avatar = conversationAvatar(conversation, me)
-  const otherParticipant = conversation.participants.find((p) => p.id !== me.id)
+  const otherParticipant = conversation.participants.find((participant) => participant.id !== me.id)
 
   return (
     <aside className="messenger-detail" aria-label={t('conversationDetails')}>
@@ -30,7 +30,7 @@ export function ConversationDetail({ me, conversation, presence, onOpenProfile, 
       <div className="messenger-detail-actions">
         <button type="button" onClick={() => conversation.type === 'GROUP' ? onOpenGroup?.() : otherParticipant && onOpenProfile(otherParticipant.id)}>
           <Icon name={conversation.type === 'GROUP' ? 'groups' : 'user'} size={16} />
-          <span>{conversation.type === 'GROUP' ? 'Quản lý nhóm' : t('profile')}</span>
+          <span>{conversation.type === 'GROUP' ? t('manageGroup') : t('profile')}</span>
         </button>
       </div>
 

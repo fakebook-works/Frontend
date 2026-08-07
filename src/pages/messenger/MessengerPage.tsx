@@ -70,7 +70,7 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   const [showNewModal, setShowNewModal] = useState(false)
   const [mobileShowThread, setMobileShowThread] = useState(false)
   const [showDetail, setShowDetail] = useState(true)
-  const [activeTab, setActiveTab] = useState<'inbox' | 'communities'>('inbox')
+  const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'groups'>('all')
   const [presenceByUserId, setPresenceByUserId] = useState<Record<string, MessengerPresenceDto>>({})
   const [typingByConversationId, setTypingByConversationId] = useState<Record<string, string>>({})
   const [replyToByConversationId, setReplyToByConversationId] = useState<Record<string, string | null>>({})
