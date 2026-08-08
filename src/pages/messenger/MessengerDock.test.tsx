@@ -676,7 +676,7 @@ describe('MessengerDock overflow windows', () => {
 
     act(() => window.dispatchEvent(new CustomEvent(MESSENGER_MESSAGE_SENT_EVENT, { detail: sharedMessage })))
 
-    expect(await within(chat).findByRole('link', { name: sharedMessage.body, exact: true })).toBeInTheDocument()
+    expect(await within(chat).findByRole('link', { name: sharedMessage.body })).toBeInTheDocument()
   })
 
   it('opens a profile only from the header avatar, not from the name', async () => {
