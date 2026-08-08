@@ -6292,7 +6292,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
   min-height: 46px;
   align-items: center;
   gap: 5px;
-  padding: 14px 8px 15px;
+  padding: 14px 8px 21px;
 }
 .share-post-preview .post-video-control-button {
   width: 24px;
