@@ -374,7 +374,7 @@ describe('GroupProfilePage', () => {
     expect(within(mediaTab).getByTestId('group-composer')).toHaveAttribute('data-open-request', '1')
     expect(within(mediaTab).getByTestId('group-composer')).toHaveAttribute('data-group-id', '61')
     fireEvent.click(within(mediaTab).getByRole('button', { name: 'videos' }))
-    expect(within(mediaTab).getByText('photosEmpty')).toBeInTheDocument()
+    expect(within(mediaTab).getByText('videosEmpty')).toBeInTheDocument()
   })
 
   it('does not recreate a shortcut visit for someone who is outside the group', async () => {

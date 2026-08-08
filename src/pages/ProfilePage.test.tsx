@@ -810,6 +810,29 @@ describe('ProfilePage messaging', () => {
     expect(socialMocks.getRelationProfiles).toHaveBeenCalledWith('me', 0, 100)
   })
 
+  it('uses the video-specific empty state when the profile video filter is empty', async () => {
+    render(<ProfilePage
+      profile={{
+        id: 'me', username: 'owner', email: 'owner@example.com', displayName: 'Owner', avatarUrl: null, backgroundUrl: null,
+        bio: null, location: null, birthDate: null, gender: null, createdAt: '', privacy: 0, isVerified: false,
+        friendCount: 0, postCount: 0, followerCount: 0, followingCount: 0,
+      }}
+      loading={false}
+      error={null}
+      canEdit
+      viewerId="me"
+      onEdit={vi.fn()}
+      onNavigate={vi.fn()}
+      onMessage={vi.fn()}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'profileTabPhotos' }))
+    expect(await screen.findByText('photosEmpty')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'videos' }))
+    expect(screen.getByText('videosEmpty')).toBeInTheDocument()
+    expect(screen.queryByText('photosEmpty')).not.toBeInTheDocument()
+  })
+
   it('renders the owner photo, connection and reel collections with their requested controls', async () => {
     const friendProfile = {
       id: 'friend-1', username: 'friend', email: '', displayName: 'Friend One', avatarUrl: '/friend.jpg', backgroundUrl: null,

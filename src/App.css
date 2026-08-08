@@ -6292,7 +6292,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
   min-height: 46px;
   align-items: center;
   gap: 5px;
-  padding: 14px 8px 21px;
+  padding: 14px 8px 23px;
 }
 .share-post-preview .post-video-control-button {
   width: 24px;
@@ -9503,7 +9503,9 @@ body.reels-page-scroll {
   --groups-discover-width: 100%;
   padding: 0 60px 16px;
 }
-.groups-main-your { padding: 0 60px 16px; }
+.groups-main-your,
+.groups-main-invited,
+.groups-main-requested { padding: 0 60px 16px; }
 .groups-feed-column {
   width: min(100%, var(--home-center-width, 620px));
   max-width: var(--home-center-width, 620px);
@@ -9616,12 +9618,25 @@ body.reels-page-scroll {
   font-weight: 400;
   line-height: 1.25;
 }
+.groups-directory-event { min-width: 0; min-height: 26px; display: flex; align-items: center; gap: 7px; margin-top: 4px; }
+.groups-directory-event > .avatar { flex: 0 0 auto; }
+.groups-directory-event > small { min-width: 0; overflow: hidden; color: color-mix(in srgb, var(--secondary) 90%, #fff 10%); text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; font-weight: 400; }
+.groups-directory-request-event { margin-top: 8px; }
+.groups-event-directory > .groups-directory-section > .groups-empty-state { margin-top: 26px; }
 .groups-membership-card > div { display: grid; grid-template-columns: minmax(0, 1fr) 54px; gap: 10px; margin-top: 14px; }
 .groups-view-button,
 .groups-more-button { height: 40px; border: 0; border-radius: 8px; color: var(--text); background: var(--circle); font-weight: 650; }
 .groups-view-button { color: color-mix(in srgb, var(--blue) 76%, #fff 24%); background: color-mix(in srgb, var(--blue) 22%, var(--card)); }
 .groups-view-button:hover { background: color-mix(in srgb, var(--blue) 29%, var(--card)); }
 .groups-more-button:hover { background: var(--hover); }
+.groups-more-menu-host { min-width: 0; }
+.groups-more-menu-host > .groups-more-button { width: 100%; }
+.anchored-menu-portal.groups-membership-menu { width: max-content; min-width: 190px; display: grid; gap: 2px; padding: 6px; border: 1px solid var(--divider); border-radius: 9px; color: var(--text); background: var(--card); box-shadow: var(--shadow-pop); }
+.groups-membership-menu > button { width: 100%; min-height: 38px; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 0; border-radius: 7px; color: inherit; text-align: left; background: transparent; font-size: .86rem; font-weight: 580; white-space: nowrap; }
+.groups-membership-menu > button:hover:not(:disabled),
+.groups-membership-menu > button:focus-visible { outline: 0; background: var(--hover); }
+.groups-membership-menu > button:disabled { opacity: .52; cursor: default; }
+.groups-membership-menu > button svg { flex: 0 0 auto; }
 .groups-membership-card-directory > .groups-directory-group-actions {
   grid-template-columns: minmax(0, 1fr) 42px;
   gap: 7px;
@@ -9879,7 +9894,9 @@ body.reels-page-scroll {
   .group-create-page { grid-template-columns: 320px minmax(0, 1fr); }
   .groups-main { padding-inline: 20px; }
   .groups-main-discover { --groups-discover-width: 100%; padding-inline: 60px; }
-  .groups-main-your { padding-inline: 60px; }
+  .groups-main-your,
+  .groups-main-invited,
+  .groups-main-requested { padding-inline: 60px; }
   .groups-membership-grid,
   .groups-suggestion-grid,
   .groups-card-skeleton-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -9893,13 +9910,15 @@ body.reels-page-scroll {
   .group-create-panel { position: static; width: 100%; height: auto; border-right: 0; border-bottom: 1px solid var(--divider); }
   .groups-sidebar-collection,
   .groups-sidebar-divider { display: none; }
-  .groups-primary-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .groups-primary-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .groups-primary-nav > button { height: var(--topbar-h); min-height: var(--topbar-h); display: flex; justify-content: center; }
   .groups-primary-nav > button > span { width: 36px; height: 36px; }
   .groups-primary-nav strong { white-space: nowrap; }
   .groups-main { padding: 16px 14px 64px; }
   .groups-main-discover { padding-bottom: 16px; }
-  .groups-main-your { padding-bottom: 16px; }
+  .groups-main-your,
+  .groups-main-invited,
+  .groups-main-requested { padding-bottom: 16px; }
   .groups-main-discover > .groups-section-heading {
     height: auto;
     min-height: 0;

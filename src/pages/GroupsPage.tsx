@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, visibleRecommendationPosts } from '../api/client'
 import type { GatewayPost } from '../api/gatewayTypes'
+import { notificationApi, type AppNotification } from '../api/notifications'
 import { searchApi, type QuickGroupSearchItem } from '../api/search'
 import { socialApi, type GroupSuggestion, type SocialGroup, type SocialProfile } from '../api/social'
+import { AnchoredMenuPortal } from '../components/AnchoredMenuPortal'
 import { Avatar } from '../components/Avatar'
 import { GroupMembersIcon } from '../components/GroupMembersIcon'
 import { Icon } from '../components/Icon'
@@ -16,7 +18,7 @@ import { GatewayPostCard } from './GatewayHomePage'
 
 export { GroupProfilePage } from './GroupProfilePage'
 
-type GroupSection = 'feed' | 'discover' | 'your'
+type GroupSection = 'feed' | 'discover' | 'your' | 'invited' | 'requested'
 type YourGroupsSection = 'managed' | 'joined'
 
 interface GroupListItem extends SocialGroup {
@@ -30,14 +32,51 @@ interface GroupCollections {
   recent: GroupListItem[]
 }
 
+interface GroupInvitationItem {
+  group: GroupListItem
+  inviter: AppNotification['actor']
+  invitedAt: string
+}
+
+type GroupDirectoryEvent =
+  | { kind: 'invited'; actor: AppNotification['actor']; occurredAt: string }
+  | { kind: 'requested'; occurredAt: string }
+
 const GROUP_FEED_BATCH = 60
 const GROUP_QUICK_SEARCH_LIMIT = 8
 const GROUP_SCOPE_SEARCH_LIMIT = 24
 const EMPTY_GROUPS: GroupCollections = { joined: [], managed: [], pending: [], recent: [] }
 
+function groupRequestTimesStorageKey(userId: string) {
+  return `fakebook:group-request-times:${userId}`
+}
+
+function readGroupRequestTimes(userId: string): Record<string, string> {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(groupRequestTimesStorageKey(userId)) || '{}') as Record<string, unknown>
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => {
+      const [, value] = entry
+      return typeof value === 'string' && Number.isFinite(new Date(value).getTime())
+    }))
+  } catch {
+    return {}
+  }
+}
+
+function writeGroupRequestTimes(userId: string, times: Record<string, string>) {
+  try {
+    window.localStorage.setItem(groupRequestTimesStorageKey(userId), JSON.stringify(times))
+  } catch {
+    // Request timing is presentational metadata; a restricted storage context
+    // must not prevent membership actions from succeeding.
+  }
+}
+
 export function GroupsPage({ userId, profile, onNavigate }: { userId: string; profile?: SocialProfile | null; onNavigate: (path: string) => void }) {
   const { t, locale } = useI18n()
   const [collections, setCollections] = useState<GroupCollections>(EMPTY_GROUPS)
+  const [groupInvitations, setGroupInvitations] = useState<GroupInvitationItem[]>([])
+  const [pendingRequestedAt, setPendingRequestedAt] = useState<Record<string, string>>({})
   const [section, setSection] = useState<GroupSection>('feed')
   const [groupsLoading, setGroupsLoading] = useState(true)
   const [groupsError, setGroupsError] = useState<string | null>(null)
@@ -55,6 +94,7 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
   const [feedMoreLoading, setFeedMoreLoading] = useState(false)
   const [feedError, setFeedError] = useState<string | null>(null)
   const [joiningGroupId, setJoiningGroupId] = useState<string | null>(null)
+  const [membershipActionGroupId, setMembershipActionGroupId] = useState<string | null>(null)
   const [searchText, setSearchText] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -96,23 +136,42 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
     setGroupsLoading(true)
     setGroupsError(null)
     setPartialError(false)
-    const [joinedResult, managedResult, pendingResult, recentResult] = await Promise.allSettled([
+    const [joinedResult, managedResult, pendingResult, recentResult, notificationResult] = await Promise.allSettled([
       socialApi.getMemberGroups(userId, 50),
       socialApi.getAdminGroups(userId, 50),
       socialApi.getPendingGroupJoins(userId, 50),
       api.visitedGroups(userId, 50),
+      notificationApi.notifications(50),
     ])
     try {
-      const results = [joinedResult, managedResult, pendingResult, recentResult]
-      if (results.every((result) => result.status === 'rejected')) {
+      const coreResults = [joinedResult, managedResult, pendingResult, recentResult]
+      const results = [...coreResults, notificationResult]
+      if (coreResults.every((result) => result.status === 'rejected')) {
         setCollections(EMPTY_GROUPS)
+        setGroupInvitations([])
         setGroupsError(t('groupsLoadError'))
         return
       }
 
       const recentVisits = recentResult.status === 'fulfilled' ? recentResult.value.items : []
-      const details = recentVisits.length > 0
-        ? await socialApi.getGroups(recentVisits.map((group) => group.id)).catch(() => [])
+      const invitationNotifications = notificationResult.status === 'fulfilled'
+        ? [...notificationResult.value.items
+          .filter((item) => item.actionType === 'GROUP_INVITE')
+          .reduce((latestByGroup, item) => {
+            const current = latestByGroup.get(item.objectId)
+            if (!current || new Date(item.createdAt).getTime() > new Date(current.createdAt).getTime()) {
+              latestByGroup.set(item.objectId, item)
+            }
+            return latestByGroup
+          }, new Map<string, AppNotification>())
+          .values()]
+        : []
+      const detailIds = [...new Set([
+        ...recentVisits.map((group) => group.id),
+        ...invitationNotifications.map((item) => item.objectId),
+      ])]
+      const details = detailIds.length > 0
+        ? await socialApi.getGroups(detailIds).catch(() => [])
         : []
       const detailsById = new Map(details.map((group) => [group.id, group]))
       const visitById = new Map(recentVisits.map((group) => [group.id, group.visitedAt]))
@@ -131,11 +190,23 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
         lastVisitedAt: group.visitedAt,
       }))
       const withVisit = (group: SocialGroup): GroupListItem => ({ ...group, lastVisitedAt: visitById.get(group.id) })
+      const pending = pendingResult.status === 'fulfilled' ? pendingResult.value.items.map(withVisit) : []
       setCollections({
         joined: joinedResult.status === 'fulfilled' ? joinedResult.value.items.map(withVisit) : [],
         managed: managedResult.status === 'fulfilled' ? managedResult.value.items.map(withVisit) : [],
-        pending: pendingResult.status === 'fulfilled' ? pendingResult.value.items.map(withVisit) : [],
+        pending,
         recent,
+      })
+      setGroupInvitations(invitationNotifications.flatMap((notification) => {
+        const group = detailsById.get(notification.objectId)
+        return group ? [{ group: withVisit(group), inviter: notification.actor, invitedAt: notification.createdAt }] : []
+      }))
+      setPendingRequestedAt(() => {
+        const stored = readGroupRequestTimes(userId)
+        const now = new Date(Date.now()).toISOString()
+        const next = Object.fromEntries(pending.map((group) => [group.id, stored[group.id] || now]))
+        writeGroupRequestTimes(userId, next)
+        return next
       })
       setPartialError(results.some((result) => result.status === 'rejected'))
     } finally {
@@ -269,6 +340,13 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
   const sidebarJoined = useMemo(() => collections.joined.filter((group) => !managedIds.has(group.id)), [collections.joined, managedIds])
   const membershipIds = useMemo(() => new Set(allJoinedGroups.map((group) => group.id)), [allJoinedGroups])
   const pendingIds = useMemo(() => new Set(collections.pending.map((group) => group.id)), [collections.pending])
+  const visibleInvitations = useMemo(() => groupInvitations.filter((item) => !membershipIds.has(item.group.id) && !pendingIds.has(item.group.id)), [groupInvitations, membershipIds, pendingIds])
+  const invitationEvents = useMemo(() => Object.fromEntries(visibleInvitations.map((item) => [item.group.id, {
+    kind: 'invited', actor: item.inviter, occurredAt: item.invitedAt,
+  } satisfies GroupDirectoryEvent])), [visibleInvitations])
+  const requestEvents = useMemo(() => Object.fromEntries(collections.pending.map((group) => [group.id, {
+    kind: 'requested', occurredAt: pendingRequestedAt[group.id] || '',
+  } satisfies GroupDirectoryEvent])), [collections.pending, pendingRequestedAt])
   const discoverSuggestions = useMemo(() => {
     const suggestionsById = new Map(suggestedGroups.map((suggestion) => [suggestion.group.id, suggestion]))
     // The recommendation query intentionally excludes pending requests. Keep those groups in
@@ -328,20 +406,72 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
           ...current,
           pending: current.pending.filter((item) => item.id !== group.id),
         }))
+        setPendingRequestedAt((current) => {
+          const next = { ...current }
+          delete next[group.id]
+          writeGroupRequestTimes(userId, next)
+          return next
+        })
         setSuggestedGroups((current) => current.some((item) => item.group.id === group.id)
           ? current
           : [{ group, friendMemberCount: 0, friendMembers: [], yesterdayPostCount: 0 }, ...current])
       } else {
         if (!await socialApi.requestJoinGroup(userId, group.id)) throw new Error('Join rejected')
+        const requestedAt = new Date(Date.now()).toISOString()
         setCollections((current) => ({
           ...current,
           pending: [group, ...current.pending.filter((item) => item.id !== group.id)],
         }))
+        setPendingRequestedAt((current) => {
+          const next = { ...current, [group.id]: requestedAt }
+          writeGroupRequestTimes(userId, next)
+          return next
+        })
       }
     } catch {
       setGroupsError(t(isPending ? 'groupRequestActionError' : 'joinGroupError'))
     } finally {
       setJoiningGroupId(null)
+    }
+  }
+
+  async function leaveMembershipGroup(group: SocialGroup) {
+    setMembershipActionGroupId(group.id)
+    setGroupsError(null)
+    try {
+      if (!await socialApi.leaveGroup(userId, group.id)) throw new Error('Leave rejected')
+      setCollections((current) => ({
+        ...current,
+        joined: current.joined.filter((item) => item.id !== group.id),
+        managed: current.managed.filter((item) => item.id !== group.id),
+        recent: current.recent.filter((item) => item.id !== group.id),
+      }))
+    } catch {
+      setGroupsError(t('leaveGroupError'))
+    } finally {
+      setMembershipActionGroupId(null)
+    }
+  }
+
+  async function cancelPendingGroup(group: SocialGroup) {
+    setMembershipActionGroupId(group.id)
+    setGroupsError(null)
+    try {
+      if (!await socialApi.cancelJoinGroupRequest(userId, group.id)) throw new Error('Cancel rejected')
+      setCollections((current) => ({
+        ...current,
+        pending: current.pending.filter((item) => item.id !== group.id),
+      }))
+      setPendingRequestedAt((current) => {
+        const next = { ...current }
+        delete next[group.id]
+        writeGroupRequestTimes(userId, next)
+        return next
+      })
+    } catch {
+      setGroupsError(t('groupRequestActionError'))
+    } finally {
+      setMembershipActionGroupId(null)
     }
   }
 
@@ -370,6 +500,8 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
         <button type="button" className={section === 'feed' && !searching ? 'active' : ''} onClick={() => selectSection('feed')}><span><GroupSidebarNavIcon kind="feed" /></span><strong>{t('groupFeedNav')}</strong></button>
         <button type="button" className={section === 'discover' && !searching ? 'active' : ''} onClick={() => selectSection('discover')}><span><GroupSidebarNavIcon kind="discover" /></span><strong>{t('groupDiscover')}</strong></button>
         <button type="button" className={section === 'your' && !searching ? 'active' : ''} onClick={() => selectSection('your')}><span><GroupSidebarNavIcon kind="your" /></span><strong>{t('yourGroups')}</strong></button>
+        <button type="button" className={section === 'invited' && !searching ? 'active' : ''} onClick={() => selectSection('invited')}><span><GroupSidebarNavIcon kind="invited" /></span><strong>{t('groupInvitedNav')}</strong></button>
+        <button type="button" className={section === 'requested' && !searching ? 'active' : ''} onClick={() => selectSection('requested')}><span><GroupSidebarNavIcon kind="requested" /></span><strong>{t('groupRequestedNav')}</strong></button>
       </nav>
       <div className="groups-create-row"><button type="button" className="groups-create-button" onClick={() => setCreating(true)}>{t('createNewGroup')}</button></div>
 
@@ -397,15 +529,29 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
       </> : section === 'discover' ? <>
         <header className="groups-section-heading groups-hub-title-row"><h1 className="groups-hub-heading-text">{t('moreGroupSuggestions')}</h1></header>
         {suggestionsLoading && visibleSuggestions.length === 0 ? <GroupsContentSkeleton cards /> : suggestionsError && visibleSuggestions.length === 0 ? <GroupEmptyState title={t('unableToLoad')} detail={suggestionsError} action={t('tryAgain')} onAction={() => void loadGroupSuggestions()} /> : visibleSuggestions.length === 0 ? <GroupEmptyState title={t('noGroupSuggestions')} detail={t('noGroupSuggestionsDesc')} /> : <GroupSuggestionGrid groups={visibleSuggestions} pendingIds={pendingIds} busyId={joiningGroupId} onNavigate={onNavigate} onJoin={(group) => void joinSuggestedGroup(group)} onDismiss={(groupId) => setDismissedSuggestions((current) => new Set(current).add(groupId))} />}
-      </> : <div className="groups-your-directory">
+      </> : section === 'invited' ? <div className="groups-your-directory groups-event-directory">
+        <section className="groups-directory-section" data-section="invited">
+          <header className="groups-section-heading groups-directory-heading groups-hub-title-row"><h1 className="groups-hub-heading-text">{t('groupInvitationsCount', { count: visibleInvitations.length })}</h1></header>
+          {groupsLoading ? <GroupsContentSkeleton cards /> : visibleInvitations.length > 0
+            ? <GroupMembershipGrid groups={visibleInvitations.map((item) => item.group)} locale={locale} onNavigate={onNavigate} directory events={invitationEvents} onActionError={setGroupsError} />
+            : <GroupEmptyState title={t('groupInvitationsEmpty')} detail={t('groupInvitationsEmptyDesc')} />}
+        </section>
+      </div> : section === 'requested' ? <div className="groups-your-directory groups-event-directory">
+        <section className="groups-directory-section" data-section="requested">
+          <header className="groups-section-heading groups-directory-heading groups-hub-title-row"><h1 className="groups-hub-heading-text">{t('groupRequestsCount', { count: collections.pending.length })}</h1></header>
+          {groupsLoading ? <GroupsContentSkeleton cards /> : collections.pending.length > 0
+            ? <GroupMembershipGrid groups={collections.pending} locale={locale} onNavigate={onNavigate} directory events={requestEvents} busyId={membershipActionGroupId} onCancelRequest={(group) => void cancelPendingGroup(group)} onActionError={setGroupsError} />
+            : <GroupEmptyState title={t('groupRequestsEmpty')} detail={t('groupRequestsEmptyDesc')} />}
+        </section>
+      </div> : <div className="groups-your-directory">
         {(groupsLoading || collections.managed.length > 0) && <section ref={managedGroupsSectionRef} className="groups-directory-section" data-section="managed">
           <header className="groups-section-heading groups-directory-heading groups-hub-title-row"><h1 className="groups-hub-heading-text">{t('managedGroupsCount', { count: collections.managed.length })}</h1></header>
-          {groupsLoading ? <GroupsContentSkeleton cards /> : <GroupMembershipGrid groups={collections.managed} locale={locale} onNavigate={onNavigate} directory />}
+          {groupsLoading ? <GroupsContentSkeleton cards /> : <GroupMembershipGrid groups={collections.managed} locale={locale} onNavigate={onNavigate} directory busyId={membershipActionGroupId} onLeave={(group) => void leaveMembershipGroup(group)} onActionError={setGroupsError} />}
         </section>}
         <section ref={joinedGroupsSectionRef} className="groups-directory-section" data-section="joined">
           <header className="groups-section-heading groups-directory-heading groups-hub-title-row"><h1 className="groups-hub-heading-text">{t('joinedGroupsCount', { count: sidebarJoined.length })}</h1></header>
           {groupsLoading ? <GroupsContentSkeleton cards /> : sidebarJoined.length > 0
-            ? <GroupMembershipGrid groups={sidebarJoined} locale={locale} onNavigate={onNavigate} directory />
+            ? <GroupMembershipGrid groups={sidebarJoined} locale={locale} onNavigate={onNavigate} directory busyId={membershipActionGroupId} onLeave={(group) => void leaveMembershipGroup(group)} onActionError={setGroupsError} />
             : null}
         </section>
       </div>}
@@ -439,7 +585,7 @@ function GroupQuickSearchMarker() {
   return <span className="groups-quick-search-marker" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg></span>
 }
 
-function GroupSidebarNavIcon({ kind }: { kind: 'feed' | 'discover' | 'your' }) {
+function GroupSidebarNavIcon({ kind }: { kind: 'feed' | 'discover' | 'your' | 'invited' | 'requested' }) {
   if (kind === 'feed') return <svg className="group-sidebar-nav-glyph group-sidebar-feed-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
     <rect x="1.5" y="2.25" width="21" height="19.5" rx="1.9" fill="currentColor" />
     <path d="M3.4 4.25c0-.38.3-.68.68-.68h15.84c.38 0 .68.3.68.68v7.55H3.4V4.25Z" fill="var(--group-nav-icon-bg)" />
@@ -464,14 +610,56 @@ function GroupSidebarNavIcon({ kind }: { kind: 'feed' | 'discover' | 'your' }) {
     </g>
     <circle cx="12" cy="12" r="2.05" fill="var(--group-nav-icon-bg)" />
   </svg>
-  return <GroupMembersIcon className="group-sidebar-nav-glyph group-sidebar-people-glyph" />
+  if (kind === 'your') return <GroupMembersIcon className="group-sidebar-nav-glyph group-sidebar-people-glyph" />
+  return <Icon name={kind === 'invited' ? 'gift' : 'clock'} size={22} className={`group-sidebar-nav-glyph group-sidebar-${kind}-glyph`} />
 }
 
-function GroupMembershipGrid({ groups, locale, onNavigate, directory = false }: { groups: SocialGroup[]; locale: string; onNavigate: (path: string) => void; directory?: boolean }) {
+function GroupMembershipGrid({ groups, locale, onNavigate, directory = false, events, busyId = null, onLeave, onCancelRequest, onActionError }: {
+  groups: SocialGroup[]
+  locale: string
+  onNavigate: (path: string) => void
+  directory?: boolean
+  events?: Record<string, GroupDirectoryEvent>
+  busyId?: string | null
+  onLeave?: (group: SocialGroup) => void
+  onCancelRequest?: (group: SocialGroup) => void
+  onActionError?: (message: string) => void
+}) {
   const { t } = useI18n()
+  const [menuGroupId, setMenuGroupId] = useState<string | null>(null)
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
+
+  function closeMenu() {
+    setMenuGroupId(null)
+    setMenuAnchor(null)
+  }
+
+  async function copyGroupLink(group: SocialGroup) {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(`${window.location.origin}/groups/${encodeURIComponent(group.id)}`)
+      closeMenu()
+    } catch {
+      onActionError?.(t('copyLinkError'))
+    }
+  }
+
   return <div className={directory ? 'groups-membership-grid groups-membership-grid-directory' : 'groups-membership-grid'}>{groups.map((group) => {
     const visitedAt = 'lastVisitedAt' in group ? String(group.lastVisitedAt ?? '') : ''
     const time = directory ? groupVisitRelativeTime(visitedAt, locale) : relativeTime(visitedAt, locale)
+    const event = events?.[group.id]
+    const eventTime = event ? relativeTime(event.occurredAt, locale) : ''
+    const menuOpen = menuGroupId === group.id
+    const moreMenu = <div className="groups-more-menu-host"><button type="button" className="groups-more-button" aria-label={t('more')} aria-haspopup="menu" aria-expanded={menuOpen} disabled={busyId === group.id} onClick={(clickEvent) => {
+      const open = !menuOpen
+      setMenuGroupId(open ? group.id : null)
+      setMenuAnchor(open ? clickEvent.currentTarget : null)
+    }}><Icon name="more" size={18} /></button>{menuOpen && <AnchoredMenuPortal anchor={menuAnchor} className="groups-membership-menu" onRequestClose={closeMenu}>
+      <button type="button" role="menuitem" onClick={() => { closeMenu(); onNavigate(`/groups/${group.id}`) }}><Icon name="groups" size={18} />{t('viewGroup')}</button>
+      <button type="button" role="menuitem" onClick={() => void copyGroupLink(group)}><Icon name="link" size={18} />{t('copyLink')}</button>
+      {onCancelRequest && <button type="button" role="menuitem" disabled={busyId === group.id} onClick={() => { closeMenu(); onCancelRequest(group) }}><Icon name="close" size={18} />{t('cancelJoinRequest')}</button>}
+      {onLeave && <button type="button" role="menuitem" className="danger-text" disabled={busyId === group.id} onClick={() => { closeMenu(); onLeave(group) }}><Icon name="logout" size={18} />{t('leaveGroup')}</button>}
+    </AnchoredMenuPortal>}</div>
     if (directory) {
       return <article className="groups-membership-card groups-membership-card-directory" key={group.id}>
         <button type="button" className="groups-membership-summary groups-directory-group-summary" onClick={() => onNavigate(`/groups/${group.id}`)}>
@@ -483,16 +671,15 @@ function GroupMembershipGrid({ groups, locale, onNavigate, directory = false }: 
               <b className="groups-meta-separator" aria-hidden="true">·</b>
               <span>{t('membersCount', { count: group.memberCount ?? 0 })}</span>
             </span>
-            <small className="groups-directory-muted-copy">{t('groupLastVisitedLabel')}</small>
-            <small className="groups-directory-muted-copy">{time || t('groupActivityUnavailable')}</small>
+            {event?.kind === 'invited' ? <span className="groups-directory-event groups-directory-invitation-event"><Avatar name={event.actor?.displayName || t('fakebookUser')} src={event.actor?.avatarUrl} size={22} /><small>{t('groupInvitedByAgo', { name: event.actor?.displayName || t('fakebookUser'), time: eventTime || t('groupRecentlyActive') })}</small></span> : event?.kind === 'requested' ? <small className="groups-directory-muted-copy groups-directory-request-event">{t('groupRequestedAgo', { time: eventTime || t('groupRecentlyActive') })}</small> : <><small className="groups-directory-muted-copy">{t('groupLastVisitedLabel')}</small><small className="groups-directory-muted-copy">{time || t('groupActivityUnavailable')}</small></>}
           </span>
         </button>
-        <div className="groups-directory-group-actions"><button type="button" className="groups-view-button" onClick={() => onNavigate(`/groups/${group.id}`)}>{t('viewGroup')}</button><button type="button" className="groups-more-button" aria-label={t('more')}><Icon name="more" size={18} /></button></div>
+        <div className="groups-directory-group-actions"><button type="button" className="groups-view-button" onClick={() => onNavigate(`/groups/${group.id}`)}>{t('viewGroup')}</button>{moreMenu}</div>
       </article>
     }
     return <article className="groups-membership-card" key={group.id}>
       <button type="button" className="groups-membership-summary" onClick={() => onNavigate(`/groups/${group.id}`)}><Avatar name={group.name} src={group.avatarUrl} size={88} className="group-square-avatar" /><span><strong>{group.name}</strong><small>{time ? t('groupLastVisited', { time }) : group.memberCount == null ? t('groupResult') : t('membersCount', { count: group.memberCount })}</small></span></button>
-      <div><button type="button" className="groups-view-button" onClick={() => onNavigate(`/groups/${group.id}`)}>{t('viewGroup')}</button><button type="button" className="groups-more-button" aria-label={t('more')}><Icon name="more" size={18} /></button></div>
+      <div><button type="button" className="groups-view-button" onClick={() => onNavigate(`/groups/${group.id}`)}>{t('viewGroup')}</button>{moreMenu}</div>
     </article>
   })}</div>
 }

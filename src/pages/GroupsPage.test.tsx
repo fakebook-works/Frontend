@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { Activity } from 'react'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GroupsPage } from './GroupsPage'
 
 const apiMocks = vi.hoisted(() => ({
   recommendedFeed: vi.fn(),
   visitedGroups: vi.fn(),
+}))
+const notificationMocks = vi.hoisted(() => ({
+  notifications: vi.fn(),
 }))
 const socialMocks = vi.hoisted(() => ({
   getMemberGroups: vi.fn(),
@@ -17,6 +20,7 @@ const socialMocks = vi.hoisted(() => ({
   getGroupSuggestions: vi.fn(),
   requestJoinGroup: vi.fn(),
   cancelJoinGroupRequest: vi.fn(),
+  leaveGroup: vi.fn(),
   createGroup: vi.fn(),
   inviteGroupUser: vi.fn(),
   getRelationProfiles: vi.fn(),
@@ -33,6 +37,7 @@ vi.mock('../api/client', () => ({
   api: apiMocks,
   visibleRecommendationPosts: (items: Array<{ post: unknown | null }>) => items.flatMap((item) => item.post ? [item.post] : []),
 }))
+vi.mock('../api/notifications', () => ({ notificationApi: notificationMocks }))
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../api/search', () => ({ searchApi: searchMocks }))
 vi.mock('../i18n', () => ({ useI18n: () => ({ locale: 'vi-VN', t: translate }) }))
@@ -82,6 +87,7 @@ const privateSuggestion = {
 
 describe('GroupsPage', () => {
   beforeEach(() => {
+    window.localStorage.clear()
     apiMocks.visitedGroups.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
     apiMocks.recommendedFeed.mockReset().mockResolvedValue([
       { postId: 'feed-1', post: {
@@ -101,9 +107,11 @@ describe('GroupsPage', () => {
     socialMocks.getGroupSuggestions.mockReset().mockResolvedValue([publicSuggestion, privateSuggestion])
     socialMocks.requestJoinGroup.mockReset().mockResolvedValue(true)
     socialMocks.cancelJoinGroupRequest.mockReset().mockResolvedValue(true)
+    socialMocks.leaveGroup.mockReset().mockResolvedValue(true)
     socialMocks.createGroup.mockReset().mockResolvedValue({ ...publicGroup, id: '999', name: 'Nhóm mới' })
     socialMocks.inviteGroupUser.mockReset().mockResolvedValue(true)
     socialMocks.getRelationProfiles.mockReset().mockResolvedValue([])
+    notificationMocks.notifications.mockReset().mockResolvedValue({ items: [], unreadCount: 0, endCursor: null, hasNextPage: false })
     searchMocks.search.mockReset().mockResolvedValue({ tab: 'groups', page: 1, hasNextPage: false, users: [], groups: [], posts: [], reels: [] })
     searchMocks.fastSearchGroups.mockReset().mockResolvedValue([])
     searchMocks.searchGroupScope.mockReset().mockResolvedValue({ page: 1, hasNextPage: false, groups: [], posts: [] })
@@ -347,6 +355,64 @@ describe('GroupsPage', () => {
     expect(screen.getByText('joinedGroupsCount')).toBeInTheDocument()
     expect(screen.queryByText('joinMoreGroupsPrompt')).not.toBeInTheDocument()
     expect(container.querySelector('.groups-membership-card-directory')).not.toBeInTheDocument()
+  })
+
+  it('opens the joined-group options menu and runs its navigation and leave actions', async () => {
+    const onNavigate = vi.fn()
+    const joinedGroup = { ...privateGroup, id: '680', name: 'Menu-enabled group' }
+    socialMocks.getMemberGroups.mockResolvedValue({ items: [joinedGroup], endCursor: null, hasNextPage: false })
+    render(<GroupsPage userId="100" onNavigate={onNavigate} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'yourGroups' }))
+    const card = (await screen.findAllByText(joinedGroup.name)).find((item) => item.closest('.groups-membership-card-directory'))!.closest('.groups-membership-card-directory') as HTMLElement
+    fireEvent.click(within(card).getByRole('button', { name: 'more' }))
+
+    const menu = await screen.findByRole('menu')
+    expect(within(menu).getByRole('menuitem', { name: /copyLink/ })).toBeInTheDocument()
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /viewGroup/ }))
+    expect(onNavigate).toHaveBeenCalledWith(`/groups/${joinedGroup.id}`)
+
+    fireEvent.click(within(card).getByRole('button', { name: 'more' }))
+    fireEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: /leaveGroup/ }))
+    await waitFor(() => expect(socialMocks.leaveGroup).toHaveBeenCalledWith('100', joinedGroup.id))
+    expect(screen.queryByText(joinedGroup.name)).not.toBeInTheDocument()
+  })
+
+  it('shows invited and requested group directories with actor and request timing metadata', async () => {
+    const now = new Date('2026-08-08T12:00:00Z').getTime()
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now)
+    const invitedGroup = { ...publicGroup, id: '701', name: 'Invited community' }
+    const requestedGroup = { ...privateGroup, id: '702', name: 'Requested community' }
+    const inviter = { id: '201', username: 'an', displayName: 'An Inviter', avatarUrl: '/inviter.jpg', isVerified: false }
+    notificationMocks.notifications.mockResolvedValue({
+      items: [{ id: 'n-1', creatorId: inviter.id, receiverId: '100', actionType: 'GROUP_INVITE', objectId: invitedGroup.id, createdAt: new Date(now - 45 * 60_000).toISOString(), isRead: false, actor: inviter }],
+      unreadCount: 1, endCursor: null, hasNextPage: false,
+    })
+    socialMocks.getPendingGroupJoins.mockResolvedValue({ items: [requestedGroup], endCursor: null, hasNextPage: false })
+    socialMocks.getGroups.mockImplementation(async (ids: string[]) => ids.includes(invitedGroup.id) ? [invitedGroup] : [])
+
+    try {
+      const { container } = render(<GroupsPage userId="100" onNavigate={vi.fn()} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'groupInvitedNav' }))
+
+      expect(await screen.findByText(invitedGroup.name)).toBeInTheDocument()
+      expect(screen.getByText('groupInvitedByAgo')).toBeInTheDocument()
+      expect(container.querySelector('.groups-directory-invitation-event .avatar')).toHaveStyle({ width: '22px', height: '22px' })
+      expect(screen.queryByText('groupLastVisitedLabel')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'groupRequestedNav' }))
+      expect(await screen.findByText(requestedGroup.name)).toBeInTheDocument()
+      expect(screen.getByText('groupRequestedAgo')).toBeInTheDocument()
+      expect(screen.queryByText('groupLastVisitedLabel')).not.toBeInTheDocument()
+
+      const requestedCard = screen.getByText(requestedGroup.name).closest('.groups-membership-card-directory') as HTMLElement
+      fireEvent.click(within(requestedCard).getByRole('button', { name: 'more' }))
+      fireEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: /cancelJoinRequest/ }))
+      await waitFor(() => expect(socialMocks.cancelJoinGroupRequest).toHaveBeenCalledWith('100', requestedGroup.id))
+      expect(screen.queryByText(requestedGroup.name)).not.toBeInTheDocument()
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   it('creates a group from the two-column creation experience', async () => {
