@@ -35,6 +35,7 @@ import { takeOverlayContent } from '../lib/overlayContentCache'
 import { gatewayReelToSocialContent, type GatewayReelPost } from '../lib/reelEntry'
 import { unlockSoundEffects } from '../lib/sounds'
 import { ActivityVisibilityProvider } from '../lib/activityVisibility'
+import { setRecommendationImpressionViewer } from '../lib/useRecommendationImpression'
 import { FriendsPage } from './FriendsPage'
 import { GatewayHomePage, HOME_REFRESH_EVENT } from './GatewayHomePage'
 import { GroupProfilePage, GroupsPage } from './GroupsPage'
@@ -71,6 +72,10 @@ const PostPhotoViewer = lazy(() => import('../components/PostPhotoViewer').then(
 
 export function AuthenticatedApp() {
   const { user, logout } = useAuth()
+  useEffect(() => {
+    setRecommendationImpressionViewer(user?.userId ?? null)
+    return () => setRecommendationImpressionViewer(null)
+  }, [user?.userId])
   const authenticatedUserId = user?.userId
   const { t, locale } = useI18n()
   const [browserLocation, navigate] = useAppLocation()

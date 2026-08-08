@@ -130,6 +130,18 @@ export interface ContentEngagement {
   viewerHasWatched: boolean
 }
 
+/**
+ * A bounded, privacy-safe recommendation impression.  The Gateway derives the
+ * viewer from the authenticated request; the client only supplies the content
+ * resource and opaque retry key.
+ */
+export interface RecommendationImpression {
+  targetId: string
+  idempotencyKey: string
+  dwellMs?: number
+  completionPct?: number
+}
+
 export interface SocialComment {
   id: string
   content: string
@@ -1041,18 +1053,52 @@ export async function getSavedContent(limit = 30, cursor: string | null = null):
   return { ...data.savedContent, items }
 }
 
-export async function getRecommendedReels(userId: string, mode: 'FOR_YOU' | 'FOLLOWING', skip = 0, take = 20): Promise<SocialContent[]> {
+export async function getRecommendedReels(userId: string, mode: 'FOR_YOU' | 'FOLLOWING', skip = 0, take = 20, sessionKey?: string): Promise<SocialContent[]> {
   const data = await gatewayGraphQl<{ recommendReels: Array<{ reelId: string; reel: Record<string, unknown> | null }> }>(
-    `query RecommendedReels($userId: ID!, $mode: ReelRecommendationMode!, $skip: Int!, $take: Int!) {
-      recommendReels(userId: $userId, mode: $mode, skip: $skip, take: $take) {
+    `query RecommendedReels($userId: ID!, $mode: ReelRecommendationMode!, $skip: Int!, $take: Int!, $sessionKey: String) {
+      recommendReels(userId: $userId, mode: $mode, skip: $skip, take: $take, sessionKey: $sessionKey) {
         reelId
         reel { ${CONTENT_FIELDS} }
       }
     }`,
-    { userId, mode, skip, take },
+    { userId, mode, skip, take, sessionKey: sessionKey?.trim() || null },
   )
   const items = data.recommendReels.flatMap((item) => item.reel ? [contentFromGraphQl(item.reel)] : [])
   return hydrateContentAuthors(items)
+}
+
+export async function recordRecommendationImpressions(items: RecommendationImpression[]): Promise<boolean> {
+  if (items.length > 50) throw new Error('A recommendation impression batch cannot exceed 50 items.')
+  const bounded = items.map((item) => {
+    const targetId = graphQlLongLiteral(String(item.targetId))
+    const idempotencyKey = String(item.idempotencyKey ?? '').trim()
+    if (idempotencyKey.length < 1 || idempotencyKey.length > 128) {
+      throw new Error('Invalid recommendation impression idempotency key.')
+    }
+    const dwellMs = item.dwellMs == null ? undefined : Math.trunc(item.dwellMs)
+    const completionPct = item.completionPct == null ? undefined : Number(item.completionPct)
+    if (dwellMs != null && (!Number.isFinite(dwellMs) || dwellMs < 0 || dwellMs > 900_000)) {
+      throw new Error('Invalid recommendation impression dwell time.')
+    }
+    if (completionPct != null && (!Number.isFinite(completionPct) || completionPct < 0 || completionPct > 100)) {
+      throw new Error('Invalid recommendation impression completion.')
+    }
+    return {
+      targetId,
+      idempotencyKey,
+      ...(dwellMs == null ? {} : { dwellMs }),
+      ...(completionPct == null ? {} : { completionPct }),
+    }
+  })
+  if (bounded.length === 0) return true
+
+  const data = await gatewayGraphQl<{ recordRecommendationImpressions: { success: boolean } }>(
+    `mutation RecordRecommendationImpressions($input: RecommendationImpressionInput!) {
+      recordRecommendationImpressions(input: $input) { success }
+    }`,
+    { input: { items: bounded } },
+  )
+  return Boolean(data.recordRecommendationImpressions?.success)
 }
 
 export async function getReelCollection(mode: 'liked' | 'shared' | 'watched', limit = 30, cursor: string | null = null): Promise<SocialContent[]> {
@@ -1578,6 +1624,7 @@ export const socialApi = {
   getCommentEditHistory,
   getSavedContent,
   getRecommendedReels,
+  recordRecommendationImpressions,
   getReelCollection,
   updateProfile,
   sendFriendRequest,

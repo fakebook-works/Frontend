@@ -192,7 +192,7 @@ describe('ReelsPage media discussion layout', () => {
     await screen.findByRole('button', { name: 'commentAction' })
 
     expect(socialMocks.getRecommendedReels).toHaveBeenCalledTimes(2)
-    expect(socialMocks.getRecommendedReels).toHaveBeenNthCalledWith(2, '1', 'FOLLOWING', 0, 24)
+    expect(socialMocks.getRecommendedReels).toHaveBeenNthCalledWith(2, '1', 'FOLLOWING', 0, 24, expect.any(String))
   })
 
   it('restores the previously active Reel independently for each feed tab', async () => {
@@ -559,7 +559,7 @@ describe('ReelsPage media discussion layout', () => {
     expect(screen.getByText('Render this Reel immediately')).toBeInTheDocument()
     expect(container.querySelector('.reel-feed-skeleton')).not.toBeInTheDocument()
     expect(container.querySelector('.reel-card')).toHaveAttribute('aria-current', 'true')
-    expect(socialMocks.getRecommendedReels).toHaveBeenCalledWith('1', 'FOR_YOU', 0, 24)
+    expect(socialMocks.getRecommendedReels).toHaveBeenCalledWith('1', 'FOR_YOU', 0, 24, expect.any(String))
   })
 
   it('keeps profile Reels ordered around the selected Reel and closes its route viewer immediately once', async () => {

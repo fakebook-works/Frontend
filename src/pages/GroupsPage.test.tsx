@@ -170,7 +170,7 @@ describe('GroupsPage', () => {
 
     expect(await screen.findByText('Bài viết nhóm được đề xuất')).toBeInTheDocument()
     expect(screen.queryByText('Bài feed thường không thuộc trang nhóm')).not.toBeInTheDocument()
-    expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('100', 0, 60)
+    expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('100', 0, 60, expect.any(String))
   })
 
   it('opens the scoped search without resizing it and shows the recent-search empty state', () => {

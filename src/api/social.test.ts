@@ -27,6 +27,30 @@ describe('SocialGraph Gateway adapter', () => {
     expect(variables).toMatchObject({ name: 'Lan', birthdate: '2000-01-02' })
   })
 
+  it('records a bounded recommendation impression batch without sending a browser user id', async () => {
+    gatewayGraphQl.mockResolvedValue({ recordRecommendationImpressions: { success: true } })
+
+    await expect(socialApi.recordRecommendationImpressions([
+      { targetId: '9007199254740993123', idempotencyKey: 'session-a:post-1', dwellMs: 1200, completionPct: 75 },
+    ])).resolves.toBe(true)
+
+    const [document, variables] = gatewayGraphQl.mock.calls[0] as [string, Record<string, unknown>]
+    expect(document).toContain('recordRecommendationImpressions')
+    expect(document).not.toContain('userId')
+    expect(variables).toEqual({
+      input: {
+        items: [{ targetId: '9007199254740993123', idempotencyKey: 'session-a:post-1', dwellMs: 1200, completionPct: 75 }],
+      },
+    })
+  })
+
+  it('rejects invalid recommendation impression metrics before making a request', async () => {
+    await expect(socialApi.recordRecommendationImpressions([
+      { targetId: '1', idempotencyKey: 'bad', completionPct: 101 },
+    ])).rejects.toThrow('Invalid recommendation impression completion')
+    expect(gatewayGraphQl).not.toHaveBeenCalled()
+  })
+
   it('keeps Snowflake IDs as GraphQL literals and maps profiles to frontend types', async () => {
     gatewayGraphQl.mockResolvedValue({
       profile: {

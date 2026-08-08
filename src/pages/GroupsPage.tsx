@@ -14,6 +14,7 @@ import { SidebarSettingsIcon } from '../components/SidebarSettingsIcon'
 import { useI18n } from '../i18n'
 import { groupVisitRelativeTime, relativeTime } from '../lib/format'
 import { INPUT_LIMITS } from '../lib/inputLimits'
+import { createRecommendationSessionKey } from '../lib/useRecommendationImpression'
 import { GatewayPostCard } from './GatewayHomePage'
 
 export { GroupProfilePage } from './GroupProfilePage'
@@ -84,6 +85,8 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
   const searchShellRef = useRef<HTMLFormElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const initialLoadUserRef = useRef<string | null>(null)
+  const recommendationSessionKeyRef = useRef<string | null>(null)
+  const recommendationPostIdsRef = useRef(new Set<string>())
   const suggestionsRequestRef = useRef(0)
   const managedGroupsSectionRef = useRef<HTMLElement>(null)
   const joinedGroupsSectionRef = useRef<HTMLElement>(null)
@@ -191,8 +194,13 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
     else setFeedLoading(true)
     setFeedError(null)
     try {
-      const items = await api.recommendedFeed(userId, offset, GROUP_FEED_BATCH)
+      if (!append || !recommendationSessionKeyRef.current) {
+        recommendationSessionKeyRef.current = createRecommendationSessionKey()
+        if (!append) recommendationPostIdsRef.current.clear()
+      }
+      const items = await api.recommendedFeed(userId, offset, GROUP_FEED_BATCH, recommendationSessionKeyRef.current)
       const nextPosts = visibleRecommendationPosts(items).filter((post) => post.__typename === 'GroupPostDetail')
+      nextPosts.forEach((post) => recommendationPostIdsRef.current.add(post.id))
       setGroupPosts((current) => {
         const combined = append ? [...current, ...nextPosts] : nextPosts
         return [...new Map(combined.map((post) => [post.id, post])).values()]
@@ -509,7 +517,7 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
       </> : section === 'feed' ? <>
         <div className="groups-feed-column">
           <header className="groups-feed-heading"><h2>{t('recentActivity')}</h2></header>
-          {feedLoading && groupPosts.length === 0 ? <GroupsContentSkeleton /> : feedError && groupPosts.length === 0 ? <GroupEmptyState title={t('unableToLoad')} detail={feedError} action={t('tryAgain')} onAction={() => void requestRecommendations(0, false)} /> : groupPosts.length === 0 ? <GroupEmptyState title={t('groupFeedEmpty')} detail={t('groupFeedRecommendationEmpty')} /> : groupPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} onNavigate={onNavigate} />)}
+          {feedLoading && groupPosts.length === 0 ? <GroupsContentSkeleton /> : feedError && groupPosts.length === 0 ? <GroupEmptyState title={t('unableToLoad')} detail={feedError} action={t('tryAgain')} onAction={() => void requestRecommendations(0, false)} /> : groupPosts.length === 0 ? <GroupEmptyState title={t('groupFeedEmpty')} detail={t('groupFeedRecommendationEmpty')} /> : groupPosts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={userId} recommendationSessionKey={recommendationPostIdsRef.current.has(post.id) ? recommendationSessionKeyRef.current ?? undefined : undefined} onNavigate={onNavigate} />)}
           <div ref={feedSentinelRef} className="groups-feed-sentinel" aria-live="polite">{feedMoreLoading && <span className="spinner" aria-label={t('loadingMore')} />}{!feedHasMore && groupPosts.length > 0 && <span className="muted">{t('endOfFeed')}</span>}</div>
         </div>
       </> : section === 'discover' ? <>

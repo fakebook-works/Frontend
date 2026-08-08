@@ -852,15 +852,15 @@ export const api = {
   },
 
   // ----- composed SocialGraph / Recommendation -----
-  recommendedFeed: async (userId: string, skip = 0, take = 20): Promise<RecommendationItem[]> => {
+  recommendedFeed: async (userId: string, skip = 0, take = 20, sessionKey?: string): Promise<RecommendationItem[]> => {
     const data = await graphQlRequest<{ recommendFeed: RecommendationItem[] }>(
-      `query RecommendedFeed($userId: ID!, $skip: Int!, $take: Int!) {
-        recommendFeed(userId: $userId, skip: $skip, take: $take) {
+      `query RecommendedFeed($userId: ID!, $skip: Int!, $take: Int!, $sessionKey: String) {
+        recommendFeed(userId: $userId, skip: $skip, take: $take, sessionKey: $sessionKey) {
           postId
           post { ${HOME_POST_FIELDS} }
         }
       }`,
-      { userId, skip: Math.max(0, skip), take: Math.min(100, Math.max(1, take)) },
+      { userId, skip: Math.max(0, skip), take: Math.min(100, Math.max(1, take)), sessionKey: sessionKey?.trim() || null },
     )
     return data.recommendFeed.map((item) => ({
       postId: String(item.postId),

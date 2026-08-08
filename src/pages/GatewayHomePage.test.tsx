@@ -151,13 +151,65 @@ describe('GatewayHomePage', () => {
     expect(await screen.findByText('noRecommendedPosts')).toBeInTheDocument()
     expect(screen.getByText('noStories')).toBeInTheDocument()
     expect(screen.getByText('noVisitedGroups')).toBeInTheDocument()
-    expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('9007199254740993123', 0, 12)
+    expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('9007199254740993123', 0, 12, expect.any(String))
     expect(document.documentElement).toHaveClass('home-page-scroll')
     expect(document.body).toHaveClass('home-page-scroll')
 
     unmount()
     expect(document.documentElement).not.toHaveClass('home-page-scroll')
     expect(document.body).not.toHaveClass('home-page-scroll')
+  })
+
+  it('skips an all-null hydrated recommendation page and renders the next visible post', async () => {
+    const visiblePost: GatewayPost = {
+      __typename: 'FeedPostDetail', id: 'visible-13', type: 1, content: 'Visible after stale candidates', privacy: 0,
+      create: '2026-08-09T01:00:00Z', author: { id: '2', name: 'Visible Author', avatar: '', isVerified: false },
+      media: [], sharedSource: null,
+    }
+    apiMocks.recommendedFeed
+      .mockResolvedValueOnce(Array.from({ length: 12 }, (_, index) => ({ postId: `stale-${index}`, post: null })))
+      .mockResolvedValueOnce([{ postId: visiblePost.id, post: visiblePost }])
+
+    render(<GatewayHomePage />)
+
+    expect(await screen.findByText('Visible after stale candidates')).toBeInTheDocument()
+    expect(screen.queryByText('noRecommendedPosts')).not.toBeInTheDocument()
+    expect(apiMocks.recommendedFeed).toHaveBeenNthCalledWith(1, '9007199254740993123', 0, 12, expect.any(String))
+    expect(apiMocks.recommendedFeed).toHaveBeenNthCalledWith(2, '9007199254740993123', 12, 12, expect.any(String))
+    expect(apiMocks.recommendedFeed.mock.calls[0][3]).toBe(apiMocks.recommendedFeed.mock.calls[1][3])
+  })
+
+  it('uses raw recommendation offsets while filling a mostly-null visible page', async () => {
+    const makePost = (id: string): GatewayPost => ({
+      __typename: 'FeedPostDetail', id, type: 1, content: `Visible ${id}`, privacy: 0,
+      create: '2026-08-09T01:00:00Z', author: { id: '2', name: 'Visible Author', avatar: '', isVerified: false },
+      media: [], sharedSource: null,
+    })
+    apiMocks.recommendedFeed
+      .mockResolvedValueOnce([
+        { postId: 'visible-0', post: makePost('visible-0') },
+        ...Array.from({ length: 11 }, (_, index) => ({ postId: `hidden-${index}`, post: null })),
+      ])
+      .mockResolvedValueOnce(Array.from({ length: 11 }, (_, index) => ({ postId: `visible-${index + 1}`, post: makePost(`visible-${index + 1}`) })))
+
+    const { container } = render(<GatewayHomePage />)
+
+    await waitFor(() => expect(container.querySelectorAll('.feed-section > article.gateway-post')).toHaveLength(12))
+    expect(apiMocks.recommendedFeed).toHaveBeenNthCalledWith(2, '9007199254740993123', 12, 12, expect.any(String))
+    expect(apiMocks.recommendedFeed).toHaveBeenCalledTimes(2)
+  })
+
+  it('bounds one hydration pass when every raw page is currently unavailable', async () => {
+    apiMocks.recommendedFeed.mockResolvedValue(
+      Array.from({ length: 12 }, (_, index) => ({ postId: `unavailable-${index}`, post: null })),
+    )
+
+    const { container } = render(<GatewayHomePage />)
+
+    await waitFor(() => expect(apiMocks.recommendedFeed).toHaveBeenCalledTimes(4))
+    expect(apiMocks.recommendedFeed).toHaveBeenNthCalledWith(4, '9007199254740993123', 36, 12, expect.any(String))
+    expect(container.querySelector('.feed-auto-loader')).toBeInTheDocument()
+    expect(screen.queryByText('noRecommendedPosts')).not.toBeInTheDocument()
   })
 
   it('renders recently visited groups as square shortcuts with their visit time', async () => {
@@ -280,7 +332,7 @@ describe('GatewayHomePage', () => {
     await waitFor(() => expect(container.querySelectorAll('.feed-section > article.gateway-post')).toHaveLength(12))
     await waitFor(() => expect(intersect).not.toBeNull())
     act(() => intersect?.())
-    await waitFor(() => expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('9007199254740993123', 12, 12))
+    await waitFor(() => expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('9007199254740993123', 12, 12, expect.any(String)))
 
     act(() => window.dispatchEvent(new Event(HOME_REFRESH_EVENT)))
     await waitFor(() => expect(initialPageCalls).toBe(2))
@@ -443,7 +495,7 @@ describe('GatewayHomePage', () => {
     await waitFor(() => expect(intersect).not.toBeNull())
     act(() => intersect?.())
 
-    await waitFor(() => expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('9007199254740993123', 12, 12))
+    await waitFor(() => expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('9007199254740993123', 12, 12, expect.any(String)))
     await waitFor(() => expect(container.querySelectorAll('.feed-section > article.gateway-post')).toHaveLength(13))
     expect(await screen.findByText('endOfFeed')).toBeInTheDocument()
   })

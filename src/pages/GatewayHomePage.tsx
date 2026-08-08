@@ -46,8 +46,14 @@ import { applyMentionSelection, extractMentionUserIds, reconcileMentionEntities,
 import { formatPresence, groupPresenceSummary } from './messenger/helpers'
 import { contentOverlayHref, locationFromHref, mediaOverlayHref, parseOverlayRoute, reelOverlayHref } from '../lib/overlayRoutes'
 import { stageOverlayContent } from '../lib/overlayContentCache'
+import { createRecommendationSessionKey, useRecommendationImpression } from '../lib/useRecommendationImpression'
 
 const FEED_PAGE_SIZE = 12
+const MAX_FEED_HYDRATION_PAGES_PER_REQUEST = 4
+// Recommendation currently exposes at most 500 raw candidates. Keep an
+// independent frontend ceiling so a malformed/repeating page can never create
+// an unbounded hydration loop.
+const MAX_FEED_RAW_PAGES_PER_SESSION = 50
 export const HOME_REFRESH_EVENT = 'fakebook:home-refresh'
 const MAX_POST_STANDARD_MEDIA_BYTES = 25 * 1024 * 1024
 const MAX_POST_VIDEO_BYTES = 500 * 1024 * 1024
@@ -123,6 +129,9 @@ export const GatewayHomePage = memo(function GatewayHomePage({ profile = null, f
   const [detailPhotoViewer, setDetailPhotoViewer] = useState<{ contentId: string; mediaId: string; mediaUrl: string; initialPost?: GatewayPost; initialPlaybackTime?: number } | null>(null)
   const contactSearchSequence = useRef(0)
   const locallyCreatedPostIds = useRef(new Set<string>())
+  const recommendationPostIdsRef = useRef(new Set<string>())
+  const recommendationSessionKeyRef = useRef<string | null>(null)
+  const feedRawPagesScannedRef = useRef(0)
   const feedRequestSequenceRef = useRef(0)
   const feedGenerationRef = useRef(0)
   const activeFeedResetRequestRef = useRef<number | null>(null)
@@ -181,17 +190,45 @@ export const GatewayHomePage = memo(function GatewayHomePage({ profile = null, f
       && (reset ? activeFeedResetRequestRef.current === requestId : feedMoreRequestRef.current === requestId)
     setFeedError(null)
     try {
-      const offset = reset ? 0 : feedOffset
-      const items = await api.recommendedFeed(user.userId, offset, FEED_PAGE_SIZE)
-      if (!requestIsCurrent()) return
-      const nextPosts = visibleRecommendationPosts(items)
+      let nextOffset = reset ? 0 : feedOffset
+      if (reset || !recommendationSessionKeyRef.current) {
+        recommendationSessionKeyRef.current = createRecommendationSessionKey()
+        if (reset) {
+          recommendationPostIdsRef.current.clear()
+          feedRawPagesScannedRef.current = 0
+        }
+      }
+      const sessionKey = recommendationSessionKeyRef.current
+      const recommendedIds = new Set<string>()
+      const visibleById = new Map<string, GatewayPost>()
+      let rawHasMore = true
+      let pagesFetched = 0
+      while (
+        rawHasMore
+        && visibleById.size < FEED_PAGE_SIZE
+        && pagesFetched < MAX_FEED_HYDRATION_PAGES_PER_REQUEST
+        && feedRawPagesScannedRef.current < MAX_FEED_RAW_PAGES_PER_SESSION
+      ) {
+        const items = await api.recommendedFeed(user.userId, nextOffset, FEED_PAGE_SIZE, sessionKey)
+        if (!requestIsCurrent()) return
+        pagesFetched += 1
+        feedRawPagesScannedRef.current += 1
+        nextOffset += items.length
+        items.forEach((item) => recommendedIds.add(String(item.postId)))
+        visibleRecommendationPosts(items).forEach((post) => visibleById.set(post.id, post))
+        rawHasMore = items.length === FEED_PAGE_SIZE
+          && feedRawPagesScannedRef.current < MAX_FEED_RAW_PAGES_PER_SESSION
+        if (items.length === 0) break
+      }
+      recommendedIds.forEach((id) => recommendationPostIdsRef.current.add(id))
+      const nextPosts = [...visibleById.values()]
       setPosts((current) => {
         const localPosts = reset ? current.filter((post) => locallyCreatedPostIds.current.has(post.id)) : current
         const combined = reset ? [...localPosts, ...nextPosts] : [...current, ...nextPosts]
         return [...new Map(combined.map((post) => [post.id, post])).values()]
       })
-      setFeedOffset(offset + items.length)
-      setFeedHasMore(items.length === FEED_PAGE_SIZE)
+      setFeedOffset(nextOffset)
+      setFeedHasMore(rawHasMore)
     } catch {
       if (requestIsCurrent()) setFeedError(t('feedLoadError'))
     } finally {
@@ -383,7 +420,7 @@ export const GatewayHomePage = memo(function GatewayHomePage({ profile = null, f
 
   useEffect(() => {
     const sentinel = feedSentinelRef.current
-    if (!sentinel || feedLoading || feedMoreBusy || feedError || !feedHasMore || posts.length === 0 || typeof IntersectionObserver === 'undefined') return
+    if (!sentinel || feedLoading || feedMoreBusy || feedError || !feedHasMore || typeof IntersectionObserver === 'undefined') return
     const observer = new IntersectionObserver(([entry]) => {
       if (entry?.isIntersecting) void loadFeed(false)
     }, { rootMargin: '520px 0px', threshold: 0.01 })
@@ -580,12 +617,12 @@ export const GatewayHomePage = memo(function GatewayHomePage({ profile = null, f
             <button type="button" className="btn-soft sm" onClick={() => void loadFeed(true)} disabled={feedLoading}>{t('refresh')}</button>
           </div>
           {feedError && <div className="card state-card"><p className="form-error">{feedError}</p><button type="button" className="btn-primary" onClick={() => void loadFeed(true)}>{t('tryAgain')}</button></div>}
-          {feedLoading && posts.length === 0 ? <HomeFeedSkeleton label={t('loadingMore')} /> : !feedError && posts.length === 0 ? (
+          {feedLoading && posts.length === 0 ? <HomeFeedSkeleton label={t('loadingMore')} /> : !feedError && posts.length === 0 && !feedHasMore ? (
             <div className="card state-card"><h2>{t('noRecommendedPosts')}</h2><p>{t('noRecommendedPostsDesc')}</p></div>
           ) : (
-            posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={user.userId} onNavigate={stableFeedNavigate} onOpenReel={openReelFromFeed} onMessage={stableFeedMessage} onStoryCreated={applyCreatedStory} />)
+            posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={user.userId} recommendationSessionKey={recommendationPostIdsRef.current.has(post.id) ? recommendationSessionKeyRef.current ?? undefined : undefined} onNavigate={stableFeedNavigate} onOpenReel={openReelFromFeed} onMessage={stableFeedMessage} onStoryCreated={applyCreatedStory} />)
           )}
-            {!feedLoading && !feedError && posts.length > 0 && (
+            {!feedLoading && !feedError && (posts.length > 0 || feedHasMore) && (
               <div ref={feedSentinelRef} className="feed-more feed-auto-loader" aria-live="polite">
                 {feedMoreBusy && <>
                   <HomeFeedSkeleton label={t('loadingMore')} />
@@ -1299,7 +1336,9 @@ function TaggedUsersInline({ users, onNavigate }: { users: GatewayTaggedUser[]; 
   </span>
 }
 
-export const GatewayPostCard = memo(function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel, onMessage, onStoryCreated, authorPath, groupContextId, viewerCanModerateGroupPosts = false }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string; groupContextId?: string; viewerCanModerateGroupPosts?: boolean }) {
+export const GatewayPostCard = memo(function GatewayPostCard({ post, locale, viewerId, recommendationSessionKey, onNavigate, onOpenReel, onMessage, onStoryCreated, authorPath, groupContextId, viewerCanModerateGroupPosts = false }: { post: GatewayPost; locale: string; viewerId?: string; recommendationSessionKey?: string; onNavigate?: (path: string) => void; onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string; groupContextId?: string; viewerCanModerateGroupPosts?: boolean }) {
+  const impressionRef = useRef<HTMLElement>(null)
+  useRecommendationImpression(impressionRef, recommendationSessionKey ? post.id : undefined, recommendationSessionKey)
   const { t } = useI18n()
   const [current, setCurrent] = useState(post)
   const [deleting, setDeleting] = useState(false)
@@ -1416,7 +1455,7 @@ export const GatewayPostCard = memo(function GatewayPostCard({ post, locale, vie
   }
 
   return <>
-    <article className={`card gateway-post${hasSharedSource ? ' has-shared-source' : ''}`}>
+    <article ref={impressionRef} className={`card gateway-post${hasSharedSource ? ' has-shared-source' : ''}`}>
       <header className={current.__typename === 'GroupPostDetail' ? `group-feed-post-head${inOwningGroupContext ? ' group-profile-owning-context' : ''}` : 'feed-post-head'}>
         {current.__typename === 'GroupPostDetail' && !inOwningGroupContext ? <button type="button" className="post-author-avatar" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><GroupPostAvatar groupName={current.group.name} groupAvatar={current.group.avatar || null} userName={current.author.name} userAvatar={current.author.avatar || null} size={40} /></button> : <button type="button" className="post-author-avatar" onClick={openAuthor}><Avatar name={current.author.name} src={current.author.avatar || null} size={40} /></button>}
         <div className="post-head-copy">

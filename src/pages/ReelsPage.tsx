@@ -32,6 +32,7 @@ import { prefetchCommentPage } from '../lib/commentPagePrefetch'
 import type { MentionDisplayUser } from '../lib/mentions'
 import { buildMentionTruncationMap } from '../lib/mentionTruncation'
 import { gatewayReelToSocialContent } from '../lib/reelEntry'
+import { createRecommendationSessionKey, useRecommendationImpression } from '../lib/useRecommendationImpression'
 
 export type ReelMode = 'for-you' | 'following' | 'mine' | 'saved' | 'liked' | 'shared' | 'watched'
 type ReelSidebarItem = 'for-you' | 'following' | 'profile'
@@ -299,6 +300,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   const loadedRequestRef = useRef<string | null>(null)
   const requestSequenceRef = useRef(0)
   const reelsCacheRef = useRef(new Map<string, SocialContent[]>())
+  const recommendationSessionKeysRef = useRef(new Map<string, string>())
   const viewCountsCacheRef = useRef(new Map<string, Record<string, number>>())
   const relationshipsCacheRef = useRef(new Map<string, Record<string, ProfileRelationshipState>>())
   const reelPositionCacheRef = useRef(new Map<string, { reelId: string | null; index: number }>())
@@ -352,6 +354,15 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
 
   const load = useCallback(async () => {
     const requestKey = `${userId}:${mode}:${entrySource ?? ''}:${entryOwnerId ?? ''}:${entryReelId ?? ''}`
+    const recommendationMode = mode === 'following' ? 'FOLLOWING' : 'FOR_YOU'
+    const usesRecommendation = (!entrySource && (mode === 'for-you' || mode === 'following')) || entrySource === 'for-you'
+    const recommendationSessionKey = usesRecommendation
+      ? recommendationSessionKeysRef.current.get(requestKey) ?? (() => {
+          const key = createRecommendationSessionKey()
+          recommendationSessionKeysRef.current.set(requestKey, key)
+          return key
+        })()
+      : undefined
     const requestSequence = ++requestSequenceRef.current
     setLoading(!entrySeed)
     setError(null)
@@ -402,7 +413,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
       if (entrySource && entryReelId) {
         const queuePromise = entrySource === 'profile' && entryOwnerId
           ? loadProfileReelQueue(entryOwnerId, entryReelId).catch(() => [] as SocialContent[])
-          : socialApi.getRecommendedReels(userId, 'FOR_YOU', 0, 24).catch(() => [] as SocialContent[])
+          : socialApi.getRecommendedReels(userId, 'FOR_YOU', 0, 24, recommendationSessionKey).catch(() => [] as SocialContent[])
         let exactUnavailable = false
         const directAnchorPromise = api.postDetail(entryReelId)
           .then((detail) => {
@@ -442,7 +453,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
             ? (await socialApi.getSavedContent(50)).items.flatMap((item) => item.kind === 'reel' ? [item.reel] : [])
             : mode === 'liked' || mode === 'shared' || mode === 'watched'
               ? await socialApi.getReelCollection(mode, 50)
-              : await socialApi.getRecommendedReels(userId, mode === 'following' ? 'FOLLOWING' : 'FOR_YOU', 0, 24)
+              : await socialApi.getRecommendedReels(userId, recommendationMode, 0, 24, recommendationSessionKey)
       }
 
       if (requestSequence !== requestSequenceRef.current) return
@@ -673,6 +684,10 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   const libraryMode = isReelLibraryMode(mode) || entryViewer
   const showReelViewer = !libraryMode || libraryViewerOpen
   const commentReel = commentReelId ? reels.find((reel) => reel.id === commentReelId) ?? null : null
+  const activeRequestKey = `${userId}:${mode}:${entrySource ?? ''}:${entryOwnerId ?? ''}:${entryReelId ?? ''}`
+  const activeRecommendationSessionKey = ((!entrySource && (mode === 'for-you' || mode === 'following')) || entrySource === 'for-you')
+    ? recommendationSessionKeysRef.current.get(activeRequestKey)
+    : undefined
   const commentRelationship = commentReel ? relationships[commentReel.authorId] : undefined
   const commentAuthorCanFollow = Boolean(commentReel
     && commentReel.authorId !== userId
@@ -969,6 +984,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
                 key={reel.id}
                 reel={reel}
                 viewerId={userId}
+                recommendationSessionKey={activeRecommendationSessionKey}
                 active={active && index === activeIndex}
                 warm={index >= activeIndex - REEL_PRELOAD_BEHIND && index <= activeIndex + REEL_PRELOAD_AHEAD}
                 relationship={relationships[reel.authorId]}
@@ -1176,6 +1192,7 @@ function ReelViewerSkeleton({ label }: { label: string }) {
 function ReelCard({
   reel,
   viewerId,
+  recommendationSessionKey,
   active,
   warm,
   relationship,
@@ -1189,6 +1206,7 @@ function ReelCard({
 }: {
   reel: SocialContent
   viewerId: string
+  recommendationSessionKey?: string
   active: boolean
   warm: boolean
   relationship?: ProfileRelationshipState
@@ -1203,6 +1221,7 @@ function ReelCard({
   const { t } = useI18n()
   const media = reel.media[0]
   const viewportRef = useRef<HTMLElement>(null)
+  useRecommendationImpression(viewportRef, recommendationSessionKey ? reel.id : undefined, recommendationSessionKey)
   const videoRef = useRef<HTMLVideoElement>(null)
   const watchRecordedRef = useRef(false)
   const playbackFeedbackSequenceRef = useRef(0)
