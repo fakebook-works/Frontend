@@ -31,13 +31,14 @@ const soundMocks = vi.hoisted(() => ({
   playIncomingMessageSound: vi.fn(),
   playLikeSound: vi.fn(),
 }))
+const translate = vi.hoisted(() => (key: string) => key)
 
 vi.mock('../../api/messenger', () => ({ messengerApi: messengerMocks }))
 vi.mock('../../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../../api/client', () => ({ api: uploadMocks }))
 vi.mock('../../lib/sounds', () => soundMocks)
 vi.mock('../../i18n', () => ({
-  useI18n: () => ({ t: (key: string) => key }),
+  useI18n: () => ({ t: translate }),
 }))
 
 const me: UserSummary = {
