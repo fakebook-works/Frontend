@@ -14,6 +14,7 @@ import { LinkPreview } from '../../components/LinkPreview'
 import { useI18n } from '../../i18n'
 import { relativeTime } from '../../lib/format'
 import { INPUT_LIMITS } from '../../lib/inputLimits'
+import { MESSENGER_MESSAGE_SENT_EVENT } from '../../lib/messengerLocalEvents'
 import { clipboardImageFiles } from '../../lib/clipboardMedia'
 import { playIncomingMessageSound } from '../../lib/sounds'
 import { isDirectImageUrl, remoteImageFileFromUrl } from '../../lib/urlMedia'
@@ -658,6 +659,29 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   useEffect(() => {
     if (panelOpen) void loadConversations(conversationsRef.current.length === 0)
   }, [loadConversations, panelOpen])
+
+  useEffect(() => {
+    const applyLocalSharedMessage = (event: Event) => {
+      const message = (event as CustomEvent<MessengerMessageDto>).detail
+      if (!message?.id || !message.conversationId) return
+
+      const conversation = conversationsRef.current.find((item) => item.id === message.conversationId)
+      if (!conversation) {
+        void loadConversations()
+        return
+      }
+
+      const updated = { ...conversation, lastMessage: message, updatedAt: message.createdAt, unreadCount: 0 }
+      conversationsRef.current = [updated, ...conversationsRef.current.filter((item) => item.id !== message.conversationId)]
+      setConversations((current) => [updated, ...current.filter((item) => item.id !== message.conversationId)])
+      setMessages((current) => current[message.conversationId]
+        ? { ...current, [message.conversationId]: upsertDockMessage(current[message.conversationId], message) }
+        : current)
+    }
+
+    window.addEventListener(MESSENGER_MESSAGE_SENT_EVENT, applyLocalSharedMessage)
+    return () => window.removeEventListener(MESSENGER_MESSAGE_SENT_EVENT, applyLocalSharedMessage)
+  }, [loadConversations])
 
   useEffect(() => {
     const refreshBlockState = () => {

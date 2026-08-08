@@ -16,6 +16,7 @@ import { NewConversationModal } from './NewConversationModal'
 import { createPendingMediaUploadPreviews, releasePendingMediaUploadPreviews } from './pendingMediaUploadState'
 import type { PendingMediaUploadPreview } from './pendingMediaUploadState'
 import { playIncomingMessageSound } from '../../lib/sounds'
+import { MESSENGER_MESSAGE_SENT_EVENT } from '../../lib/messengerLocalEvents'
 import { encodeMessengerLike, groupPresenceSummary, rememberRealtimeEventId } from './helpers'
 import type { MessengerLikeLevel } from './helpers'
 import './MessengerPage.css'
@@ -177,6 +178,26 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   }, [initialConversationId, me.id])
 
   useEffect(() => { void loadConversations(true) }, [loadConversations])
+
+  useEffect(() => {
+    const applyLocalSharedMessage = (event: Event) => {
+      const message = (event as CustomEvent<MessengerMessageDto>).detail
+      if (!message?.id || !message.conversationId) return
+
+      setMessages((current) => current[message.conversationId]
+        ? { ...current, [message.conversationId]: upsertMessage(current[message.conversationId], message) }
+        : current)
+      setConversations((current) => {
+        const conversation = current.find((item) => item.id === message.conversationId)
+        if (!conversation) return current
+        const updated = { ...conversation, lastMessage: message, updatedAt: message.createdAt, unreadCount: 0 }
+        return [updated, ...current.filter((item) => item.id !== message.conversationId)]
+      })
+    }
+
+    window.addEventListener(MESSENGER_MESSAGE_SENT_EVENT, applyLocalSharedMessage)
+    return () => window.removeEventListener(MESSENGER_MESSAGE_SENT_EVENT, applyLocalSharedMessage)
+  }, [])
 
   useEffect(() => {
     const refreshBlockState = () => {

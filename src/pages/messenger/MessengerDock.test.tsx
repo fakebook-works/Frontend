@@ -4,6 +4,7 @@ import { useRef } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
+import { MESSENGER_MESSAGE_SENT_EVENT } from '../../lib/messengerLocalEvents'
 import { MessengerDock, type MessengerDockHandle } from './MessengerDock'
 
 const messengerMocks = vi.hoisted(() => ({
@@ -657,6 +658,25 @@ describe('MessengerDock overflow windows', () => {
 
     fireEvent.click(within(chat).getByRole('button', { name: 'close' }))
     expect(messengerMocks.markRead).not.toHaveBeenCalled()
+  })
+
+  it('shows a post shared outside the dock in an already open conversation', async () => {
+    const conversation = directConversation('2')
+    messengerMocks.conversations.mockResolvedValue([conversation])
+    messengerMocks.messages.mockResolvedValue([])
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    const sharedMessage: MessengerMessageDto = {
+      id: 'shared-post', conversationId: conversation.id, sequence: '7', sender: me,
+      body: 'https://example.com/content/90', createdAt: '2026-08-08T10:00:00Z',
+      status: 'sent', attachments: [], reactions: [], deleted: false,
+    }
+
+    act(() => window.dispatchEvent(new CustomEvent(MESSENGER_MESSAGE_SENT_EVENT, { detail: sharedMessage })))
+
+    expect(await within(chat).findByRole('link', { name: sharedMessage.body, exact: true })).toBeInTheDocument()
   })
 
   it('opens a profile only from the header avatar, not from the name', async () => {

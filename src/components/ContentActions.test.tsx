@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GatewayPost, SharedStory } from '../api/gatewayTypes'
 import { clearAllPrefetchedCommentPagesForTests } from '../lib/commentPagePrefetch'
+import { MESSENGER_MESSAGE_SENT_EVENT } from '../lib/messengerLocalEvents'
 import { ContentActions, ContentDetailOverlay } from './ContentActions'
 
 const socialMocks = vi.hoisted(() => ({
@@ -715,6 +716,28 @@ describe('ContentActions refreshed overlays', () => {
     await waitFor(() => expect(messengerMocks.sendMessage).toHaveBeenCalled())
     expect(messengerMocks.createDirectConversation).not.toHaveBeenCalled()
     expect(messengerMocks.sendMessage).toHaveBeenCalledWith('conversation-1', expect.objectContaining({ id: '1' }), { body: `${window.location.origin}/content/90` })
+  })
+
+  it('notifies open Messenger views after a shared link is accepted', async () => {
+    const friend = { id: '3', username: 'friend', email: '', displayName: 'Friend Name', avatarUrl: null, isVerified: false, bio: null, birthDate: null, gender: null, location: null, createdAt: '', friendCount: 1, postCount: 0 }
+    const sharedMessage = { id: 'message-1', conversationId: 'conversation-1', body: `${window.location.origin}/content/90`, createdAt: '2026-08-08T10:00:00Z' }
+    const onMessageSent = vi.fn()
+    window.addEventListener(MESSENGER_MESSAGE_SENT_EVENT, onMessageSent)
+    messengerMocks.conversations.mockResolvedValue([{ id: 'conversation-1', type: 'DIRECT', participants: [{ id: '1', username: 'me', displayName: 'Me', avatarUrl: null }, friend], title: null, avatarUrl: null, updatedAt: '', unreadCount: 0, lastMessage: null }])
+    messengerMocks.sendMessage.mockResolvedValue(sharedMessage)
+
+    try {
+      render(<ContentActions viewerId="1" contentId="90" post={post} />)
+      fireEvent.click(screen.getByRole('button', { name: 'shareAction' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'sendInMessenger' }))
+      fireEvent.click((await screen.findByText('Friend Name')).closest('button')!)
+      fireEvent.click(screen.getByRole('button', { name: 'send' }))
+
+      await waitFor(() => expect(onMessageSent).toHaveBeenCalledTimes(1))
+      expect((onMessageSent.mock.calls[0][0] as CustomEvent).detail).toEqual(sharedMessage)
+    } finally {
+      window.removeEventListener(MESSENGER_MESSAGE_SENT_EVENT, onMessageSent)
+    }
   })
 
   it('sends one shared link to multiple direct and group conversations in one action', async () => {
