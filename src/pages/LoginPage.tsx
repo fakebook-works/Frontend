@@ -8,6 +8,13 @@ import { useI18n } from '../i18n'
 import type { Locale } from '../i18n'
 import { PasswordField } from '../components/PasswordField'
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter'
+import {
+  containsForbiddenInput,
+  INPUT_LIMITS,
+  inputValidationMessage,
+  validateEmailInput,
+  validateTextInput,
+} from '../lib/inputValidation'
 import { birthDateBounds, isAllowedBirthDate } from './birthDate'
 
 import { HelpPage } from './HelpPage'
@@ -15,8 +22,36 @@ import { PrivacyPage } from './PrivacyPage'
 import { AboutPage } from './AboutPage'
 import { PoliciesPage } from './PoliciesPage'
 
+const PASSWORD_MIN_LENGTH = 8
+const PASSWORD_MAX_LENGTH = 128
+
+function passwordValidationMessage(password: string, t: (key: string, values?: Record<string, string | number>) => string) {
+  const length = password.length
+  if (password.trim().length === 0) return t('inputRequired')
+  if (containsForbiddenInput(password)) return t('inputInvalidCharacters')
+  if (length < PASSWORD_MIN_LENGTH) return t('passwordMinimum')
+  if (length > PASSWORD_MAX_LENGTH) return t('inputTooLong', { max: PASSWORD_MAX_LENGTH })
+  return null
+}
+
+function existingPasswordValidationMessage(password: string, t: (key: string, values?: Record<string, string | number>) => string) {
+  if (password.length === 0) return t('inputRequired')
+  if (password.length > PASSWORD_MAX_LENGTH) return t('inputTooLong', { max: PASSWORD_MAX_LENGTH })
+  return null
+}
+
+function initialVerificationEmail() {
+  const candidate = new URLSearchParams(window.location.search).get('verifyEmail') ?? ''
+  if (!candidate) return ''
+  try {
+    return validateEmailInput(candidate)
+  } catch {
+    return ''
+  }
+}
+
 export function LoginPage() {
-  const emailChangeVerification = new URLSearchParams(window.location.search).get('verifyEmail')?.trim().toLowerCase() ?? ''
+  const emailChangeVerification = initialVerificationEmail()
   const { login, register } = useAuth()
   const { t } = useI18n()
   const [email, setEmail] = useState(emailChangeVerification)
@@ -32,8 +67,19 @@ export function LoginPage() {
   async function onLogin(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    let normalizedEmail: string
+    try {
+      normalizedEmail = validateEmailInput(email)
+    } catch (validationError) {
+      setError(inputValidationMessage(validationError, t))
+      return
+    }
+    const passwordError = existingPasswordValidationMessage(password, t)
+    if (passwordError) {
+      setError(passwordError)
+      return
+    }
     setBusy(true)
-    const normalizedEmail = email.trim().toLowerCase()
     try {
       await login({ email: normalizedEmail, password })
     } catch (err) {
@@ -135,14 +181,16 @@ export function LoginPage() {
         <div className="auth-card-wrap">
           <div className="auth-card-heading"><h2>{t('loginToFakebook')}</h2></div>
           <form className="auth-card" onSubmit={onLogin}>
-            <input type="email" placeholder={t('emailAddress')} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" autoFocus />
+            <input type="email" placeholder={t('emailAddress')} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" maxLength={INPUT_LIMITS.email} autoFocus required />
             <PasswordField
               placeholder={t('loginPassword')}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
+              maxLength={PASSWORD_MAX_LENGTH}
               showLabel={t('showPassword')}
               hideLabel={t('hidePassword')}
+              required
             />
             {error && <p className="form-error">{error}</p>}
             <button type="submit" className="btn-primary lg" disabled={busy}>
@@ -297,8 +345,25 @@ function RegisterPage({
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!name.trim()) {
-      setError(locale === 'vi' ? 'Vui lòng nhập họ và tên.' : 'Please enter your full name.')
+    let normalizedName: string
+    let normalizedEmail: string
+    let normalizedLocation: string
+    try {
+      normalizedName = validateTextInput(name, {
+        field: 'displayName',
+        max: INPUT_LIMITS.displayName,
+        required: true,
+        multiline: false,
+      }).value
+      normalizedEmail = validateEmailInput(email)
+      normalizedLocation = validateTextInput(location, {
+        field: 'location',
+        max: INPUT_LIMITS.location,
+        required: true,
+        multiline: false,
+      }).value
+    } catch (validationError) {
+      setError(inputValidationMessage(validationError, t))
       return
     }
     if (!birthdate) {
@@ -309,34 +374,27 @@ function RegisterPage({
       setError(t('birthDateAgeError'))
       return
     }
-    if (!gender) {
+    if (gender !== 'male' && gender !== 'female') {
       setError(t('genderRequired'))
       return
     }
-    if (!email.trim()) {
-      setError(locale === 'vi' ? 'Vui lòng nhập email.' : 'Please enter your email.')
+    const passwordError = passwordValidationMessage(password, t)
+    if (passwordError) {
+      setError(passwordError)
       return
     }
-    if (password.length < 8) {
-      setError(t('passwordMinimum'))
-      return
-    }
+    if (!confirmPassword) return setError(t('inputRequired'))
     if (password !== confirmPassword) {
       setError(t('passwordMismatch'))
       return
     }
-    if (!location.trim()) {
-      setError(locale === 'vi' ? 'Vui lòng nhập vị trí.' : 'Please enter your location.')
-      return
-    }
     setBusy(true)
-    const normalizedEmail = email.trim().toLowerCase()
     try {
       const result = await onRegister({
-        name: name.trim(),
+        name: normalizedName,
         gender: gender === 'male',
         birthdate,
-        location: location.trim(),
+        location: normalizedLocation,
         email: normalizedEmail,
         password,
       })
@@ -364,16 +422,16 @@ function RegisterPage({
           <div className="signup-brand"><img src="/brand/fakebook-minimal-cropped.png" alt="" /><span>Fakebook</span></div>
           <header className="register-head"><h1 id="register-title">{t('signupTitle')}</h1><p>{t('signupProfileNote')}</p></header>
           <form className="register-form" onSubmit={submit} noValidate>
-          <label className="signup-field"><span>{t('fullName')}</span><input placeholder={t('fullName')} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" autoFocus required /></label>
+          <label className="signup-field"><span>{t('fullName')}</span><input placeholder={t('fullName')} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={INPUT_LIMITS.displayName} autoFocus required /></label>
           <div className="register-grid">
             <label><span>{t('birthDateLabel')}</span><input type="date" className={birthdate ? 'has-value' : 'is-empty'} min={dateBounds.min} max={dateBounds.max} value={birthdate} onChange={(e) => setBirthdate(e.target.value)} required /></label>
             <label><span>{t('genderLabel')}</span><select className={gender ? 'has-value' : 'is-empty'} value={gender} onChange={(e) => setGender(e.target.value)} required><option value="">{t('selectGender')}</option><option value="female">{t('genderFemale')}</option><option value="male">{t('genderMale')}</option></select></label>
           </div>
-          <label className="signup-field"><span>{t('emailAddress')}</span><input type="email" placeholder={t('emailAddress')} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required /></label>
-          <label className="signup-field"><span>{t('newPasswordLabel')}</span><PasswordField placeholder={t('newPassword')} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" showLabel={t('showPassword')} hideLabel={t('hidePassword')} required /></label>
+          <label className="signup-field"><span>{t('emailAddress')}</span><input type="email" placeholder={t('emailAddress')} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" maxLength={INPUT_LIMITS.email} required /></label>
+          <label className="signup-field"><span>{t('newPasswordLabel')}</span><PasswordField placeholder={t('newPassword')} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" maxLength={PASSWORD_MAX_LENGTH} showLabel={t('showPassword')} hideLabel={t('hidePassword')} required /></label>
           <PasswordStrengthMeter password={password} labels={{ weak: t('passwordStrengthWeak'), fair: t('passwordStrengthFair'), good: t('passwordStrengthGood'), strong: t('passwordStrengthStrong') }} />
-          <label className="signup-field"><span>{t('confirmPassword')}</span><PasswordField placeholder={t('confirmPassword')} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" showLabel={t('showPassword')} hideLabel={t('hidePassword')} required /></label>
-          <label className="signup-field"><span>{t('locationLabel')}</span><input placeholder={t('locationLabel')} value={location} onChange={(e) => setLocation(e.target.value)} autoComplete="address-level2" required /></label>
+          <label className="signup-field"><span>{t('confirmPassword')}</span><PasswordField placeholder={t('confirmPassword')} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" maxLength={PASSWORD_MAX_LENGTH} showLabel={t('showPassword')} hideLabel={t('hidePassword')} required /></label>
+          <label className="signup-field"><span>{t('locationLabel')}</span><input placeholder={t('locationLabel')} value={location} onChange={(e) => setLocation(e.target.value)} autoComplete="address-level2" maxLength={INPUT_LIMITS.location} required /></label>
           <div className="signup-legal-copy">
             <p>{t('signupContactNote')}</p>
             <p>{t('signupPrivacyNote')}</p>
@@ -508,10 +566,10 @@ function AuthChallengePage({
                 id="challenge-code"
                 inputMode="numeric"
                 autoComplete="one-time-code"
-                maxLength={10}
+                maxLength={6}
                 placeholder={t('verificationCode')}
                 value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 autoFocus
                 required
               />
@@ -520,7 +578,7 @@ function AuthChallengePage({
                 <button type="button" className="challenge-link" disabled={busy} onClick={() => void resend()}>
                   {mode === 'twoFactor' ? t('needAnotherWay') : t('resendCode')}
                 </button>
-                <button type="submit" className="btn-primary" disabled={busy || !otp}>
+                <button type="submit" className="btn-primary" disabled={busy || otp.length !== 6}>
                   {busy ? t('verifying') : mode === 'twoFactor' ? t('submitCode') : t('verifyEmailNow')}
                 </button>
               </footer>
@@ -544,11 +602,19 @@ function PasswordResetModal({ initialEmail, onClose }: { initialEmail: string; o
 
   async function requestCode(e: FormEvent) {
     e.preventDefault()
+    let normalizedEmail: string
+    try {
+      normalizedEmail = validateEmailInput(email)
+    } catch (validationError) {
+      setMessage(inputValidationMessage(validationError, t))
+      return
+    }
     setBusy(true)
     setMessage(null)
     try {
-      await api.requestPasswordReset(email.trim().toLowerCase())
-      setEmail(email.trim().toLowerCase())
+      const result = await api.requestPasswordReset(normalizedEmail)
+      if (!result.success) throw new ApiError(400, result.message ?? t('passwordResetRequestError'))
+      setEmail(normalizedEmail)
       setStep('reset')
     } catch {
       setMessage(t('passwordResetRequestError'))
@@ -560,7 +626,9 @@ function PasswordResetModal({ initialEmail, onClose }: { initialEmail: string; o
   async function reset(e: FormEvent) {
     e.preventDefault()
     setMessage(null)
-    if (newPassword.length < 8) return setMessage(t('passwordMinimum'))
+    const passwordError = passwordValidationMessage(newPassword, t)
+    if (passwordError) return setMessage(passwordError)
+    if (!confirmPassword) return setMessage(t('inputRequired'))
     if (newPassword !== confirmPassword) return setMessage(t('passwordMismatch'))
     setBusy(true)
     try {
@@ -579,8 +647,8 @@ function PasswordResetModal({ initialEmail, onClose }: { initialEmail: string; o
       <div className="modal auth-flow-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <header className="modal-head"><h2>{t('resetPassword')}</h2><button type="button" className="icon-circle subtle" onClick={onClose} aria-label={t('close')}>✕</button></header>
         <div className="modal-body">
-          {step === 'request' && <form className="security-form" onSubmit={requestCode}><p>{t('resetPasswordIntro')}</p><label><span>{t('emailAddress')}</span><input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>{message && <p className="form-error">{message}</p>}<button type="submit" className="btn-primary block" disabled={busy || !email.trim()}>{busy ? t('sending') : t('sendResetCode')}</button></form>}
-          {step === 'reset' && <form className="security-form" onSubmit={reset}><p>{t('resetCodeSentTo', { email })}</p><label><span>{t('verificationCode')}</span><input inputMode="numeric" autoComplete="one-time-code" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} required /></label><label><span>{t('newPasswordLabel')}</span><input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required /></label><label><span>{t('confirmPassword')}</span><input type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required /></label>{message && <p className="form-error">{message}</p>}<button type="submit" className="btn-primary block" disabled={busy || !otp || !newPassword || !confirmPassword}>{busy ? t('saving') : t('resetPassword')}</button></form>}
+          {step === 'request' && <form className="security-form" onSubmit={requestCode} noValidate><p>{t('resetPasswordIntro')}</p><label><span>{t('emailAddress')}</span><input type="email" autoComplete="email" maxLength={INPUT_LIMITS.email} value={email} onChange={(e) => setEmail(e.target.value)} required /></label>{message && <p className="form-error">{message}</p>}<button type="submit" className="btn-primary block" disabled={busy || !email.trim()}>{busy ? t('sending') : t('sendResetCode')}</button></form>}
+          {step === 'reset' && <form className="security-form" onSubmit={reset}><p>{t('resetCodeSentTo', { email })}</p><label><span>{t('verificationCode')}</span><input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} required /></label><label><span>{t('newPasswordLabel')}</span><input type="password" autoComplete="new-password" maxLength={PASSWORD_MAX_LENGTH} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required /></label><label><span>{t('confirmPassword')}</span><input type="password" autoComplete="new-password" maxLength={PASSWORD_MAX_LENGTH} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required /></label>{message && <p className="form-error">{message}</p>}<button type="submit" className="btn-primary block" disabled={busy || otp.length !== 6 || !newPassword || !confirmPassword}>{busy ? t('saving') : t('resetPassword')}</button></form>}
           {step === 'done' && <><p className="form-success">{t('passwordResetComplete')}</p><button type="button" className="btn-primary block" onClick={onClose}>{t('continueToLogin')}</button></>}
         </div>
       </div>

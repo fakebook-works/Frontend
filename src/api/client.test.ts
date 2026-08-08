@@ -15,6 +15,7 @@ import {
   resolveUploadedMediaUrl,
 } from './client'
 import type { RecommendationItem } from './gatewayTypes'
+import { InputValidationError } from '../lib/inputValidation'
 
 describe('Gateway contract helpers', () => {
   afterEach(() => {
@@ -95,11 +96,12 @@ describe('Gateway contract helpers', () => {
       url: '/media/files/image.png',
       type: 'image',
       contentType: 'image/png',
-      size: 4,
+      size: 8,
       name: 'image.png',
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 1, height: 1, close: vi.fn() }))
 
-    const file = new File([new Uint8Array([137, 80, 78, 71])], 'image.png', { type: 'image/png' })
+    const file = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'image.png', { type: 'image/png' })
     await api.uploadMedia(file)
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -109,6 +111,37 @@ describe('Gateway contract helpers', () => {
     expect(init?.headers).toBeInstanceOf(Headers)
     expect((init?.headers as Headers).get('Authorization')).toBe('Bearer test-token')
     expect(init?.body).toBeInstanceOf(FormData)
+  })
+
+  it('rejects invalid media and oversized content before making a network request', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const spoofedImage = new File([new Uint8Array([1, 2, 3, 4])], 'image.png', { type: 'image/png' })
+
+    await expect(api.uploadMedia(spoofedImage)).rejects.toThrow()
+    await expect(api.createFeedPost({
+      authorId: '1',
+      content: 'x'.repeat(63_207),
+      privacy: 0,
+    })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(api.createFeedPost({
+      authorId: '1',
+      content: 'valid post',
+      privacy: 4,
+    })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(api.createNormalStory({ authorId: '1', content: 'x'.repeat(501) })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(api.createShareStory('1', '2', 'x'.repeat(501))).rejects.toBeInstanceOf(InputValidationError)
+    await expect(api.register({
+      name: 'Valid User',
+      gender: true,
+      birthdate: '2999-01-01',
+      location: 'Ha Noi',
+      email: 'valid@example.com',
+      password: 'StrongPass123!',
+    })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(api.verifyEmail({ email: 'valid@example.com', otp: '12345' })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(api.resetPassword({ email: 'valid@example.com', otp: '123456', newPassword: '        ' })).rejects.toBeInstanceOf(InputValidationError)
+
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('makes returned media URLs absolute when Upload Server has its own origin', () => {

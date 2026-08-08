@@ -11,6 +11,7 @@ import { PostPrivacyIcon } from '../components/PostPrivacyIcon'
 import { SidebarSettingsIcon } from '../components/SidebarSettingsIcon'
 import { useI18n } from '../i18n'
 import { groupVisitRelativeTime, relativeTime } from '../lib/format'
+import { INPUT_LIMITS, inputValidationMessage, validateTextInput } from '../lib/inputValidation'
 import { GatewayPostCard } from './GatewayHomePage'
 
 export { GroupProfilePage } from './GroupProfilePage'
@@ -32,7 +33,20 @@ interface GroupCollections {
 const GROUP_FEED_BATCH = 60
 const GROUP_QUICK_SEARCH_LIMIT = 8
 const GROUP_SCOPE_SEARCH_LIMIT = 24
+const SEARCH_QUERY_MAX_LENGTH = 200
 const EMPTY_GROUPS: GroupCollections = { joined: [], managed: [], pending: [], recent: [] }
+
+function normalizeSearchQuery(value: string) {
+  return validateTextInput(value, {
+    field: 'search',
+    max: SEARCH_QUERY_MAX_LENGTH,
+    multiline: false,
+  }).value
+}
+
+function isGroupPrivacy(value: number | ''): value is 0 | 1 {
+  return value === 0 || value === 1
+}
 
 export function GroupsPage({ userId, profile, onNavigate }: { userId: string; profile?: SocialProfile | null; onNavigate: (path: string) => void }) {
   const { t, locale } = useI18n()
@@ -206,7 +220,15 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
   }, [feedHasMore, feedLoading, feedMoreLoading, loadMoreRecommendations, section])
 
   useEffect(() => {
-    const normalized = searchText.trim()
+    let normalized: string
+    try {
+      normalized = normalizeSearchQuery(searchText)
+    } catch (validationError) {
+      setQuickGroups([])
+      setQuickLoading(false)
+      setQuickError(inputValidationMessage(validationError, t))
+      return
+    }
     if (!searchOpen || normalized.length < 1) {
       setQuickGroups([])
       setQuickLoading(false)
@@ -288,12 +310,18 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
   const searching = submittedQuery.length > 0
 
   const runGroupSearch = useCallback(() => {
-    const normalized = searchText.trim()
+    let normalized: string
+    try {
+      normalized = normalizeSearchQuery(searchText)
+    } catch (validationError) {
+      setQuickError(inputValidationMessage(validationError, t))
+      return
+    }
     if (normalized.length < 1) return
     setSubmittedQuery(normalized)
     setSearchOpen(false)
     searchInputRef.current?.blur()
-  }, [searchText])
+  }, [searchText, t])
 
   const openQuickGroup = useCallback((item: QuickGroupSearchItem) => {
     void searchApi.recordSearchResultView(item.referenceId).catch(() => undefined)
@@ -361,7 +389,7 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
       <header><h1 className="groups-hub-heading-text">{t('groups')}</h1><button type="button" className="groups-settings-button" aria-label={t('settingsPrivacy')}><SidebarSettingsIcon /></button></header>
       <div className="groups-search-row">
         <form ref={searchShellRef} className={searchOpen ? 'groups-search-shell is-open' : 'groups-search-shell'} onSubmit={(event) => { event.preventDefault(); runGroupSearch() }} onFocus={() => setSearchOpen(true)} onBlur={() => window.setTimeout(() => { if (!searchShellRef.current?.contains(document.activeElement)) setSearchOpen(false) }, 0)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearchOpen(false); searchInputRef.current?.blur() } }}>
-          <label className="groups-search"><svg className="groups-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><input ref={searchInputRef} value={searchText} onChange={(event) => { const value = event.target.value; setSearchText(value); if (value.trim().length === 0) setSubmittedQuery('') }} placeholder={t('groupSearchPlaceholder')} aria-label={t('groupSearchPlaceholder')} aria-expanded={searchOpen} aria-controls="groups-sidebar-search-results" autoComplete="off" /></label>
+          <label className="groups-search"><svg className="groups-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><input ref={searchInputRef} value={searchText} onChange={(event) => { const value = event.target.value; setSearchText(value); if (value.trim().length === 0) setSubmittedQuery('') }} maxLength={SEARCH_QUERY_MAX_LENGTH} placeholder={t('groupSearchPlaceholder')} aria-label={t('groupSearchPlaceholder')} aria-expanded={searchOpen} aria-controls="groups-sidebar-search-results" autoComplete="off" /></label>
           {searchOpen && <GroupQuickSearchDropdown query={searchText.trim()} items={quickGroups} loading={quickLoading} error={quickError} onOpen={openQuickGroup} onSearchQuery={runGroupSearch} />}
         </form>
       </div>
@@ -552,7 +580,7 @@ function GroupsSidebarCollectionsSkeleton() {
 function CreateGroupExperience({ userId, profile, onClose, onCreated }: { userId: string; profile?: SocialProfile | null; onClose: () => void; onCreated: (group: SocialGroup) => void }) {
   const { t } = useI18n()
   const [name, setName] = useState('')
-  const [privacy, setPrivacy] = useState<number | ''>('')
+  const [privacy, setPrivacy] = useState<0 | 1 | ''>('')
   const [friends, setFriends] = useState<SocialProfile[]>([])
   const [inviteQuery, setInviteQuery] = useState('')
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set())
@@ -582,11 +610,26 @@ function CreateGroupExperience({ userId, profile, onClose, onCreated }: { userId
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!name.trim() || privacy === '') return
+    let normalizedName: string
+    try {
+      normalizedName = validateTextInput(name, {
+        field: 'groupName',
+        max: INPUT_LIMITS.groupName,
+        required: true,
+        multiline: false,
+      }).value
+    } catch (validationError) {
+      setError(inputValidationMessage(validationError, t))
+      return
+    }
+    if (!isGroupPrivacy(privacy)) {
+      setError(t('invalidInput'))
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      const group = await socialApi.createGroup(userId, { name: name.trim(), bio: '', privacy })
+      const group = await socialApi.createGroup(userId, { name: normalizedName, bio: '', privacy })
       await Promise.allSettled([...selectedFriendIds].map((friendId) => socialApi.inviteGroupUser(group.id, friendId)))
       onCreated(group)
     } catch {
@@ -602,10 +645,10 @@ function CreateGroupExperience({ userId, profile, onClose, onCreated }: { userId
       <p className="group-create-breadcrumb">{t('groups')} › {t('createGroup')}</p>
       <h1>{t('createGroup')}</h1>
       <div className="group-create-owner"><Avatar name={profile?.displayName || t('fakebookUser')} src={profile?.avatarUrl} size={42} /><span><strong>{profile?.displayName || t('fakebookUser')}</strong><small>{t('groupAdmin')}</small></span></div>
-      <label className="group-create-field"><span>{t('groupName')}</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={100} /></label>
-      <label className="group-create-field"><span>{t('groupPrivacyPlaceholder')}</span><select value={privacy} onChange={(event) => setPrivacy(event.target.value === '' ? '' : Number(event.target.value))}><option value="">{t('groupPrivacyPlaceholder')}</option><option value={0}>{t('publicGroup')}</option><option value={1}>{t('privateGroup')}</option></select></label>
+          <label className="group-create-field"><span>{t('groupName')}</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} required /></label>
+      <label className="group-create-field"><span>{t('groupPrivacyPlaceholder')}</span><select value={privacy} onChange={(event) => { const value = event.target.value; if (value === '') setPrivacy(''); else if (value === '0' || value === '1') setPrivacy(Number(value) as 0 | 1) }}><option value="">{t('groupPrivacyPlaceholder')}</option><option value={0}>{t('publicGroup')}</option><option value={1}>{t('privateGroup')}</option></select></label>
       <div className="group-create-invites">
-        <label className="group-create-field"><span>{t('inviteFriendsOptional')}</span><input value={inviteQuery} onChange={(event) => setInviteQuery(event.target.value)} placeholder={t('searchFriends')} /></label>
+        <label className="group-create-field"><span>{t('inviteFriendsOptional')}</span><input value={inviteQuery} onChange={(event) => setInviteQuery(event.target.value)} maxLength={SEARCH_QUERY_MAX_LENGTH} placeholder={t('searchFriends')} /></label>
         {selectedFriends.length > 0 && <div className="group-create-selected-friends">{selectedFriends.map((friend) => <button type="button" key={friend.id} onClick={() => toggleFriend(friend.id)}><Avatar name={friend.displayName} src={friend.avatarUrl} size={24} /><span>{friend.displayName}</span><Icon name="close" size={13} /></button>)}</div>}
         {inviteQuery.trim() && visibleFriends.length > 0 && <div className="group-create-friend-results">{visibleFriends.map((friend) => <button type="button" className={selectedFriendIds.has(friend.id) ? 'selected' : ''} key={friend.id} onClick={() => toggleFriend(friend.id)}><Avatar name={friend.displayName} src={friend.avatarUrl} size={34} /><span>{friend.displayName}</span>{selectedFriendIds.has(friend.id) && <Icon name="check" size={17} />}</button>)}</div>}
         {!inviteQuery.trim() && friends.length > 0 && <small>{t('inviteSuggestions', { names: friends.slice(0, 3).map((friend) => friend.displayName).join(', ') })}</small>}

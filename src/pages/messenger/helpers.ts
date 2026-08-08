@@ -4,6 +4,7 @@ import { resolveMediaKind } from './MediaGallery'
 
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 const MESSENGER_LIKE_PATTERN = /^\[\[fakebook:like:([123])\]\]$/
+export const MAX_SEEN_REALTIME_EVENT_IDS = 4_096
 
 export type MessageGroupPosition = 'single' | 'start' | 'middle' | 'end'
 export type MessengerLikeLevel = 1 | 2 | 3
@@ -16,6 +17,28 @@ type Translate = (key: string, values?: Record<string, string | number>) => stri
 const NO_MESSAGE_VISUAL_BREAKS: MessageVisualBreaks = {
   beforeMessageIds: new Set<string>(),
   afterMessageIds: new Set<string>(),
+}
+
+export function rememberRealtimeEventId(
+  seenEventIds: Set<string>,
+  eventId: string,
+  maxSize = MAX_SEEN_REALTIME_EVENT_IDS,
+): boolean {
+  if (seenEventIds.has(eventId)) {
+    // Refresh insertion order so frequently duplicated events remain inside the LRU window.
+    seenEventIds.delete(eventId)
+    seenEventIds.add(eventId)
+    return false
+  }
+
+  seenEventIds.add(eventId)
+  const boundedSize = Math.max(1, maxSize)
+  while (seenEventIds.size > boundedSize) {
+    const oldestEventId = seenEventIds.values().next().value
+    if (oldestEventId === undefined) break
+    seenEventIds.delete(oldestEventId)
+  }
+  return true
 }
 
 export function encodeMessengerLike(level: MessengerLikeLevel): string {

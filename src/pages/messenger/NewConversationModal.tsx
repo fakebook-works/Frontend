@@ -3,6 +3,7 @@ import type { UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { useI18n } from '../../i18n'
+import { INPUT_LIMITS, inputValidationMessage, validateTextInput } from '../../lib/inputValidation'
 import { useFriendSearch } from '../../lib/useFriendSearch'
 
 interface NewConversationModalProps {
@@ -17,6 +18,7 @@ export function NewConversationModal({ friends, onStart, onCreateGroup, onClose 
   const [search, setSearch] = useState('')
   const [groupMode, setGroupMode] = useState(false)
   const [groupTitle, setGroupTitle] = useState('')
+  const [groupTitleError, setGroupTitleError] = useState<string | null>(null)
   const [selectedPeople, setSelectedPeople] = useState<Map<string, UserSummary>>(new Map())
   const { people: visibleFriends, loading } = useFriendSearch(friends, search)
 
@@ -31,8 +33,19 @@ export function NewConversationModal({ friends, onStart, onCreateGroup, onClose 
 
   function submitGroup() {
     const people = [...selectedPeople.values()]
-    if (!onCreateGroup || groupTitle.trim().length < 1 || people.length < 2) return
-    onCreateGroup(groupTitle.trim(), people)
+    if (!onCreateGroup || people.length < 2) return
+    try {
+      const validated = validateTextInput(groupTitle, {
+        field: 'groupTitle',
+        max: INPUT_LIMITS.messengerGroupTitle,
+        required: true,
+        multiline: false,
+      })
+      setGroupTitleError(null)
+      onCreateGroup(validated.value, people)
+    } catch (error) {
+      setGroupTitleError(inputValidationMessage(error, t))
+    }
   }
 
   return (
@@ -61,10 +74,16 @@ export function NewConversationModal({ friends, onStart, onCreateGroup, onClose 
           <span>{t('groupChatName')}</span>
           <input
             value={groupTitle}
-            onChange={(event) => setGroupTitle(event.target.value)}
+            aria-invalid={Boolean(groupTitleError)}
+            onChange={(event) => {
+              setGroupTitle(event.target.value)
+              setGroupTitleError(null)
+            }}
             placeholder={t('groupChatNamePlaceholder')}
           />
         </label>}
+
+        {groupMode && groupTitleError && <p className="form-error" role="alert">{groupTitleError}</p>}
 
         <label className="msg-new-search">
           <span>{groupMode ? t('addPeople') : `${t('to')}:`}</span>

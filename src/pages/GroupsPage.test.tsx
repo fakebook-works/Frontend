@@ -173,6 +173,7 @@ describe('GroupsPage', () => {
     fireEvent.focus(input)
 
     expect(input).toHaveAttribute('aria-expanded', 'true')
+    expect(input).toHaveAttribute('maxlength', '200')
     expect(screen.getByText('noRecentSearches')).toBeInTheDocument()
     expect(container.querySelector('.groups-search-shell')).toHaveClass('is-open')
     expect(container.querySelector('.sidebar-settings-glyph path')).toBeInTheDocument()
@@ -360,5 +361,17 @@ describe('GroupsPage', () => {
 
     await waitFor(() => expect(socialMocks.createGroup).toHaveBeenCalledWith('100', { name: 'Nhóm mới', bio: '', privacy: 0 }))
     expect(onNavigate).toHaveBeenCalledWith('/groups/999')
+  })
+
+  it('rejects a group name above the shared 100-character limit', async () => {
+    render(<GroupsPage userId="100" profile={null} onNavigate={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'createNewGroup' }))
+
+    fireEvent.change(screen.getByLabelText('groupName'), { target: { value: 'g'.repeat(101) } })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '0' } })
+    fireEvent.click(screen.getByRole('button', { name: 'createGroup' }))
+
+    expect(await screen.findByText('inputTooLong')).toBeInTheDocument()
+    expect(socialMocks.createGroup).not.toHaveBeenCalled()
   })
 })

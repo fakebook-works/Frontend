@@ -31,6 +31,10 @@ const socialMocks = vi.hoisted(() => ({
 }))
 const translate = vi.hoisted(() => (key: string) => key)
 
+function jpegFile(name: string, payload = 'image') {
+  return new File([Uint8Array.from([0xff, 0xd8, 0xff]), payload], name, { type: 'image/jpeg' })
+}
+
 vi.mock('../api/client', () => ({ api: { uploadMediaFiles: vi.fn(), cancelPendingMedia: vi.fn() } }))
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../i18n', () => ({ useI18n: () => ({ locale: 'vi-VN', t: translate }) }))
@@ -71,7 +75,12 @@ describe('GroupProfilePage', () => {
     socialMocks.getGroupPhotoCandidates.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
     socialMocks.getGroupSuggestions.mockReset().mockResolvedValue([])
     socialMocks.getGroupFriendMembers.mockReset().mockResolvedValue([])
-    socialMocks.updateGroup.mockReset().mockImplementation(async (_groupId: string, input: { name: string; bio: string; privacy: number }) => ({ ...group, name: input.name, bio: input.bio, privacy: input.privacy }))
+    socialMocks.updateGroup.mockReset().mockImplementation(async (_groupId: string, input: { name?: string; bio?: string; privacy?: number }) => ({
+      ...group,
+      name: input.name ?? group.name,
+      bio: input.bio ?? group.bio,
+      privacy: input.privacy ?? group.privacy,
+    }))
     socialMocks.inviteGroupUser.mockReset().mockResolvedValue(true)
     socialMocks.requestJoinGroup.mockReset().mockResolvedValue(true)
     socialMocks.cancelJoinGroupRequest.mockReset().mockResolvedValue(true)
@@ -82,6 +91,7 @@ describe('GroupProfilePage', () => {
     socialMocks.rejectGroupJoinRequest.mockReset().mockResolvedValue(true)
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:group-image-preview') })
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 1600, height: 900, close: vi.fn() }))
   })
 
   afterEach(() => {
@@ -425,7 +435,10 @@ describe('GroupProfilePage', () => {
     expect(socialMocks.getGroupFriendMembers).toHaveBeenCalledWith('61', 12)
   })
 
-  it('scrolls both discussion columns and clamps the shorter group column', async () => {
+  it('maps the outer group-profile scrollbar to both discussion columns and clamps the shorter one', async () => {
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { top: this.classList.contains('group-profile-content-grid') ? 800 : 0 } as DOMRect
+    })
     const { container } = render(<div className="authenticated-destination-scroll"><GroupProfilePage groupId="61" userId="71" onBack={vi.fn()} onNavigate={vi.fn()} /></div>)
     await screen.findByTestId('group-composer')
 
@@ -445,21 +458,20 @@ describe('GroupProfilePage', () => {
       clientHeight: { configurable: true, value: 500 },
       scrollHeight: { configurable: true, value: 1000 },
     })
-    destinationViewport.scrollTop = 800
-    postColumn.scrollTop = 300
-    infoColumn.scrollTop = 400
+    act(() => window.dispatchEvent(new Event('resize')))
+    await waitFor(() => expect(container.querySelector<HTMLElement>('.group-profile-page')?.style.getPropertyValue('--profile-column-scroll-span')).toBe('1500px'))
 
-    fireEvent.wheel(grid, { deltaY: 250 })
-    await waitFor(() => {
-      expect(postColumn.scrollTop).toBeCloseTo(550, 1)
-      expect(infoColumn.scrollTop).toBe(500)
-    })
+    destinationViewport.scrollTop = 1050
+    fireEvent.scroll(destinationViewport)
+    expect(postColumn.scrollTop).toBe(250)
+    expect(infoColumn.scrollTop).toBe(250)
 
-    fireEvent.wheel(grid, { deltaY: 250 })
-    await waitFor(() => {
-      expect(postColumn.scrollTop).toBeCloseTo(800, 1)
-      expect(infoColumn.scrollTop).toBe(500)
-    })
+    destinationViewport.scrollTop = 1500
+    fireEvent.scroll(destinationViewport)
+    expect(postColumn.scrollTop).toBe(700)
+    expect(infoColumn.scrollTop).toBe(500)
+    expect(fireEvent.wheel(grid, { deltaY: 250 })).toBe(true)
+    rectSpy.mockRestore()
   })
 
   it('keeps a public-group join pending until an administrator approves it', async () => {
@@ -528,9 +540,9 @@ describe('GroupProfilePage', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'uploadPhoto' }))
     const uploadInput = container.querySelector('.group-profile-cover-file-input')
     expect(uploadInput).toBeInstanceOf(HTMLInputElement)
-    fireEvent.change(uploadInput!, { target: { files: [new File(['cover'], 'cover.jpg', { type: 'image/jpeg' })] } })
+    fireEvent.change(uploadInput!, { target: { files: [jpegFile('cover.jpg', 'cover')] } })
 
-    expect(container.querySelector('.self-profile-cover-preview')).toBeInTheDocument()
+    await waitFor(() => expect(container.querySelector('.self-profile-cover-preview')).toBeInTheDocument())
     expect(container.querySelector('.group-profile-inline-image-preview')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'storyZoomIn' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'storyZoomOut' })).toBeInTheDocument()
@@ -547,9 +559,9 @@ describe('GroupProfilePage', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'uploadPhoto' }))
     const uploadInput = container.querySelector('.group-profile-avatar-file-input')
     expect(uploadInput).toBeInstanceOf(HTMLInputElement)
-    fireEvent.change(uploadInput!, { target: { files: [new File(['avatar'], 'avatar.jpg', { type: 'image/jpeg' })] } })
+    fireEvent.change(uploadInput!, { target: { files: [jpegFile('avatar.jpg', 'avatar')] } })
 
-    expect(container.querySelector('.group-profile-avatar-shell')).toHaveClass('editing-avatar', 'no-story')
+    await waitFor(() => expect(container.querySelector('.group-profile-avatar-shell')).toHaveClass('editing-avatar', 'no-story'))
     expect(container.querySelector('.group-profile-avatar-shell .self-profile-avatar-preview')).toBeInTheDocument()
     expect(container.querySelector('.group-profile-avatar-shell .group-profile-inline-image-preview')).not.toBeInTheDocument()
     expect(container.querySelector('.self-profile-avatar-edit-controls')).toBeInTheDocument()

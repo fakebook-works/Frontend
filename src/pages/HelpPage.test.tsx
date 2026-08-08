@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HelpPage } from './HelpPage'
 
@@ -47,5 +47,19 @@ describe('HelpPage Component', () => {
 
     // Using general text match for sidebar instead of checking for specific categories which might be translated or removed
     expect(screen.getAllByText(/Help Centre/i).length).toBeGreaterThan(0)
+  })
+
+  it('searches help articles locally and opens the selected result', () => {
+    render(<HelpPage />)
+    const input = screen.getByPlaceholderText(/Ask a question/i)
+    expect(input).toHaveAttribute('maxlength', '200')
+
+    fireEvent.change(input, { target: { value: 'Đăng ký tài khoản' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search help articles' }))
+
+    expect(screen.getByText('Kết quả tìm kiếm')).toBeInTheDocument()
+    const result = screen.getByRole('button', { name: /Đăng ký tài khoản/ })
+    fireEvent.click(result)
+    expect(screen.getByRole('heading', { name: /Đăng ký tài khoản/ })).toBeInTheDocument()
   })
 })

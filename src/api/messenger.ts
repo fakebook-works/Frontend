@@ -2,6 +2,8 @@ import { gatewayGraphQl, graphQlLongLiteral } from './client'
 import { subscribeGatewayGraphQl } from './realtime'
 import { socialApi } from './social'
 import type { MediaType, MediaUpload, MessengerConversationDto, MessengerMessageDto, UserSummary } from './types'
+import { INPUT_LIMITS, InputValidationError, validateTextInput } from '../lib/inputValidation'
+import { MEDIA_LIMITS } from '../lib/mediaValidation'
 
 export interface SendMessageBody {
   body: string
@@ -126,6 +128,27 @@ const MESSAGE_FIELDS = MESSAGE_CORE_FIELDS
 
 const PROFILE_HYDRATION_BATCH_SIZE = 50
 const MAX_PROFILE_HYDRATION_IDS = 250
+const MAX_ATTACHMENTS_PER_MESSAGE = MEDIA_LIMITS.selectionCount
+
+function validateMessengerText(value: string, required: boolean) {
+  const validated = validateTextInput(value, {
+    field: 'message',
+    max: INPUT_LIMITS.messengerMessage,
+    required,
+    multiline: true,
+  })
+  return validated.value
+}
+
+function validateGroupConversationTitle(value: string | null | undefined) {
+  const validated = validateTextInput(value ?? '', {
+    field: 'groupTitle',
+    max: INPUT_LIMITS.messengerGroupTitle,
+    required: true,
+    multiline: false,
+  })
+  return validated.value
+}
 
 const CONVERSATION_FIELDS = `
   id type title avatarUrl updatedAt currentSequence
@@ -431,6 +454,14 @@ export async function message(messageId: string, viewerId: string): Promise<Mess
 }
 
 export async function sendMessage(conversationId: string, viewer: UserSummary, body: SendMessageBody): Promise<MessengerMessageDto> {
+  const attachments = body.attachments ?? []
+  if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+    throw new InputValidationError('too_long', 'attachments', {
+      max: MAX_ATTACHMENTS_PER_MESSAGE,
+      actual: attachments.length,
+    })
+  }
+  const text = validateMessengerText(body.body, attachments.length === 0)
   const clientMessageId = crypto.randomUUID()
   const data = await gatewayGraphQl<{ sendMessage: MessageGraphQl }>(
     `mutation SendMessage($input: SendMessageInput!) { sendMessage(input: $input) { ${MESSAGE_CORE_FIELDS} } }`,
@@ -438,10 +469,10 @@ export async function sendMessage(conversationId: string, viewer: UserSummary, b
       input: {
         conversationId,
         clientMessageId,
-        text: body.body || null,
+        text: text || null,
         replyToMessageId: body.replyToMessageId ?? null,
-        attachmentUrls: body.attachments?.map((attachment) => attachment.url) ?? [],
-        attachments: body.attachments?.map((attachment) => ({
+        attachmentUrls: attachments.map((attachment) => attachment.url),
+        attachments: attachments.map((attachment) => ({
           url: attachment.url,
           assetId: attachment.assetId ?? null,
           mediaType: attachment.mediaType ?? attachment.type,
@@ -452,7 +483,7 @@ export async function sendMessage(conversationId: string, viewer: UserSummary, b
           height: attachment.height ?? null,
           durationMs: attachment.durationMs ?? null,
           thumbnailUrl: attachment.thumbnailUrl ?? null,
-        })) ?? [],
+        })),
       },
     },
   )
@@ -471,11 +502,12 @@ export async function deleteMessage(messageId: string, viewerId: string): Promis
 }
 
 export async function editMessage(messageId: string, text: string, viewerId: string): Promise<MessengerMessageDto> {
+  const normalizedText = validateMessengerText(text, true)
   const data = await gatewayGraphQl<{ editMessage: MessageGraphQl }>(
     `mutation EditMessage($input: EditMessageInput!) {
       editMessage(input: $input) { ${MESSAGE_FIELDS} }
     }`,
-    { input: { messageId, text } },
+    { input: { messageId, text: normalizedText } },
   )
   const people = await participantMap([], viewerId, [data.editMessage])
   return messageFromGraphQl(data.editMessage, people, viewerId)
@@ -509,10 +541,10 @@ export async function createGroupConversation(
   viewerId: string,
   avatarUrl: string | null = null,
 ): Promise<MessengerConversationDto> {
-  if (memberUserIds.length < 2) throw new Error('A group conversation requires at least two friends.')
-  const titleValue = title.trim()
-  if (!titleValue) throw new Error('A group conversation requires a title.')
-  const members = [...new Set(memberUserIds)].map(graphQlLongLiteral).join(', ')
+  const uniqueMemberUserIds = [...new Set(memberUserIds)]
+  if (uniqueMemberUserIds.length < 2) throw new Error('A group conversation requires at least two friends.')
+  const titleValue = validateGroupConversationTitle(title)
+  const members = uniqueMemberUserIds.map(graphQlLongLiteral).join(', ')
   const data = await gatewayGraphQl<{ createGroupConversation: ConversationGraphQl }>(
     `mutation CreateGroupConversation($title: String!, $avatarUrl: String) {
       createGroupConversation(input: { title: $title, memberUserIds: [${members}], avatarUrl: $avatarUrl }) { ${CONVERSATION_FIELDS} }
@@ -537,7 +569,7 @@ export async function updateGroupConversation(
   if (hasTitle) {
     definitions.push('$title: String')
     assignments.push('title: $title')
-    variables.title = input.title ?? null
+    variables.title = validateGroupConversationTitle(input.title)
   }
   if (hasAvatarUrl) {
     definitions.push('$avatarUrl: String')

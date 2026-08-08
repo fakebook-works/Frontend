@@ -3,6 +3,12 @@
 // access token is available to JavaScript; the Gateway owns the HttpOnly
 // refresh cookie and rotates it during refresh requests.
 import type { MediaUpload } from './types'
+import { INPUT_LIMITS, InputValidationError, isAllowedBirthDateInput, normalizeMultilineInput, validateEmailInput, validatePasswordInput, validateTextInput } from '../lib/inputValidation'
+import { MEDIA_LIMITS, MESSENGER_ATTACHMENT_MIME_TYPES, validateMediaFile, validateMediaReferences } from '../lib/mediaValidation'
+import { extractMentionUserIds, parseMentionContent } from '../lib/mentions'
+import { decodePostContent, encodePostContent } from '../lib/postContent'
+import { decodeStoryContent, encodeStoryContent } from '../lib/storyContent'
+import { isPostPrivacy } from '../lib/privacy'
 import type {
   CreateGatewayPostInput,
   CreateGatewayStoryInput,
@@ -509,6 +515,7 @@ export function resolveUploadedMediaUrl(value: string, baseUrl = UPLOAD_SERVER_U
 }
 
 async function uploadMedia(file: File, allowRetry = true): Promise<MediaUpload> {
+  await validateMediaFile(file, { allowedMimeTypes: MESSENGER_ATTACHMENT_MIME_TYPES, decodeImage: false })
   const send = (token: string | undefined) => {
     const headers = jsonHeaders(undefined, false, 'protected')
     if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -558,7 +565,23 @@ async function finalizePendingMedia(uploads: MediaUpload[]): Promise<void> {
 }
 
 async function uploadMediaFiles(files: File[]): Promise<MediaUpload[]> {
-  const settled = await Promise.allSettled(files.map((file) => uploadMedia(file)))
+  if (files.length > MEDIA_LIMITS.selectionCount) {
+    throw new InputValidationError('too_long', 'media', { max: MEDIA_LIMITS.selectionCount, actual: files.length })
+  }
+  const settled: PromiseSettledResult<MediaUpload>[] = new Array(files.length)
+  let nextIndex = 0
+  const workerCount = Math.max(1, Math.min(2, files.length || 1))
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < files.length) {
+      const index = nextIndex
+      nextIndex += 1
+      try {
+        settled[index] = { status: 'fulfilled', value: await uploadMedia(files[index]) }
+      } catch (reason) {
+        settled[index] = { status: 'rejected', reason }
+      }
+    }
+  }))
   const uploaded = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
   const failed = settled.find((result) => result.status === 'rejected')
   if (failed) {
@@ -620,6 +643,77 @@ const HOME_STORY_FIELDS = `
     sharedSource { id content media { id type url } author { id name avatar isVerified } }
   }
 `
+
+function assertEntryLimit(values: readonly unknown[] | null | undefined, field: string, max: number) {
+  const actual = values?.length ?? 0
+  if (actual > max) throw new InputValidationError('too_long', field, { max, actual })
+}
+
+function validateOtp(value: string) {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!/^\d{6}$/u.test(normalized)) {
+    throw new InputValidationError('invalid_characters', 'otp')
+  }
+  return normalized
+}
+
+function validateExistingSecret(value: string, field = 'currentPassword') {
+  return validatePasswordInput(value, { field, maximum: 128, rejectForbidden: false })
+}
+
+function validateNewSecret(value: string, field = 'newPassword') {
+  return validatePasswordInput(value, { field, minimum: 8, maximum: 128, rejectForbidden: true })
+}
+
+function assertPostPrivacy(value: unknown, field = 'privacy') {
+  if (!isPostPrivacy(value)) throw new InputValidationError('invalid_characters', field)
+  return value
+}
+
+function validateRegisterBody(body: RegisterBody) {
+  const name = validateTextInput(body.name, { field: 'displayName', max: INPUT_LIMITS.displayName, required: true, multiline: false }).value
+  const location = validateTextInput(body.location, { field: 'location', max: INPUT_LIMITS.location, required: true, multiline: false }).value
+  const email = validateEmailInput(body.email)
+  if (!isAllowedBirthDateInput(body.birthdate)) throw new InputValidationError('invalid_characters', 'birthdate')
+  if (typeof body.gender !== 'boolean') throw new InputValidationError('invalid_characters', 'gender')
+  validateNewSecret(body.password)
+  return { ...body, name, location, email }
+}
+
+function visibleMentionText(content: string) {
+  return parseMentionContent(content).map((segment) => segment.type === 'text' ? segment.value : '@').join('')
+}
+
+function validateGatewayPostInput(input: CreateGatewayPostInput) {
+  assertPostPrivacy(input.privacy)
+  validateMediaReferences(input.media, { field: 'media', allowedTypes: [0, 1] })
+  const decoded = decodePostContent(input.content)
+  const content = encodePostContent(normalizeMultilineInput(decoded.text), decoded.backgroundId)
+  const normalizedDecoded = decodePostContent(content)
+  validateTextInput(visibleMentionText(normalizedDecoded.text), {
+    field: 'post',
+    max: normalizedDecoded.hasBackgroundMetadata ? INPUT_LIMITS.backgroundPost : INPUT_LIMITS.post,
+    required: (input.media?.length ?? 0) === 0,
+  })
+  assertEntryLimit(extractMentionUserIds(content), 'mentions', INPUT_LIMITS.mentions)
+  assertEntryLimit(input.taggedUserIds, 'mentions', INPUT_LIMITS.mentions)
+  return { ...input, content }
+}
+
+function validateGatewayStoryInput(input: CreateGatewayStoryInput) {
+  validateMediaReferences(input.media ? [input.media] : [], { field: 'media', max: 1, allowedTypes: [0, 1] })
+  const decoded = decodeStoryContent(input.content)
+  const normalizedText = normalizeMultilineInput(decoded.text)
+  const content = decoded.hasBackgroundMetadata
+    ? encodeStoryContent(normalizedText, decoded.backgroundColor)
+    : normalizedText
+  validateTextInput(normalizedText, {
+    field: 'story',
+    max: INPUT_LIMITS.story,
+    required: input.media == null,
+  })
+  return { ...input, content }
+}
 
 
 function normalizeStory(story: GatewayStory): GatewayStory {
@@ -690,11 +784,12 @@ export const api = {
 
   // ----- auth -----
   register: async (body: RegisterBody): Promise<RegistrationResult> => {
+    const input = validateRegisterBody(body)
     const data = await graphQlRequest<{ createUser: RegistrationResult }>(
       `mutation CreateUser($input: CreateUserInput!) {
         createUser(input: $input) { success userId message }
       }`,
-      { input: body },
+      { input },
       'public',
     )
     return {
@@ -703,6 +798,8 @@ export const api = {
     }
   },
   login: async (body: LoginBody): Promise<LoginResult> => {
+    const email = validateEmailInput(body.email)
+    const password = validateExistingSecret(body.password, 'password')
     const data = await graphQlRequest<{ login: LoginResult }>(
       `mutation Login($input: LoginInput!) {
         login(input: $input) {
@@ -711,7 +808,7 @@ export const api = {
           user { userId email validDate status }
         }
       }`,
-      { input: { identifier: body.email, password: body.password } },
+      { input: { identifier: email, password } },
       'public',
     )
     data.login.user = normalizeAuthUser(data.login.user)
@@ -744,60 +841,71 @@ export const api = {
     return normalizeAuthUser(data.me)
   },
   verifyEmail: async (body: VerifyEmailBody): Promise<AuthActionResult> => {
+    const email = validateEmailInput(body.email)
+    const otp = validateOtp(body.otp)
     const data = await graphQlRequest<{ verifyEmail: AuthActionResult }>(
       `mutation VerifyEmail($input: VerifyEmailInput!) {
         verifyEmail(input: $input) { success message }
       }`,
-      { input: { identifier: body.email, otp: body.otp } },
+      { input: { identifier: email, otp } },
       'public',
     )
     return data.verifyEmail
   },
   resendEmailVerification: async (email: string): Promise<AuthActionResult> => {
+    const identifier = validateEmailInput(email)
     const data = await graphQlRequest<{ resendEmailVerification: AuthActionResult }>(
       `mutation ResendEmailVerification($input: ResendEmailVerificationInput!) {
         resendEmailVerification(input: $input) { success message }
       }`,
-      { input: { identifier: email } },
+      { input: { identifier } },
       'public',
     )
     return data.resendEmailVerification
   },
   requestPasswordReset: async (email: string): Promise<AuthActionResult> => {
+    const identifier = validateEmailInput(email)
     const data = await graphQlRequest<{ requestPasswordReset: AuthActionResult }>(
       `mutation RequestPasswordReset($input: RequestPasswordResetInput!) {
         requestPasswordReset(input: $input) { success message }
       }`,
-      { input: { identifier: email } },
+      { input: { identifier } },
       'public',
     )
     return data.requestPasswordReset
   },
   resetPassword: async (body: ResetPasswordBody): Promise<AuthActionResult> => {
+    const email = validateEmailInput(body.email)
+    const otp = validateOtp(body.otp)
+    const newPassword = validateNewSecret(body.newPassword)
     const data = await graphQlRequest<{ resetPassword: AuthActionResult }>(
       `mutation ResetPassword($input: ResetPasswordInput!) {
         resetPassword(input: $input) { success message }
       }`,
-      { input: { identifier: body.email, otp: body.otp, newPassword: body.newPassword } },
+      { input: { identifier: email, otp, newPassword } },
       'public',
     )
     return data.resetPassword
   },
   changePassword: async (currentPassword: string, newPassword: string): Promise<AuthActionResult> => {
+    const current = validateExistingSecret(currentPassword)
+    const next = validateNewSecret(newPassword)
     const data = await graphQlRequest<{ changePassword: AuthActionResult }>(
       `mutation ChangePassword($input: ChangePasswordInput!) {
         changePassword(input: $input) { success message }
       }`,
-      { input: { currentPassword, newPassword } },
+      { input: { currentPassword: current, newPassword: next } },
     )
     return data.changePassword
   },
   changeEmail: async (currentPassword: string, newEmail: string): Promise<AuthActionResult> => {
+    const current = validateExistingSecret(currentPassword)
+    const email = validateEmailInput(newEmail)
     const data = await graphQlRequest<{ changeEmail: AuthActionResult }>(
       `mutation ChangeEmail($input: ChangeEmailInput!) {
         changeEmail(input: $input) { success message refreshTokenCookie { operation } }
       }`,
-      { input: { currentPassword, newEmail } },
+      { input: { currentPassword: current, newEmail: email } },
     )
     return data.changeEmail
   },
@@ -875,6 +983,7 @@ export const api = {
     return data.postDetail ? normalizeGatewayPost(data.postDetail) : null
   },
   createFeedPost: async (input: CreateGatewayPostInput): Promise<CreatedContent> => {
+    const normalizedInput = validateGatewayPostInput(input)
     const authorId = graphQlLongLiteral(input.authorId)
     const taggedUserIds = [...new Set(input.taggedUserIds ?? [])].map(graphQlLongLiteral).join(', ')
     const data = await graphQlRequest<{ createFeedPost: CreatedContent }>(
@@ -889,7 +998,7 @@ export const api = {
           id type content privacy create authorId media { id type url }
         }
       }`,
-      { content: input.content, privacy: input.privacy, media: input.media ?? null },
+      { content: normalizedInput.content, privacy: normalizedInput.privacy, media: normalizedInput.media ?? null },
     )
     return {
       ...data.createFeedPost,
@@ -935,6 +1044,7 @@ export const api = {
     return normalizeStoryPage({ items: [data.myStories], endCursor: null, hasNextPage: false }).items[0]
   },
   createNormalStory: async (input: CreateGatewayStoryInput): Promise<NormalStory> => {
+    const normalizedInput = validateGatewayStoryInput(input)
     const authorId = graphQlLongLiteral(input.authorId)
     const data = await graphQlRequest<{ createNormalStory: NormalStory }>(
       `mutation CreateNormalStory($content: String!, $media: MediaInput) {
@@ -942,7 +1052,7 @@ export const api = {
           id content create media { id type url }
         }
       }`,
-      { content: input.content, media: input.media ?? null },
+      { content: normalizedInput.content, media: normalizedInput.media ?? null },
     )
     return {
       ...data.createNormalStory,
@@ -952,6 +1062,7 @@ export const api = {
     }
   },
   createShareStory: async (authorIdValue: string, sourceIdValue: string, content: string): Promise<SharedStory> => {
+    const normalizedContent = validateTextInput(content, { field: 'story', max: INPUT_LIMITS.story }).value
     const authorId = graphQlLongLiteral(authorIdValue)
     const sourceId = graphQlLongLiteral(sourceIdValue)
     const data = await graphQlRequest<{ createShareStory: SharedStory }>(
@@ -960,7 +1071,7 @@ export const api = {
           ${HOME_STORY_FIELDS}
         }
       }`,
-      { content },
+      { content: normalizedContent },
     )
     return normalizeStory(data.createShareStory) as SharedStory
   },

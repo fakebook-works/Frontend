@@ -11,6 +11,7 @@ vi.mock('./client', () => ({
 }))
 
 import { GROUP_MEMBERSHIP_CHANGED_EVENT, type GroupMembershipChangedDetail } from '../lib/groupMembershipEvents'
+import { InputValidationError } from '../lib/inputValidation'
 import { socialApi } from './social'
 
 describe('SocialGraph Gateway adapter', () => {
@@ -653,5 +654,87 @@ describe('SocialGraph Gateway adapter', () => {
     expect(query).toContain('updateComment(input: { id: 9007199254740993011, content: $content })')
     expect(query).not.toContain('userId')
     expect(variables).toEqual({ content: 'edited' })
+  })
+
+  it('sends the same canonical text that passed client validation', async () => {
+    gatewayGraphQl
+      .mockResolvedValueOnce({ createGroup: { id: '61', name: 'Nhóm mới', bio: 'Dòng 1\nDòng 2', privacy: 0 } })
+      .mockResolvedValueOnce({ updateComment: { id: '81' } })
+
+    await socialApi.createGroup('71', {
+      name: '  Nho\u0301m\r\n  mới  ',
+      bio: ' Dòng 1\r\nDòng 2 ',
+      privacy: 0,
+    })
+    await socialApi.updateComment('81', ' e\u0301\r\n ')
+
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ name: 'Nhóm mới', bio: 'Dòng 1\nDòng 2', privacy: 0 })
+    expect(gatewayGraphQl.mock.calls[1][1]).toEqual({ content: 'é' })
+  })
+
+  it('rejects invalid profile, group and content payloads before Gateway GraphQL', async () => {
+    await expect(socialApi.updateProfile('1', { name: 'x'.repeat(51) })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.createGroup('1', { name: 'x'.repeat(101), bio: '', privacy: 0 })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.updateGroup('2', { bio: 'x'.repeat(2_001) })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.createGroupPost('1', '2', { content: 'x'.repeat(63_207) })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.createComment('1', '2', 'x'.repeat(8_001))).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.sharePost('1', '2', 'x'.repeat(63_207), 0)).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.createReel('1', {
+      content: 'x'.repeat(2_201),
+      privacy: 0,
+      aspectRatio: 1,
+      focalPointX: 0.5,
+      focalPointY: 0.5,
+      media: { type: 1, url: '/reel.mp4' },
+    })).rejects.toBeInstanceOf(InputValidationError)
+
+    expect(gatewayGraphQl).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid post, reel, share, and update privacy before Gateway GraphQL', async () => {
+    await expect(socialApi.updatePost('31', { privacy: 4 })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.sharePost('1', '2', 'share', -1)).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.createReel('1', {
+      content: 'reel',
+      privacy: 1.5,
+      aspectRatio: 1,
+      focalPointX: 0.5,
+      focalPointY: 0.5,
+      media: { type: 1, url: '/reel.mp4' },
+    })).rejects.toBeInstanceOf(InputValidationError)
+
+    expect(gatewayGraphQl).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid profile privacy, birthdate, gender, and image references before Gateway GraphQL', async () => {
+    await expect(socialApi.updateProfile('1', { name: 'Valid', privacy: 2 })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.updateProfile('1', { name: 'Valid', birthdate: '2024-02-30' })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.updateProfile('1', { name: 'Valid', birthdate: '2999-01-01' })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.updateProfile('1', { name: 'Valid', gender: 'unknown' as unknown as boolean })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.updateProfile('1', { name: 'Valid', avatar: 'javascript:alert(1)' })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.updateGroup('2', { background: 'data:image/png;base64,AAAA' })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.changeUserAvatar('1', '/media/avatar.jpg', 'blob:unsafe', 0)).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.changeUserBackground('1', '/media/cover.jpg', null, 4)).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.changeGroupAvatar('2', 'javascript:alert(1)')).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.changeGroupBackground('2', '/media/cover.jpg', 'data:image/png;base64,AAAA')).rejects.toBeInstanceOf(InputValidationError)
+
+    expect(gatewayGraphQl).not.toHaveBeenCalled()
+  })
+
+  it('rejects non-finite or out-of-range Reel presentation values before Gateway GraphQL', async () => {
+    const validInput = {
+      content: 'reel',
+      privacy: 0,
+      aspectRatio: 1,
+      focalPointX: 0.5,
+      focalPointY: 0.5,
+      media: { type: 1, url: '/reel.mp4' },
+    }
+    await expect(socialApi.createReel('1', { ...validInput, aspectRatio: Number.NaN })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.createReel('1', { ...validInput, aspectRatio: (16 / 9) + 0.001 })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.createReel('1', { ...validInput, focalPointX: -0.001 })).rejects.toBeInstanceOf(InputValidationError)
+    await expect(socialApi.createReel('1', { ...validInput, focalPointY: Number.POSITIVE_INFINITY })).rejects.toBeInstanceOf(InputValidationError)
+
+    expect(gatewayGraphQl).not.toHaveBeenCalled()
   })
 })

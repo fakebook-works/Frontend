@@ -1,8 +1,18 @@
 export const POST_PRIVACY_VALUES = [0, 1, 2, 3] as const
 export type PostPrivacy = typeof POST_PRIVACY_VALUES[number]
+export const PROFILE_PRIVACY_VALUES = [0, 1] as const
+export type ProfilePrivacy = typeof PROFILE_PRIVACY_VALUES[number]
 
-export function isPostPrivacy(value: number): value is PostPrivacy {
-  return POST_PRIVACY_VALUES.includes(value as PostPrivacy)
+export function isPostPrivacy(value: unknown): value is PostPrivacy {
+  return typeof value === 'number'
+    && Number.isInteger(value)
+    && POST_PRIVACY_VALUES.includes(value as PostPrivacy)
+}
+
+export function isProfilePrivacy(value: unknown): value is ProfilePrivacy {
+  return typeof value === 'number'
+    && Number.isInteger(value)
+    && PROFILE_PRIVACY_VALUES.includes(value as ProfilePrivacy)
 }
 
 export function defaultPostPrivacyKey(userId: string): string {

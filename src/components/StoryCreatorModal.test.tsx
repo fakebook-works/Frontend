@@ -13,9 +13,14 @@ const apiMocks = vi.hoisted(() => ({
 const imageMocks = vi.hoisted(() => ({
   createEditedStoryImage: vi.fn(),
 }))
+const mediaValidationMocks = vi.hoisted(() => ({ validateMediaFile: vi.fn() }))
 
 vi.mock('../api/client', () => ({ api: apiMocks }))
 vi.mock('../lib/storyImage', () => imageMocks)
+vi.mock('../lib/mediaValidation', async () => ({
+  ...await vi.importActual<typeof import('../lib/mediaValidation')>('../lib/mediaValidation'),
+  validateMediaFile: mediaValidationMocks.validateMediaFile,
+}))
 vi.mock('../i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 describe('StoryCreatorModal', () => {
@@ -31,6 +36,12 @@ describe('StoryCreatorModal', () => {
     })
     apiMocks.cancelPendingMedia.mockReset().mockResolvedValue(undefined)
     imageMocks.createEditedStoryImage.mockReset().mockImplementation(async (file: File) => file)
+    mediaValidationMocks.validateMediaFile.mockReset().mockImplementation(async (file: File) => ({
+      file,
+      mime: file.type,
+      kind: file.type.startsWith('video/') ? 'video' : 'image',
+      dimensions: null,
+    }))
   })
 
   afterEach(() => {
@@ -115,6 +126,7 @@ describe('StoryCreatorModal', () => {
     render(<StoryCreatorModal open authorId="42" onCreated={vi.fn()} onClose={vi.fn()} />)
 
     fireEvent.change(screen.getByLabelText('storyChooseMedia'), { target: { files: [file] } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'publishStory' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'publishStory' }))
 
     await waitFor(() => expect(apiMocks.uploadMedia).toHaveBeenCalledWith(file))
@@ -168,6 +180,7 @@ describe('StoryCreatorModal', () => {
     render(<StoryCreatorModal open authorId="42" onCreated={vi.fn()} onClose={vi.fn()} />)
 
     fireEvent.change(screen.getByLabelText('storyChooseMedia'), { target: { files: [file] } })
+    await screen.findByRole('button', { name: 'storyZoomIn' })
     fireEvent.click(screen.getByRole('button', { name: 'storyZoomIn' }))
     fireEvent.click(screen.getByRole('button', { name: 'publishStory' }))
 
@@ -187,9 +200,20 @@ describe('StoryCreatorModal', () => {
     render(<StoryCreatorModal open authorId="42" onCreated={vi.fn()} onClose={vi.fn()} />)
 
     fireEvent.change(screen.getByLabelText('storyChooseMedia'), { target: { files: [file] } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'publishStory' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'publishStory' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('storyPublishError')
     expect(apiMocks.cancelPendingMedia).toHaveBeenCalledWith(upload)
+  })
+
+  it('blocks story text over 500 grapheme characters', () => {
+    render(<StoryCreatorModal open authorId="42" onCreated={vi.fn()} onClose={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('storyPrompt'), { target: { value: 'x'.repeat(501) } })
+
+    expect(screen.getByRole('alert')).toHaveTextContent('inputTooLong')
+    expect(screen.getByRole('button', { name: 'publishStory' })).toBeDisabled()
+    expect(apiMocks.createNormalStory).not.toHaveBeenCalled()
   })
 })

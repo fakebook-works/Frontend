@@ -1,4 +1,10 @@
 import { notifyGroupLeft } from '../lib/groupMembershipEvents'
+import { INPUT_LIMITS, InputValidationError, isAllowedBirthDateInput, normalizeMultilineInput, validateTextInput } from '../lib/inputValidation'
+import { extractMentionUserIds, parseMentionContent } from '../lib/mentions'
+import { validateMediaReferences } from '../lib/mediaValidation'
+import { decodePostContent, encodePostContent } from '../lib/postContent'
+import { isPostPrivacy, isProfilePrivacy } from '../lib/privacy'
+import { MAX_REEL_ASPECT_RATIO, MIN_REEL_ASPECT_RATIO } from '../lib/reelPresentation'
 import { gatewayGraphQl, graphQlLongLiteral } from './client'
 import type { GatewayMedia, GatewayMention, GatewayPost } from './gatewayTypes'
 import type { UserProfile, UserSummary } from './types'
@@ -88,6 +94,112 @@ export interface SocialPhoto {
   createdAt: string
   authorId: string
   groupId: string | null
+}
+
+function assertInputEntryLimit(values: readonly unknown[] | null | undefined, field: string) {
+  const actual = values?.length ?? 0
+  if (actual > INPUT_LIMITS.mentions) {
+    throw new InputValidationError('too_long', field, { max: INPUT_LIMITS.mentions, actual })
+  }
+}
+
+function visibleMentionText(content: string) {
+  return parseMentionContent(content).map((segment) => segment.type === 'text' ? segment.value : '@').join('')
+}
+
+function normalizeSocialPostContent(content: string, required: boolean) {
+  const decoded = decodePostContent(content)
+  const normalizedContent = encodePostContent(normalizeMultilineInput(decoded.text), decoded.backgroundId)
+  const normalizedDecoded = decodePostContent(normalizedContent)
+  validateTextInput(visibleMentionText(normalizedDecoded.text), {
+    field: 'post',
+    max: normalizedDecoded.hasBackgroundMetadata ? INPUT_LIMITS.backgroundPost : INPUT_LIMITS.post,
+    required,
+  })
+  assertInputEntryLimit(extractMentionUserIds(normalizedContent), 'mentions')
+  return normalizedContent
+}
+
+function normalizeMentionContent(content: string, field: string, max: number, required: boolean) {
+  const normalizedContent = normalizeMultilineInput(content)
+  validateTextInput(visibleMentionText(normalizedContent), { field, max, required })
+  assertInputEntryLimit(extractMentionUserIds(normalizedContent), 'mentions')
+  return normalizedContent
+}
+
+function assertPostPrivacy(value: unknown, field = 'privacy') {
+  if (!isPostPrivacy(value)) throw new InputValidationError('invalid_characters', field)
+}
+
+function validateImageReference(value: string, field: string) {
+  validateMediaReferences([{ type: 0, url: value }], { field, max: 1, allowedTypes: [0] })
+}
+
+function validateOptionalImageReference(value: string | null | undefined, field: string) {
+  if (value == null) return
+  validateImageReference(value, field)
+}
+
+function validateReelPresentation(aspectRatio: number, focalPointX: number, focalPointY: number) {
+  if (
+    !Number.isFinite(aspectRatio)
+    || aspectRatio < MIN_REEL_ASPECT_RATIO
+    || aspectRatio > MAX_REEL_ASPECT_RATIO
+  ) {
+    throw new InputValidationError('invalid_characters', 'aspectRatio')
+  }
+  if (!Number.isFinite(focalPointX) || focalPointX < 0 || focalPointX > 1) {
+    throw new InputValidationError('invalid_characters', 'focalPointX')
+  }
+  if (!Number.isFinite(focalPointY) || focalPointY < 0 || focalPointY > 1) {
+    throw new InputValidationError('invalid_characters', 'focalPointY')
+  }
+}
+
+function normalizeProfileTextInput(input: {
+  name?: string | null
+  avatar?: string | null
+  background?: string | null
+  bio?: string | null
+  gender?: boolean | null
+  birthdate?: string | null
+  location?: string | null
+  privacy?: number | null
+}) {
+  const normalized = { ...input }
+  if (input.name != null) {
+    normalized.name = validateTextInput(input.name, { field: 'displayName', max: INPUT_LIMITS.displayName, required: true, multiline: false }).value
+  }
+  if (input.bio != null) normalized.bio = validateTextInput(input.bio, { field: 'bio', max: INPUT_LIMITS.bio }).value
+  if (input.location != null) {
+    normalized.location = validateTextInput(input.location, { field: 'location', max: INPUT_LIMITS.location, multiline: false }).value
+  }
+  if (input.gender != null && typeof input.gender !== 'boolean') {
+    throw new InputValidationError('invalid_characters', 'gender')
+  }
+  if (input.birthdate != null && input.birthdate !== '' && !isAllowedBirthDateInput(input.birthdate)) {
+    throw new InputValidationError('invalid_characters', 'birthdate')
+  }
+  if (input.privacy != null && !isProfilePrivacy(input.privacy)) {
+    throw new InputValidationError('invalid_characters', 'privacy')
+  }
+  validateOptionalImageReference(input.avatar, 'avatar')
+  validateOptionalImageReference(input.background, 'background')
+  return normalized
+}
+
+function normalizeGroupTextInput(input: { name?: string | null; bio?: string | null; privacy?: number | null; avatar?: string | null; background?: string | null }) {
+  const normalized = { ...input }
+  if (input.name != null) {
+    normalized.name = validateTextInput(input.name, { field: 'groupName', max: INPUT_LIMITS.groupName, required: true, multiline: false }).value
+  }
+  if (input.bio != null) normalized.bio = validateTextInput(input.bio, { field: 'groupDescription', max: INPUT_LIMITS.groupDescription }).value
+  if (input.privacy != null && input.privacy !== 0 && input.privacy !== 1) {
+    throw new InputValidationError('invalid_characters', 'privacy')
+  }
+  validateOptionalImageReference(input.avatar, 'avatar')
+  validateOptionalImageReference(input.background, 'background')
+  return normalized
 }
 
 export interface SocialPage<T> {
@@ -1058,6 +1170,7 @@ export async function updateProfile(userId: string, input: {
   location?: string | null
   privacy?: number | null
 }): Promise<SocialProfile | null> {
+  const normalizedInput = normalizeProfileTextInput(input)
   const id = graphQlLongLiteral(userId)
   const data = await gatewayGraphQl<{ updateUser: ProfileGraphQl | null }>(
     `mutation UpdateProfile($avatar: String, $background: String, $name: String, $bio: String, $gender: Boolean, $birthdate: String, $location: String, $privacy: Int) {
@@ -1065,7 +1178,7 @@ export async function updateProfile(userId: string, input: {
         ${PROFILE_FIELDS}
       }
     }`,
-    { ...input },
+    normalizedInput,
   )
   return data.updateUser ? profileFromGraphQl(data.updateUser) : null
 }
@@ -1154,23 +1267,25 @@ export async function unblockUser(viewerId: string, blockedUserId: string): Prom
 }
 
 export async function createGroup(viewerId: string, input: { name: string; bio: string; privacy: number }): Promise<SocialGroup> {
+  const normalizedInput = normalizeGroupTextInput(input)
   const viewer = graphQlLongLiteral(viewerId)
   const data = await gatewayGraphQl<{ createGroup: Record<string, unknown> }>(
     `mutation CreateGroup($name: String!, $bio: String, $privacy: Int!) {
       createGroup(input: { creatorId: ${viewer}, name: $name, bio: $bio, privacy: $privacy }) { ${GROUP_FIELDS} }
     }`,
-    input,
+    normalizedInput,
   )
   return groupFromGraphQl(data.createGroup)
 }
 
 export async function updateGroup(groupId: string, input: { name?: string | null; bio?: string | null; privacy?: number | null; avatar?: string | null; background?: string | null }): Promise<SocialGroup | null> {
+  const normalizedInput = normalizeGroupTextInput(input)
   const group = graphQlLongLiteral(groupId)
   const data = await gatewayGraphQl<{ updateGroup: Record<string, unknown> | null }>(
     `mutation UpdateGroup($name: String, $bio: String, $privacy: Int, $avatar: String, $background: String) {
       updateGroup(input: { id: ${group}, name: $name, bio: $bio, privacy: $privacy, avatar: $avatar, background: $background }) { ${GROUP_FIELDS} }
     }`,
-    input,
+    normalizedInput,
   )
   return data.updateGroup ? groupFromGraphQl(data.updateGroup) : null
 }
@@ -1188,6 +1303,9 @@ export async function changeUserAvatar(
   privacy: number | null = null,
   source: ProfileAvatarSource | null = null,
 ): Promise<SocialProfile | null> {
+  validateImageReference(avatarUrl, 'avatarUrl')
+  validateOptionalImageReference(originalUrl, 'originalUrl')
+  if (privacy != null) assertPostPrivacy(privacy)
   const user = graphQlLongLiteral(userId)
   const sourceArguments = source
     ? `, sourceContentId: ${graphQlLongLiteral(source.contentId)}, sourceMediaId: ${graphQlLongLiteral(source.mediaId)}`
@@ -1202,6 +1320,9 @@ export async function changeUserAvatar(
 }
 
 export async function changeUserBackground(userId: string, backgroundUrl: string, originalUrl: string | null = null, privacy: number | null = null): Promise<SocialProfile | null> {
+  validateImageReference(backgroundUrl, 'backgroundUrl')
+  validateOptionalImageReference(originalUrl, 'originalUrl')
+  if (privacy != null) assertPostPrivacy(privacy)
   const user = graphQlLongLiteral(userId)
   const data = await gatewayGraphQl<{ changeUserBackground: ProfileGraphQl | null }>(
     `mutation ChangeUserBackground($backgroundUrl: String!, $originalUrl: String, $privacy: Int) {
@@ -1229,6 +1350,8 @@ export async function removeUserBackground(userId: string): Promise<SocialProfil
 }
 
 export async function changeGroupAvatar(groupId: string, avatarUrl: string, originalUrl: string | null = null): Promise<SocialGroup | null> {
+  validateImageReference(avatarUrl, 'avatarUrl')
+  validateOptionalImageReference(originalUrl, 'originalUrl')
   const group = graphQlLongLiteral(groupId)
   const data = await gatewayGraphQl<{ changeGroupAvatar: Record<string, unknown> | null }>(
     `mutation ChangeGroupAvatar($avatarUrl: String!, $originalUrl: String) { changeGroupAvatar(groupId: ${group}, avatarUrl: $avatarUrl, originalUrl: $originalUrl) { ${GROUP_FIELDS} } }`,
@@ -1238,6 +1361,8 @@ export async function changeGroupAvatar(groupId: string, avatarUrl: string, orig
 }
 
 export async function changeGroupBackground(groupId: string, backgroundUrl: string, originalUrl: string | null = null): Promise<SocialGroup | null> {
+  validateImageReference(backgroundUrl, 'backgroundUrl')
+  validateOptionalImageReference(originalUrl, 'originalUrl')
   const group = graphQlLongLiteral(groupId)
   const data = await gatewayGraphQl<{ changeGroupBackground: Record<string, unknown> | null }>(
     `mutation ChangeGroupBackground($backgroundUrl: String!, $originalUrl: String) { changeGroupBackground(groupId: ${group}, backgroundUrl: $backgroundUrl, originalUrl: $originalUrl) { ${GROUP_FIELDS} } }`,
@@ -1363,17 +1488,25 @@ export async function removeGroupAdmin(groupId: string, userId: string): Promise
 }
 
 export async function createReel(viewerId: string, input: { content: string; privacy: number; aspectRatio: number; focalPointX: number; focalPointY: number; media?: { type: number; url: string } | null }): Promise<SocialContent> {
+  assertPostPrivacy(input.privacy)
+  validateReelPresentation(input.aspectRatio, input.focalPointX, input.focalPointY)
+  validateMediaReferences(input.media ? [input.media] : [], { field: 'reelMedia', max: 1, allowedTypes: [1] })
+  const content = normalizeMentionContent(input.content, 'reelCaption', INPUT_LIMITS.reelCaption, false)
+  if (!input.media || input.media.type !== 1) throw new InputValidationError('required', 'reelMedia')
   const viewer = graphQlLongLiteral(viewerId)
   const data = await gatewayGraphQl<{ createReel: Record<string, unknown> }>(
     `mutation CreateReel($content: String!, $privacy: Int!, $aspectRatio: Float!, $focalPointX: Float!, $focalPointY: Float!, $media: MediaInput) {
       createReel(input: { authorId: ${viewer}, content: $content, privacy: $privacy, aspectRatio: $aspectRatio, focalPointX: $focalPointX, focalPointY: $focalPointY, media: $media }) { ${CONTENT_FIELDS} }
     }`,
-    input,
+    { ...input, content },
   )
   return { ...contentFromGraphQl(data.createReel), privacy: input.privacy, aspectRatio: input.aspectRatio, focalPointX: input.focalPointX, focalPointY: input.focalPointY }
 }
 
 export async function createGroupPost(viewerId: string, groupId: string, input: { content: string; media?: Array<{ type: number; url: string }>; taggedUserIds?: string[] }): Promise<SocialContent> {
+  validateMediaReferences(input.media, { field: 'media', allowedTypes: [0, 1] })
+  const content = normalizeSocialPostContent(input.content, (input.media?.length ?? 0) === 0)
+  assertInputEntryLimit(input.taggedUserIds, 'mentions')
   const viewer = graphQlLongLiteral(viewerId)
   const group = graphQlLongLiteral(groupId)
   const taggedUserIds = [...new Set(input.taggedUserIds ?? [])].map(graphQlLongLiteral).join(', ')
@@ -1381,18 +1514,21 @@ export async function createGroupPost(viewerId: string, groupId: string, input: 
     `mutation CreateGroupPost($content: String!, $media: [MediaInput!]) {
       createGroupPost(input: { authorId: ${viewer}, groupId: ${group}, content: $content, media: $media, taggedUserIds: [${taggedUserIds}] }) { ${CONTENT_FIELDS} }
     }`,
-    { content: input.content, media: input.media ?? null },
+    { content, media: input.media ?? null },
   )
   return contentFromGraphQl(data.createGroupPost)
 }
 
 export async function updatePost(postId: string, input: UpdatePostValues): Promise<SocialContent | null> {
+  if (input.privacy != null) assertPostPrivacy(input.privacy)
+  validateMediaReferences(input.media, { field: 'media', allowedTypes: [0, 1] })
+  const normalizedInput = { ...input, ...(input.content != null ? { content: normalizeSocialPostContent(input.content, false) } : {}) }
   const post = graphQlLongLiteral(postId)
   const data = await gatewayGraphQl<{ updatePost: Record<string, unknown> | null }>(
     `mutation UpdatePost($privacy: Int, $content: String, $media: [MediaInput!]) {
       updatePost(input: { id: ${post}, privacy: $privacy, content: $content, media: $media }) { ${CONTENT_FIELDS} }
     }`,
-    { ...input },
+    normalizedInput,
   )
   return data.updatePost ? contentFromGraphQl(data.updatePost) : null
 }
@@ -1404,12 +1540,13 @@ export async function deleteContent(contentId: string): Promise<boolean> {
 }
 
 export async function updateComment(commentId: string, content: string): Promise<boolean> {
+  const normalizedContent = normalizeMentionContent(content, 'comment', INPUT_LIMITS.comment, false)
   const comment = graphQlLongLiteral(commentId)
   const data = await gatewayGraphQl<{ updateComment: { id: string } | null }>(
     `mutation UpdateComment($content: String!) {
       updateComment(input: { id: ${comment}, content: $content }) { id }
     }`,
-    { content },
+    { content: normalizedContent },
   )
   return data.updateComment !== null
 }
@@ -1491,18 +1628,22 @@ export async function unsaveContent(viewerId: string, targetId: string): Promise
 }
 
 export async function createComment(viewerId: string, targetId: string, content: string, media: { type: number; url: string } | null = null): Promise<SocialContent> {
+  validateMediaReferences(media ? [media] : [], { field: 'commentMedia', max: 1, allowedTypes: [0, 1] })
+  const normalizedContent = normalizeMentionContent(content, 'comment', INPUT_LIMITS.comment, media == null)
   const viewer = graphQlLongLiteral(viewerId)
   const target = graphQlLongLiteral(targetId)
   const data = await gatewayGraphQl<{ createComment: Record<string, unknown> }>(
     `mutation CreateComment($content: String!, $media: MediaInput) {
       createComment(input: { authorId: ${viewer}, targetId: ${target}, content: $content, media: $media }) { ${CONTENT_FIELDS} }
     }`,
-    { content, media },
+    { content: normalizedContent, media },
   )
   return contentFromGraphQl(data.createComment)
 }
 
 export async function sharePost(viewerId: string, sourceId: string, content: string, privacy: number, destinationGroupId: string | null = null): Promise<SocialContent> {
+  assertPostPrivacy(privacy)
+  const normalizedContent = normalizeSocialPostContent(content, false)
   const viewer = graphQlLongLiteral(viewerId)
   const source = graphQlLongLiteral(sourceId)
   const destination = destinationGroupId ? graphQlLongLiteral(destinationGroupId) : 'null'
@@ -1510,7 +1651,7 @@ export async function sharePost(viewerId: string, sourceId: string, content: str
     `mutation SharePost($content: String!, $privacy: Int!) {
       sharePost(input: { authorId: ${viewer}, sourceId: ${source}, content: $content, privacy: $privacy, destinationGroupId: ${destination} }) { ${CONTENT_FIELDS} }
     }`,
-    { content, privacy },
+    { content: normalizedContent, privacy },
   )
   return contentFromGraphQl(data.sharePost)
 }

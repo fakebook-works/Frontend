@@ -5,6 +5,9 @@ import type { MessengerConversationDto, MessengerParticipantDto, UserSummary } f
 import { AnchoredMenuPortal } from '../../components/AnchoredMenuPortal'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
+import { useI18n } from '../../i18n'
+import { INPUT_LIMITS, inputValidationMessage, validateTextInput } from '../../lib/inputValidation'
+import { PROFILE_IMAGE_ACCEPT, PROFILE_IMAGE_MIME_TYPES, mediaValidationMessage, validateMediaFile } from '../../lib/mediaValidation'
 import { useFriendSearch } from '../../lib/useFriendSearch'
 import { useInlineImageCrop } from '../../lib/useInlineImageCrop'
 import './GroupConversationManager.css'
@@ -52,6 +55,7 @@ export function GroupConversationManager({
   onRemoved,
   onOpenProfile,
 }: GroupConversationManagerProps) {
+  const { t } = useI18n()
   const [view, setView] = useState<GroupManagerView>('menu')
   const [title, setTitle] = useState(conversation.title ?? '')
   const [memberQuery, setMemberQuery] = useState('')
@@ -62,6 +66,7 @@ export function GroupConversationManager({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const avatarSelectionSequenceRef = useRef(0)
   const crop = useInlineImageCrop(conversation.id)
   const meParticipant = conversation.participants.find((member) => member.id === me.id)
   const isAdmin = meParticipant?.role === 'ADMIN'
@@ -128,9 +133,17 @@ export function GroupConversationManager({
   }
 
   async function saveGroup() {
-    const nextTitle = title.trim()
-    if (!nextTitle) {
-      setError('Tên nhóm không được để trống.')
+    let nextTitle: string
+    try {
+      const validated = validateTextInput(title, {
+        field: 'groupTitle',
+        max: INPUT_LIMITS.messengerGroupTitle,
+        required: true,
+        multiline: false,
+      })
+      nextTitle = validated.value
+    } catch (validationError) {
+      setError(inputValidationMessage(validationError, t))
       return
     }
     setBusy(true)
@@ -159,6 +172,20 @@ export function GroupConversationManager({
     } finally {
       crop.setBusy(false)
       setBusy(false)
+    }
+  }
+
+  async function chooseAvatarFile(file: File | undefined) {
+    if (!file) return
+    const requestId = ++avatarSelectionSequenceRef.current
+    setError(null)
+    try {
+      await validateMediaFile(file, { allowedMimeTypes: PROFILE_IMAGE_MIME_TYPES })
+      if (requestId !== avatarSelectionSequenceRef.current) return
+      crop.start(file, false)
+    } catch (validationError) {
+      if (requestId !== avatarSelectionSequenceRef.current) return
+      setError(mediaValidationMessage(validationError, t))
     }
   }
 
@@ -274,9 +301,9 @@ export function GroupConversationManager({
         {view === 'edit' && <>
           {renderHeader('Chỉnh sửa nhóm')}
           <div className="group-manager-edit">
-            <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={(event) => {
+            <input ref={fileInputRef} type="file" accept={PROFILE_IMAGE_ACCEPT} hidden onChange={(event) => {
               const file = event.currentTarget.files?.[0]
-              if (file) crop.start(file, false)
+              void chooseAvatarFile(file)
               event.currentTarget.value = ''
             }} />
             <button type="button" className="group-manager-avatar-picker" onClick={() => fileInputRef.current?.click()} disabled={busy} aria-label="Chọn ảnh nhóm">
@@ -304,7 +331,7 @@ export function GroupConversationManager({
             <p>Nhấn vào ảnh để chọn ảnh mới. Kéo ảnh để chọn vị trí mong muốn.</p>
             <label className="group-manager-title-field">
               <span>Tên nhóm</span>
-              <input value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} disabled={busy} />
+            <input value={title} onChange={(event) => { setTitle(event.target.value); setError(null) }} disabled={busy} />
             </label>
           </div>
           {error && <p className="group-manager-error" role="alert">{error}</p>}

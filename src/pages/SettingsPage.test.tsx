@@ -77,4 +77,27 @@ describe('Account identity settings', () => {
     expect(apiMocks.updateProfile).not.toHaveBeenCalled()
     expect(authApiMocks.changeEmail).not.toHaveBeenCalled()
   })
+
+  it('rejects malformed email before either profile mutation runs', async () => {
+    render(<SettingsPage initialSection="profile" />)
+    fireEvent.change(await screen.findByLabelText('emailAddress'), { target: { value: 'invalid-email' } })
+    fireEvent.click(screen.getByRole('button', { name: 'saveChanges' }))
+
+    expect(await screen.findByText('emailInvalid')).toBeInTheDocument()
+    expect(apiMocks.updateProfile).not.toHaveBeenCalled()
+    expect(authApiMocks.changeEmail).not.toHaveBeenCalled()
+  })
+
+  it('normalizes the display name and exposes the agreed field limits', async () => {
+    render(<SettingsPage initialSection="profile" />)
+    const name = await screen.findByLabelText('nameLabel')
+    const email = screen.getByLabelText('emailAddress')
+    expect(name).toHaveAttribute('maxlength', '50')
+    expect(email).toHaveAttribute('maxlength', '254')
+
+    fireEvent.change(name, { target: { value: '  Owner   Updated  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'saveChanges' }))
+
+    await waitFor(() => expect(apiMocks.updateProfile).toHaveBeenCalledWith('1', expect.objectContaining({ name: 'Owner Updated' })))
+  })
 })

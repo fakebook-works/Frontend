@@ -1,10 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, visibleRecommendationPosts } from '../api/client'
 import type { GatewayPost, GatewayStory, GatewayTaggedUser, SharedStory, StoryBucket, VisitedGroup } from '../api/gatewayTypes'
 import { messengerApi, type MessengerPresenceDto } from '../api/messenger'
 import { searchApi } from '../api/search'
-import { socialApi, type ContentEngagement, type SocialProfile } from '../api/social'
+import { socialApi, type ContentEngagement } from '../api/social'
 import type { MediaUpload, MessengerConversationDto, UserProfile, UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { BodyPortal } from '../components/BodyPortal'
@@ -29,6 +29,8 @@ import { useAuth } from '../lib/auth'
 import { clipboardImageFiles } from '../lib/clipboardMedia'
 import { groupVisitRelativeTime } from '../lib/format'
 import { GROUP_MEMBERSHIP_CHANGED_EVENT, leftGroupIdFromEvent } from '../lib/groupMembershipEvents'
+import { INPUT_LIMITS, InputValidationError, inputValidationMessage, validateTextInput } from '../lib/inputValidation'
+import { MEDIA_LIMITS, POST_MEDIA_ACCEPT, POST_MEDIA_MIME_TYPES, mediaValidationMessage, validateMediaFiles } from '../lib/mediaValidation'
 import {
   POST_BACKGROUND_PRESETS,
   decodePostContent,
@@ -47,8 +49,7 @@ import { contentOverlayHref, locationFromHref, mediaOverlayHref, parseOverlayRou
 import { stageOverlayContent } from '../lib/overlayContentCache'
 
 const FEED_PAGE_SIZE = 12
-const MAX_POST_STANDARD_MEDIA_BYTES = 25 * 1024 * 1024
-const MAX_POST_VIDEO_BYTES = 500 * 1024 * 1024
+export const HOME_REFRESH_EVENT = 'fakebook:home-refresh'
 const loadTagPeoplePicker = () => import('../components/TagPeoplePicker')
 const TagPeoplePicker = lazy(loadTagPeoplePicker)
 const loadComposerMediaPreview = () => import('../components/ComposerMediaPreview')
@@ -74,8 +75,9 @@ function removeStoryFromBucket(bucket: StoryBucket, storyId: string): StoryBucke
   return stories.length > 0 ? { ...bucket, latestCreate: stories[0].create, stories } : null
 }
 
-export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId = null, onDetailClose, onNavigate, onOpenReel, onMessage, onNewConversation, onConversation }: {
+export function GatewayHomePage({ profile = null, friends: providedFriends, refreshToken = 0, detailPostId = null, onDetailClose, onNavigate, onOpenReel, onMessage, onNewConversation, onConversation }: {
   profile?: UserProfile | null
+  friends?: UserSummary[]
   refreshToken?: number
   detailPostId?: string | null
   onDetailClose?: () => void
@@ -100,7 +102,8 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
   const [groups, setGroups] = useState<VisitedGroup[]>([])
   const [groupsLoading, setGroupsLoading] = useState(true)
   const [groupsError, setGroupsError] = useState<string | null>(null)
-  const [friends, setFriends] = useState<SocialProfile[]>([])
+  const [loadedFriends, setLoadedFriends] = useState<UserSummary[]>([])
+  const friends = providedFriends ?? loadedFriends
   const [contacts, setContacts] = useState<UserSummary[]>([])
   // Keep the conversation that produced each contact.  A direct conversation can
   // remain valid after the friendship relationship changes, so opening a contact
@@ -119,12 +122,30 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
   const [detailPhotoViewer, setDetailPhotoViewer] = useState<{ contentId: string; mediaId: string; mediaUrl: string; initialPost?: GatewayPost; initialPlaybackTime?: number } | null>(null)
   const contactSearchSequence = useRef(0)
   const locallyCreatedPostIds = useRef(new Set<string>())
-  const feedMoreRequestRef = useRef(false)
+  const feedRequestSequenceRef = useRef(0)
+  const feedGenerationRef = useRef(0)
+  const activeFeedResetRequestRef = useRef<number | null>(null)
+  const feedMoreRequestRef = useRef<number | null>(null)
   const feedSentinelRef = useRef<HTMLDivElement>(null)
   const leftRailRef = useRef<HTMLElement>(null)
   const rightRailRef = useRef<HTMLElement>(null)
-  const initialLoadKeyRef = useRef<string | null>(null)
+  const initialUserIdRef = useRef<string | null>(null)
+  const handledRefreshTokenRef = useRef(0)
   const groupsRequestRef = useRef(0)
+  const externalHandlersRef = useRef({ onNavigate, onOpenReel, onMessage })
+  externalHandlersRef.current = { onNavigate, onOpenReel, onMessage }
+  const navigateFromFeed = useCallback((path: string) => externalHandlersRef.current.onNavigate?.(path), [])
+  const openReelFromFeed = useCallback((reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => {
+    const handlers = externalHandlersRef.current
+    if (handlers.onOpenReel) handlers.onOpenReel(reel)
+    else handlers.onNavigate?.(reelOverlayHref(reel.id))
+  }, [])
+  const messageFromFeed = useCallback((profileId: string) => {
+    const result = externalHandlersRef.current.onMessage?.(profileId)
+    return result ?? Promise.resolve()
+  }, [])
+  const stableFeedNavigate = onNavigate ? navigateFromFeed : undefined
+  const stableFeedMessage = onMessage ? messageFromFeed : undefined
 
   useEffect(() => {
     const preloadInteractionChunks = () => {
@@ -142,14 +163,26 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
 
   const loadFeed = useCallback(async (reset = false) => {
     if (!user) return
-    if (!reset && feedMoreRequestRef.current) return
-    if (!reset) feedMoreRequestRef.current = true
-    if (reset) setFeedLoading(true)
-    else setFeedMoreBusy(true)
+    if (!reset && (feedMoreRequestRef.current !== null || activeFeedResetRequestRef.current !== null)) return
+    const requestId = ++feedRequestSequenceRef.current
+    const generation = reset ? feedGenerationRef.current + 1 : feedGenerationRef.current
+    if (reset) {
+      feedGenerationRef.current = generation
+      activeFeedResetRequestRef.current = requestId
+      feedMoreRequestRef.current = null
+      setFeedLoading(true)
+      setFeedMoreBusy(false)
+    } else {
+      feedMoreRequestRef.current = requestId
+      setFeedMoreBusy(true)
+    }
+    const requestIsCurrent = () => generation === feedGenerationRef.current
+      && (reset ? activeFeedResetRequestRef.current === requestId : feedMoreRequestRef.current === requestId)
     setFeedError(null)
     try {
       const offset = reset ? 0 : feedOffset
       const items = await api.recommendedFeed(user.userId, offset, FEED_PAGE_SIZE)
+      if (!requestIsCurrent()) return
       const nextPosts = visibleRecommendationPosts(items)
       setPosts((current) => {
         const localPosts = reset ? current.filter((post) => locallyCreatedPostIds.current.has(post.id)) : current
@@ -159,11 +192,15 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
       setFeedOffset(offset + items.length)
       setFeedHasMore(items.length === FEED_PAGE_SIZE)
     } catch {
-      setFeedError(t('feedLoadError'))
+      if (requestIsCurrent()) setFeedError(t('feedLoadError'))
     } finally {
-      setFeedLoading(false)
-      setFeedMoreBusy(false)
-      if (!reset) feedMoreRequestRef.current = false
+      if (reset && activeFeedResetRequestRef.current === requestId) {
+        activeFeedResetRequestRef.current = null
+        if (generation === feedGenerationRef.current) setFeedLoading(false)
+      } else if (!reset && feedMoreRequestRef.current === requestId) {
+        feedMoreRequestRef.current = null
+        if (generation === feedGenerationRef.current) setFeedMoreBusy(false)
+      }
     }
   }, [feedOffset, t, user])
 
@@ -290,31 +327,48 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
   }, [user])
 
   const loadFriends = useCallback(async () => {
-    if (!user) return
-    try { setFriends(await socialApi.getRelationProfiles(user.userId, 0, 100)) } catch { setFriends([]) }
-  }, [user])
+    if (!user || providedFriends !== undefined) return
+    try { setLoadedFriends(await socialApi.getRelationProfiles(user.userId, 0, 100)) } catch { setLoadedFriends([]) }
+  }, [providedFriends, user])
 
   useEffect(() => {
-    const loadKey = user?.userId ? `${user.userId}:${refreshToken}` : null
-    if (!loadKey || initialLoadKeyRef.current === loadKey) return
-    initialLoadKeyRef.current = loadKey
-    if (refreshToken > 0) {
-      document.documentElement.scrollTop = 0
-      document.body.scrollTop = 0
-      if (leftRailRef.current) leftRailRef.current.scrollTop = 0
-      if (rightRailRef.current) rightRailRef.current.scrollTop = 0
-      setContactMode('contacts')
-      setContactQuery('')
-    }
+    const userId = user?.userId ?? null
+    if (!userId || initialUserIdRef.current === userId) return
+    initialUserIdRef.current = userId
+    handledRefreshTokenRef.current = refreshToken
     void loadFeed(true)
     void loadStories()
     void loadGroups()
     void loadContacts()
     void loadGroupConversations()
     void loadFriends()
-    // Initial load is tied to the authenticated identity; clicking active Home increments refreshToken.
+    // Initial data is tied only to the authenticated identity. An active-Home
+    // refresh is intentionally handled below so it does not refetch every rail.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshToken, user?.userId])
+  }, [user?.userId])
+
+  const refreshHomeFeed = useCallback(() => {
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+    if (leftRailRef.current) leftRailRef.current.scrollTop = 0
+    if (rightRailRef.current) rightRailRef.current.scrollTop = 0
+    void loadFeed(true)
+    // Keep Stories, shortcuts, contacts, conversations, and friends mounted.
+    // Re-fetching all six sources on a navigation click caused a large render
+    // burst and made the Home button feel blocked.
+  }, [loadFeed])
+
+  useEffect(() => {
+    const refresh = () => refreshHomeFeed()
+    window.addEventListener(HOME_REFRESH_EVENT, refresh)
+    return () => window.removeEventListener(HOME_REFRESH_EVENT, refresh)
+  }, [refreshHomeFeed])
+
+  useEffect(() => {
+    if (refreshToken <= 0 || handledRefreshTokenRef.current === refreshToken) return
+    handledRefreshTokenRef.current = refreshToken
+    refreshHomeFeed()
+  }, [refreshHomeFeed, refreshToken])
 
   useEffect(() => {
     const upsertConversation = (event: Event) => {
@@ -525,10 +579,10 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
             <button type="button" className="btn-soft sm" onClick={() => void loadFeed(true)} disabled={feedLoading}>{t('refresh')}</button>
           </div>
           {feedError && <div className="card state-card"><p className="form-error">{feedError}</p><button type="button" className="btn-primary" onClick={() => void loadFeed(true)}>{t('tryAgain')}</button></div>}
-          {feedLoading ? <HomeFeedSkeleton label={t('loadingMore')} /> : !feedError && posts.length === 0 ? (
+          {feedLoading && posts.length === 0 ? <HomeFeedSkeleton label={t('loadingMore')} /> : !feedError && posts.length === 0 ? (
             <div className="card state-card"><h2>{t('noRecommendedPosts')}</h2><p>{t('noRecommendedPostsDesc')}</p></div>
           ) : (
-          posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={user.userId} onNavigate={onNavigate} onOpenReel={(reel) => onOpenReel ? onOpenReel(reel) : onNavigate?.(reelOverlayHref(reel.id))} onMessage={onMessage} onStoryCreated={applyCreatedStory} />)
+            posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={user.userId} onNavigate={stableFeedNavigate} onOpenReel={openReelFromFeed} onMessage={stableFeedMessage} onStoryCreated={applyCreatedStory} />)
           )}
             {!feedLoading && !feedError && posts.length > 0 && (
               <div ref={feedSentinelRef} className="feed-more feed-auto-loader" aria-live="polite">
@@ -612,6 +666,11 @@ interface ComposerMediaFile {
   previewUrl: string
 }
 
+interface ComposerMediaValidationRequest {
+  epoch: number
+  reservedSlots: number
+}
+
 function fileIdentity(file: File) {
   return `${file.name}\u0000${file.size}\u0000${file.lastModified}`
 }
@@ -660,6 +719,7 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   const [activePicker, setActivePicker] = useState<'privacy' | 'background' | 'emoji' | null>(null)
   const [selectedFiles, setSelectedFiles] = useState<ComposerMediaFile[]>([])
   const [fileKey, setFileKey] = useState(0)
+  const [mediaValidationPending, setMediaValidationPending] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [taggedPeople, setTaggedPeople] = useState<UserSummary[]>([])
@@ -667,6 +727,10 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   const [mentionCaret, setMentionCaret] = useState(0)
   const [tagPickerOpen, setTagPickerOpen] = useState(false)
   const selectedFilesRef = useRef<ComposerMediaFile[]>([])
+  const mediaSelectionEpochRef = useRef(0)
+  const mediaReplaceGenerationRef = useRef(0)
+  const mediaValidationRequestSequenceRef = useRef(0)
+  const pendingMediaValidationRequestsRef = useRef(new Map<number, ComposerMediaValidationRequest>())
   const privacyPickerRef = useRef<HTMLDivElement>(null)
   const backgroundPickerRef = useRef<HTMLDivElement>(null)
   const emojiPickerRef = useRef<HTMLDivElement>(null)
@@ -678,7 +742,12 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
     selectedFilesRef.current = selectedFiles
   }, [selectedFiles])
 
-  useEffect(() => () => revokeFilePreviews(selectedFilesRef.current), [])
+  useEffect(() => () => {
+    mediaSelectionEpochRef.current += 1
+    mediaReplaceGenerationRef.current += 1
+    pendingMediaValidationRequestsRef.current.clear()
+    revokeFilePreviews(selectedFilesRef.current)
+  }, [])
 
   useEffect(() => {
     if (externalOpenRequest <= 0) return
@@ -736,6 +805,24 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   const effectivePrivacy: PostPrivacy = groupMode ? groupPrivacy === 0 ? 0 : 2 : privacy
   const effectivePrivacyLabel = groupMode ? groupPrivacy === 0 ? t('publicGroup') : t('privateGroup') : privacyLabel
   const selectedBackground = selectedFiles.length === 0 ? getPostBackgroundPreset(backgroundId) : null
+  const postInputError = useMemo(() => {
+    try {
+      validateTextInput(content, {
+        field: 'post',
+        max: selectedBackground ? INPUT_LIMITS.backgroundPost : INPUT_LIMITS.post,
+      })
+      const mentionedUserIds = extractMentionUserIds(serializeMentionContent(content, mentionEntities))
+      if (mentionedUserIds.length > INPUT_LIMITS.mentions || taggedPeople.length > INPUT_LIMITS.mentions) {
+        throw new InputValidationError('too_long', 'mentions', {
+          max: INPUT_LIMITS.mentions,
+          actual: Math.max(mentionedUserIds.length, taggedPeople.length),
+        })
+      }
+      return null
+    } catch (validationError) {
+      return inputValidationMessage(validationError, t)
+    }
+  }, [content, mentionEntities, selectedBackground, t, taggedPeople.length])
   const composerPlaceholder = t('postComposerPersonalPlaceholder', { name: displayName })
   const postEditorClass = selectedBackground
     ? 'mention-compose-field home-post-editor has-background'
@@ -798,8 +885,30 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
     setReelOpen(true)
   }
 
+  function invalidatePendingMediaValidation() {
+    mediaSelectionEpochRef.current += 1
+    mediaReplaceGenerationRef.current += 1
+    pendingMediaValidationRequestsRef.current.clear()
+    setMediaValidationPending(false)
+  }
+
+  function finishMediaValidationRequest(requestId: number) {
+    if (!pendingMediaValidationRequestsRef.current.delete(requestId)) return
+    setMediaValidationPending(pendingMediaValidationRequestsRef.current.size > 0)
+  }
+
+  function reservedMediaSlots(epoch: number) {
+    let reservedSlots = 0
+    for (const request of pendingMediaValidationRequestsRef.current.values()) {
+      if (request.epoch === epoch) reservedSlots += request.reservedSlots
+    }
+    return reservedSlots
+  }
+
   function clearFiles() {
-    revokeFilePreviews(selectedFiles)
+    invalidatePendingMediaValidation()
+    revokeFilePreviews(selectedFilesRef.current)
+    selectedFilesRef.current = []
     setSelectedFiles([])
     setFileKey((value) => value + 1)
   }
@@ -819,51 +928,114 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   }
 
   function selectFiles(fileList: FileList | readonly File[] | null, mode: 'append' | 'replace' = 'replace') {
-    const incoming = Array.from(fileList ?? [])
-    if (incoming.length === 0) return
-    const isVideo = (file: File) => file.type.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(file.name)
-    const rejected = incoming.find((file) => file.size > (isVideo(file) ? MAX_POST_VIDEO_BYTES : MAX_POST_STANDARD_MEDIA_BYTES))
-    const accepted = incoming.filter((file) => file.size <= (isVideo(file) ? MAX_POST_VIDEO_BYTES : MAX_POST_STANDARD_MEDIA_BYTES))
-    const sizeError = rejected
-      ? isVideo(rejected) ? t('postVideoTooLarge') : t('postMediaTooLarge')
-      : null
+    if ((fileList?.length ?? 0) === 0) return
     setBackgroundId(null)
     setActivePicker(null)
-    if (accepted.length === 0) {
-      setFileKey((value) => value + 1)
-      setMessage(sizeError)
-      setOpen(true)
+    setMessage(null)
+    setOpen(true)
+    void validateAndSelectFiles(fileList, mode)
+  }
+
+  async function validateAndSelectFiles(fileList: FileList | readonly File[] | null, mode: 'append' | 'replace' = 'replace') {
+    const incoming = Array.from(fileList ?? [])
+    if (incoming.length === 0) return
+
+    let epoch = mediaSelectionEpochRef.current
+    let replaceGeneration: number | null = null
+    if (mode === 'replace') {
+      epoch = mediaSelectionEpochRef.current + 1
+      mediaSelectionEpochRef.current = epoch
+      replaceGeneration = mediaReplaceGenerationRef.current + 1
+      mediaReplaceGenerationRef.current = replaceGeneration
+      pendingMediaValidationRequestsRef.current.clear()
+      setMediaValidationPending(false)
+    }
+
+    const availableSlots = mode === 'replace'
+      ? MEDIA_LIMITS.selectionCount
+      : Math.max(
+          0,
+          MEDIA_LIMITS.selectionCount
+            - selectedFilesRef.current.length
+            - reservedMediaSlots(epoch),
+        )
+    const countExceeded = incoming.length > availableSlots
+    const candidates = incoming.slice(0, availableSlots)
+    if (candidates.length === 0) {
+      setMessage(countExceeded ? t('mediaTooManyFiles', { max: MEDIA_LIMITS.selectionCount }) : null)
       return
     }
-    if (mode === 'replace') {
-      const seen = new Set<string>()
-      const nextFiles = accepted
-        .filter((file) => {
-          const key = fileIdentity(file)
-          if (seen.has(key)) return false
-          seen.add(key)
-          return true
-        })
-        .slice(0, 10)
-        .map((file) => ({ file, previewUrl: createFilePreview(file) }))
-      revokeFilePreviews(selectedFiles)
-      setSelectedFiles(nextFiles)
-    } else {
-      const seen = new Set(selectedFiles.map((item) => fileIdentity(item.file)))
-      const additions = accepted
-        .filter((file) => {
-          const key = fileIdentity(file)
-          if (seen.has(key)) return false
-          seen.add(key)
-          return true
-        })
-        .slice(0, Math.max(0, 10 - selectedFiles.length))
-        .map((file) => ({ file, previewUrl: createFilePreview(file) }))
-      setSelectedFiles([...selectedFiles, ...additions])
+
+    const requestId = mediaValidationRequestSequenceRef.current + 1
+    mediaValidationRequestSequenceRef.current = requestId
+    pendingMediaValidationRequestsRef.current.set(requestId, {
+      epoch,
+      reservedSlots: mode === 'replace' ? MEDIA_LIMITS.selectionCount : candidates.length,
+    })
+    setMediaValidationPending(true)
+
+    try {
+    const outcomes = await validateMediaFiles(candidates, { allowedMimeTypes: POST_MEDIA_MIME_TYPES, decodeImage: false, concurrency: 2 })
+      const requestIsCurrent = epoch === mediaSelectionEpochRef.current
+        && (replaceGeneration === null || replaceGeneration === mediaReplaceGenerationRef.current)
+      if (!requestIsCurrent) return
+
+      const accepted = outcomes.flatMap((result) => result.value ? [result.file] : [])
+      const rejected = outcomes.find((result) => result.error)?.error ?? null
+      const validationMessage = rejected
+        ? mediaValidationMessage(rejected, t)
+        : countExceeded ? t('mediaTooManyFiles', { max: MEDIA_LIMITS.selectionCount }) : null
+      if (accepted.length === 0) {
+        setFileKey((value) => value + 1)
+        setMessage(validationMessage)
+        setOpen(true)
+        return
+      }
+
+      if (mode === 'replace') {
+        const seen = new Set<string>()
+        const nextFiles = accepted
+          .filter((file) => {
+            const key = fileIdentity(file)
+            if (seen.has(key)) return false
+            seen.add(key)
+            return true
+          })
+          .slice(0, MEDIA_LIMITS.selectionCount)
+          .map((file) => ({ file, previewUrl: createFilePreview(file) }))
+        revokeFilePreviews(selectedFilesRef.current)
+        selectedFilesRef.current = nextFiles
+        setSelectedFiles(nextFiles)
+      } else {
+        const seen = new Set(selectedFilesRef.current.map((item) => fileIdentity(item.file)))
+        const additions = accepted
+          .filter((file) => {
+            const key = fileIdentity(file)
+            if (seen.has(key)) return false
+            seen.add(key)
+            return true
+          })
+          .slice(0, Math.max(0, MEDIA_LIMITS.selectionCount - selectedFilesRef.current.length))
+          .map((file) => ({ file, previewUrl: createFilePreview(file) }))
+        if (additions.length > 0) {
+          selectedFilesRef.current = [...selectedFilesRef.current, ...additions]
+          setSelectedFiles((current) => {
+            const currentKeys = new Set(current.map((item) => fileIdentity(item.file)))
+            const freshAdditions = additions.filter((item) => !currentKeys.has(fileIdentity(item.file)))
+            return [...current, ...freshAdditions].slice(0, MEDIA_LIMITS.selectionCount)
+          })
+        }
+      }
+      setFileKey((value) => value + 1)
+      setMessage(validationMessage)
+      setOpen(true)
+    } catch (validationError) {
+      if (epoch === mediaSelectionEpochRef.current) {
+        setMessage(mediaValidationMessage(validationError, t))
+      }
+    } finally {
+      finishMediaValidationRequest(requestId)
     }
-    setFileKey((value) => value + 1)
-    setMessage(sizeError)
-    setOpen(true)
   }
 
   function toggleTaggedPerson(person: UserSummary) {
@@ -893,6 +1065,7 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
   }
 
   function changeMentionContent(nextContent: string, caret: number) {
+    setMessage(null)
     setMentionEntities((current) => reconcileMentionEntities(content, nextContent, current))
     setContent(nextContent)
     setMentionCaret(caret)
@@ -918,7 +1091,9 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
 
   async function submit(e: FormEvent) {
     e.preventDefault()
+    if (mediaValidationPending) return
     if (!content.trim() && files.length === 0) return setMessage(t('composeNeedContent'))
+    if (postInputError) return setMessage(postInputError)
     setBusy(true)
     setMessage(null)
     let uploaded: MediaUpload[] = []
@@ -1034,13 +1209,13 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
           <label className="home-composer-media" aria-label={t('photoVideo')} title={t('photoVideo')}>
             <Icon name="photo" size={26} />
             <span>{t('photoVideo')}</span>
-            <input key={`quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} />
+            <input key={`quick-${fileKey}`} type="file" multiple accept={POST_MEDIA_ACCEPT} onChange={(event) => selectFiles(event.target.files)} />
           </label>
           <button type="button" className="home-composer-quick-action reel" aria-label={t('createReel')} title={t('createReel')} onPointerEnter={() => void loadCreateReelModal()} onFocus={() => void loadCreateReelModal()} onClick={showReelComposer}><ReelIcon size={26} filled /></button>
         </div>}
       </div>
-      {variant === 'profile' && <div className="profile-composer-actions"><button type="button" className="live" onClick={showComposer} disabled style={{ opacity: 0.5 }}><LiveVideoIcon size={29} /><span className="profile-composer-action-label">{t('profileLiveVideo')}</span></button><label className="media"><Icon name="photo" size={26} /><span className="profile-composer-action-label">{t('photoVideo')}</span><input key={`profile-quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} /></label><button type="button" className="reel" onClick={showReelComposer}><ReelIcon size={26} filled /><span className="profile-composer-action-label">{t('profileTabReels')}</span></button></div>}
-      {variant === 'group' && <div className="profile-composer-actions group-profile-composer-actions"><button type="button" className="live" onClick={showComposer} disabled style={{ opacity: 0.5 }}><LiveVideoIcon size={29} /><span className="profile-composer-action-label">{t('profileLiveVideo')}</span></button><label className="media"><Icon name="photo" size={26} /><span className="profile-composer-action-label">{t('photoVideo')}</span><input key={`group-quick-${fileKey}`} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files)} /></label><button type="button" className="poll" onClick={showComposer} disabled style={{ opacity: 0.5 }}><PollComposerIcon size={27} /><span className="profile-composer-action-label">{t('groupPoll')}</span></button></div>}
+      {variant === 'profile' && <div className="profile-composer-actions"><button type="button" className="live" onClick={showComposer} disabled style={{ opacity: 0.5 }}><LiveVideoIcon size={29} /><span className="profile-composer-action-label">{t('profileLiveVideo')}</span></button><label className="media"><Icon name="photo" size={26} /><span className="profile-composer-action-label">{t('photoVideo')}</span><input key={`profile-quick-${fileKey}`} type="file" multiple accept={POST_MEDIA_ACCEPT} onChange={(event) => selectFiles(event.target.files)} /></label><button type="button" className="reel" onClick={showReelComposer}><ReelIcon size={26} filled /><span className="profile-composer-action-label">{t('profileTabReels')}</span></button></div>}
+      {variant === 'group' && <div className="profile-composer-actions group-profile-composer-actions"><button type="button" className="live" onClick={showComposer} disabled style={{ opacity: 0.5 }}><LiveVideoIcon size={29} /><span className="profile-composer-action-label">{t('profileLiveVideo')}</span></button><label className="media"><Icon name="photo" size={26} /><span className="profile-composer-action-label">{t('photoVideo')}</span><input key={`group-quick-${fileKey}`} type="file" multiple accept={POST_MEDIA_ACCEPT} onChange={(event) => selectFiles(event.target.files)} /></label><button type="button" className="poll" onClick={showComposer} disabled style={{ opacity: 0.5 }}><PollComposerIcon size={27} /><span className="profile-composer-action-label">{t('groupPoll')}</span></button></div>}
       {message && !open && <p className="form-error home-composer-message">{message}</p>}
     </section>}
 
@@ -1052,21 +1227,21 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
             <Avatar name={displayName} src={avatarUrl} size={36} />
             <div><div className="home-post-author-name"><strong>{displayName}<VerifiedBadge verified={isVerified} size={13} /></strong>{taggedSummary && <span className="home-tagged-summary"> {taggedSummary}</span>}</div>{groupMode ? <div className="home-post-privacy-picker group-post-fixed-privacy"><span className="home-post-privacy-control" aria-label={effectivePrivacyLabel}><PostPrivacyIcon privacy={effectivePrivacy} size={14} group /><span>{effectivePrivacyLabel}</span></span></div> : <div className="home-post-privacy-picker" ref={privacyPickerRef}><button type="button" className="home-post-privacy-control" aria-label={t('privacy')} aria-haspopup="listbox" aria-expanded={activePicker === 'privacy'} onClick={() => setActivePicker((current) => current === 'privacy' ? null : 'privacy')}><PostPrivacyIcon privacy={privacy} size={14} /><span>{privacyLabel}</span><PrivacyCaretIcon /></button>{activePicker === 'privacy' && <div className="home-post-privacy-menu" role="listbox" aria-label={t('privacy')}>{privacyOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => choosePrivacy(option.value)}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span></button>)}</div>}</div>}</div>
           </div>
-          <div className={postEditorClass} data-replicated-value={selectedFiles.length > 0 ? content || composerPlaceholder : undefined} style={selectedBackground ? { background: selectedBackground.background } : undefined}><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} autoFocus value={content} onChange={(event) => changeMentionContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onPaste={(event) => {
+          <div className={postEditorClass} data-replicated-value={selectedFiles.length > 0 ? content || composerPlaceholder : undefined} style={selectedBackground ? { background: selectedBackground.background } : undefined}><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} autoFocus value={content} aria-invalid={Boolean(postInputError) || undefined} onChange={(event) => changeMentionContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onPaste={(event) => {
             if (busy) return
             const pastedImages = clipboardImageFiles(event.clipboardData)
             if (pastedImages.length === 0) return
             event.preventDefault()
             selectFiles(pastedImages, 'append')
           }} onSelect={(event) => setMentionCaret(event.currentTarget.selectionStart ?? content.length)} placeholder={composerPlaceholder} rows={selectedFiles.length > 0 ? 1 : 6} /><MentionSuggestions text={content} people={friends} textareaRef={textareaRef} caretIndex={mentionCaret} onSelected={selectMention} />{selectedFiles.length > 0 && renderEmojiPicker(true)}</div>
-          {selectedFiles.length > 0 && <div className="home-media-preview-viewport" key={`media-scroll-${fileKey}`}><div className="home-media-preview-scroll"><Suspense fallback={<div className="home-media-preview home-media-preview-loading"><span className="spinner" /></div>}><ComposerMediaPreview items={selectedFiles} fileKey={fileKey} busy={busy} onReplace={(fileList) => selectFiles(fileList, 'replace')} onClear={clearFiles} showClear={false} /></Suspense></div><button type="button" className="home-media-preview-fixed-clear" disabled={busy} aria-label={t('removeMedia')} title={t('removeMedia')} onClick={clearFiles}><Icon name="close" size={18} /></button></div>}
+          {selectedFiles.length > 0 && <div className="home-media-preview-viewport" key={`media-scroll-${fileKey}`}><div className="home-media-preview-scroll"><Suspense fallback={<div className="home-media-preview home-media-preview-loading"><span className="spinner" /></div>}><ComposerMediaPreview items={selectedFiles} fileKey={fileKey} busy={busy || mediaValidationPending} onReplace={(fileList) => selectFiles(fileList, 'replace')} onClear={clearFiles} showClear={false} /></Suspense></div><button type="button" className="home-media-preview-fixed-clear" disabled={busy} aria-label={t('removeMedia')} title={t('removeMedia')} onClick={clearFiles}><Icon name="close" size={18} /></button></div>}
           {selectedFiles.length === 0 && <div className="home-post-style-row">
             <div className="home-post-background-picker" ref={backgroundPickerRef}><button type="button" className={selectedBackground ? 'home-post-background-toggle selected' : 'home-post-background-toggle'} style={selectedBackground ? { background: selectedBackground.background } : undefined} disabled={busy || selectedFiles.length > 0} aria-label={t('postBackground')} aria-expanded={activePicker === 'background'} onClick={() => setActivePicker((current) => current === 'background' ? null : 'background')}>{activePicker === 'background' ? <svg className="home-post-background-back-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg> : <span>Aa</span>}</button>{activePicker === 'background' && <div className="home-post-background-options"><button type="button" className={backgroundId === null ? 'none selected' : 'none'} aria-label={t('removePostBackground')} onClick={() => setBackgroundId(null)}><span aria-hidden="true">×</span></button>{POST_BACKGROUND_PRESETS.map((preset, index) => <button key={preset.id} type="button" className={backgroundId === preset.id ? 'selected' : ''} style={{ background: preset.background }} aria-label={`${t('postBackground')} ${index + 1}`} onClick={() => setBackgroundId(preset.id)} />)}</div>}</div>
             {renderEmojiPicker()}
           </div>}
-          <div className="home-add-to-post"><strong>{t('addToPost')}</strong><div className="home-add-to-post-actions"><label aria-label={t('photoVideo')} title={t('photoVideo')}><Icon name="photo" size={25} /><input key={`modal-${fileKey}`} disabled={busy} type="file" multiple accept="image/*,video/*" onChange={(event) => selectFiles(event.target.files, 'append')} /></label><button type="button" disabled={busy} aria-label={t('tagPeople')} title={t('tagPeople')} onClick={() => { setActivePicker(null); setTagPickerOpen(true) }}><Icon name="friends" size={25} /></button></div></div>
-          {message && <p className="form-error">{message}</p>}
-          <button type="submit" className="btn-primary home-post-submit" disabled={busy || (!content.trim() && files.length === 0)}>{busy ? t('posting') : t('post')}</button>
+          <div className="home-add-to-post"><strong>{t('addToPost')}</strong><div className="home-add-to-post-actions"><label aria-label={t('photoVideo')} title={t('photoVideo')}><Icon name="photo" size={25} /><input key={`modal-${fileKey}`} disabled={busy || mediaValidationPending} type="file" multiple accept={POST_MEDIA_ACCEPT} onChange={(event) => selectFiles(event.target.files, 'append')} /></label><button type="button" disabled={busy} aria-label={t('tagPeople')} title={t('tagPeople')} onClick={() => { setActivePicker(null); setTagPickerOpen(true) }}><Icon name="friends" size={25} /></button></div></div>
+          {(message || postInputError) && <p className="form-error" role="alert">{message || postInputError}</p>}
+          <button type="submit" className="btn-primary home-post-submit" disabled={busy || mediaValidationPending || Boolean(postInputError) || (!content.trim() && files.length === 0)}>{busy ? t('posting') : t('post')}</button>
         </div>
       </form>
     </div></BodyPortal>}
@@ -1244,7 +1419,7 @@ function TaggedUsersInline({ users, onNavigate }: { users: GatewayTaggedUser[]; 
   </span>
 }
 
-export function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel, onMessage, onStoryCreated, authorPath, groupContextId, viewerCanModerateGroupPosts = false }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string; groupContextId?: string; viewerCanModerateGroupPosts?: boolean }) {
+export const GatewayPostCard = memo(function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel, onMessage, onStoryCreated, authorPath, groupContextId, viewerCanModerateGroupPosts = false }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string; groupContextId?: string; viewerCanModerateGroupPosts?: boolean }) {
   const { t } = useI18n()
   const [current, setCurrent] = useState(post)
   const [deleting, setDeleting] = useState(false)
@@ -1399,7 +1574,7 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel
     {viewerId && sharedDetailId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={sharedDetailId} onClose={() => setSharedDetailId(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} onOpenReel={openReelViewer} /></Suspense>}
     {viewerId && photoViewer && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={photoViewer.contentId} initialMediaId={photoViewer.mediaId} initialMediaUrl={photoViewer.mediaUrl} initialPlaybackTime={photoViewer.initialPlaybackTime} initialPost={photoViewer.initialPost} onClose={() => setPhotoViewer(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
   </>
-}
+})
 
 function DeletePostModal({ postId, onClose, onDeleted }: { postId: string; onClose: () => void; onDeleted: () => void }) {
   const { t } = useI18n()

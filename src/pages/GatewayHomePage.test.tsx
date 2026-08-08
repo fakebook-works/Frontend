@@ -5,7 +5,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GatewayPost } from '../api/gatewayTypes'
 import { notifyGroupLeft } from '../lib/groupMembershipEvents'
-import { GatewayHomePage, GatewayPostCard, PostComposer } from './GatewayHomePage'
+import { MEDIA_LIMITS, MediaValidationError } from '../lib/mediaValidation'
+import { GatewayHomePage, GatewayPostCard, HOME_REFRESH_EVENT, PostComposer } from './GatewayHomePage'
 
 const apiMocks = vi.hoisted(() => ({
   recommendedFeed: vi.fn(),
@@ -53,6 +54,7 @@ const searchMocks = vi.hoisted(() => ({
   searchDirectContacts: vi.fn(),
   searchFriends: vi.fn(),
 }))
+const mediaValidationMocks = vi.hoisted(() => ({ validateMediaFile: vi.fn(), validateMediaFiles: vi.fn() }))
 const translate = vi.hoisted(() => (key: string, params?: Record<string, unknown>) => (
   key === 'visitedTime' ? `visited:${String(params?.time ?? '')}` : key
 ))
@@ -67,6 +69,11 @@ vi.mock('../api/client', () => ({
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../api/messenger', () => ({ messengerApi: messengerMocks }))
 vi.mock('../api/search', () => ({ searchApi: searchMocks }))
+vi.mock('../lib/mediaValidation', async () => ({
+  ...await vi.importActual<typeof import('../lib/mediaValidation')>('../lib/mediaValidation'),
+  validateMediaFile: mediaValidationMocks.validateMediaFile,
+  validateMediaFiles: mediaValidationMocks.validateMediaFiles,
+}))
 vi.mock('../components/ContentActions', () => ({
   ContentActions: () => <div data-testid="content-actions" />,
   ContentDetailOverlay: ({ contentId, onClose }: { contentId: string; onClose: () => void }) => <div role="dialog" aria-label="shared-post-detail" data-testid="content-detail-overlay"><span>{contentId}</span><button type="button" onClick={onClose}>close</button></div>,
@@ -98,6 +105,23 @@ describe('GatewayHomePage', () => {
     apiMocks.recordGroupVisit.mockResolvedValue(true)
     apiMocks.uploadMedia.mockReset()
     apiMocks.uploadMediaFiles.mockReset()
+    mediaValidationMocks.validateMediaFile.mockReset().mockImplementation(async (file: File) => {
+      const limit = file.type.startsWith('video/') ? MEDIA_LIMITS.videoBytes : MEDIA_LIMITS.standardBytes
+      if (file.size > limit) throw new MediaValidationError('too_large', file, limit)
+      return {
+        file,
+        mime: file.type,
+        kind: file.type.startsWith('video/') ? 'video' : 'image',
+        dimensions: null,
+      }
+    })
+    mediaValidationMocks.validateMediaFiles.mockReset().mockImplementation(async (files: File[]) => Promise.all(files.map(async (file) => {
+      try {
+        return { file, value: await mediaValidationMocks.validateMediaFile(file), error: null }
+      } catch (error) {
+        return { file, value: null, error }
+      }
+    })))
     apiMocks.cancelPendingMedia.mockReset().mockResolvedValue(undefined)
     apiMocks.createFeedPost.mockReset()
     apiMocks.postDetail.mockReset()
@@ -222,8 +246,8 @@ describe('GatewayHomePage', () => {
     expect(screen.queryByText('Stale left group')).not.toBeInTheDocument()
   })
 
-  it('reloads Home data and resets its scroll regions when refreshToken changes', async () => {
-    const { container, rerender } = render(<GatewayHomePage refreshToken={0} />)
+  it('refreshes only the feed and resets its scroll regions on the active-Home event', async () => {
+    const { container } = render(<GatewayHomePage />)
     await screen.findByText('noRecommendedPosts')
     const leftRail = container.querySelector<HTMLElement>('.gateway-left-rail')!
     const rightRail = container.querySelector<HTMLElement>('.gateway-right-rail')!
@@ -232,15 +256,64 @@ describe('GatewayHomePage', () => {
     leftRail.scrollTop = 80
     rightRail.scrollTop = 90
 
-    rerender(<GatewayHomePage refreshToken={1} />)
+    window.dispatchEvent(new Event(HOME_REFRESH_EVENT))
 
     await waitFor(() => expect(apiMocks.recommendedFeed).toHaveBeenCalledTimes(2))
-    expect(apiMocks.homeStories).toHaveBeenCalledTimes(2)
-    expect(apiMocks.visitedGroups).toHaveBeenCalledTimes(2)
+    expect(apiMocks.homeStories).toHaveBeenCalledTimes(1)
+    expect(apiMocks.visitedGroups).toHaveBeenCalledTimes(1)
+    expect(messengerMocks.conversations).toHaveBeenCalledTimes(1)
     expect(document.documentElement.scrollTop).toBe(0)
     expect(document.body.scrollTop).toBe(0)
     expect(leftRail.scrollTop).toBe(0)
     expect(rightRail.scrollTop).toBe(0)
+  })
+
+  it('ignores a stale next-page response after an active-Home reset starts', async () => {
+    let intersect: (() => void) | null = null
+    class IntersectionObserverMock {
+      readonly root = null
+      readonly rootMargin = '520px 0px'
+      readonly thresholds = [0.01]
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = () => callback([{ isIntersecting: true, intersectionRatio: 1 } as unknown as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() { return [] }
+    }
+    vi.stubGlobal('IntersectionObserver', IntersectionObserverMock)
+    const makePost = (id: string, content: string): GatewayPost => ({
+      __typename: 'FeedPostDetail', id, type: 1, content, privacy: 0,
+      create: '2026-07-20T08:00:00Z', author: { id: '2', name: 'Feed Author', avatar: '', isVerified: false, canFollow: false },
+      media: [], sharedSource: null,
+    })
+    const firstPage = Array.from({ length: 12 }, (_, index) => ({ postId: `first-${index}`, post: makePost(`first-${index}`, `First ${index}`) }))
+    let resolveAppend!: (items: Array<{ postId: string; post: GatewayPost }>) => void
+    let resolveRefresh!: (items: Array<{ postId: string; post: GatewayPost }>) => void
+    const appendPromise = new Promise<Array<{ postId: string; post: GatewayPost }>>((resolve) => { resolveAppend = resolve })
+    const refreshPromise = new Promise<Array<{ postId: string; post: GatewayPost }>>((resolve) => { resolveRefresh = resolve })
+    let initialPageCalls = 0
+    apiMocks.recommendedFeed.mockImplementation((_viewerId: string, offset: number) => {
+      if (offset === 12) return appendPromise
+      initialPageCalls += 1
+      return initialPageCalls === 1 ? Promise.resolve(firstPage) : refreshPromise
+    })
+
+    const { container } = render(<GatewayHomePage />)
+    await waitFor(() => expect(container.querySelectorAll('.feed-section > article.gateway-post')).toHaveLength(12))
+    await waitFor(() => expect(intersect).not.toBeNull())
+    act(() => intersect?.())
+    await waitFor(() => expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('9007199254740993123', 12, 12))
+
+    act(() => window.dispatchEvent(new Event(HOME_REFRESH_EVENT)))
+    await waitFor(() => expect(initialPageCalls).toBe(2))
+    await act(async () => { resolveRefresh([{ postId: 'fresh', post: makePost('fresh', 'Fresh post') }]); await Promise.resolve() })
+    await waitFor(() => expect(screen.getByText('Fresh post')).toBeInTheDocument())
+
+    await act(async () => { resolveAppend([{ postId: 'stale', post: makePost('stale', 'Stale append') }]); await Promise.resolve() })
+    expect(screen.queryByText('Stale append')).not.toBeInTheDocument()
+    expect(screen.getByText('Fresh post')).toBeInTheDocument()
   })
 
   it('does not reload Home data when an Activity restores the preserved tab', async () => {
@@ -492,6 +565,27 @@ describe('GatewayHomePage', () => {
     expect(container).not.toHaveTextContent('[[post-bg:v1:')
   })
 
+  it('enforces the shorter background limit and the normal post limit', () => {
+    render(<GatewayHomePage />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'postComposerPlaceholder' }))
+    const composerDialog = screen.getByRole('dialog', { name: 'createPost' })
+    const textarea = within(composerDialog).getByPlaceholderText('postComposerPersonalPlaceholder')
+    expect(textarea).not.toHaveAttribute('maxlength')
+    fireEvent.change(textarea, { target: { value: 'x'.repeat(131) } })
+    fireEvent.click(within(composerDialog).getByRole('button', { name: 'postBackground' }))
+    fireEvent.click(within(composerDialog).getByRole('button', { name: 'postBackground 1' }))
+
+    expect(within(composerDialog).getByRole('alert')).toHaveTextContent('inputTooLong')
+    expect(within(composerDialog).getByRole('button', { name: 'post' })).toBeDisabled()
+    expect(apiMocks.createFeedPost).not.toHaveBeenCalled()
+
+    fireEvent.click(within(composerDialog).getByRole('button', { name: 'removePostBackground' }))
+    fireEvent.change(textarea, { target: { value: 'x'.repeat(63_207) } })
+    expect(within(composerDialog).getByRole('alert')).toHaveTextContent('inputTooLong')
+    expect(within(composerDialog).getByRole('button', { name: 'post' })).toBeDisabled()
+  })
+
   it('inserts emoji at the current composer cursor', () => {
     render(<GatewayHomePage />)
 
@@ -526,8 +620,8 @@ describe('GatewayHomePage', () => {
     const file = new File([new Uint8Array([137, 80, 78, 71])], 'background-clear.png', { type: 'image/png' })
     fireEvent.change(composerDialog.querySelector<HTMLInputElement>('.home-add-to-post input[type="file"]')!, { target: { files: [file] } })
 
-    expect(backgroundButton).not.toBeInTheDocument()
-    expect(composerDialog).toHaveClass('has-media')
+    await waitFor(() => expect(backgroundButton).not.toBeInTheDocument())
+    await waitFor(() => expect(composerDialog).toHaveClass('has-media'))
     const mediaScrollRegion = composerDialog.querySelector('.home-media-preview-scroll')
     expect(mediaScrollRegion).toBeInTheDocument()
     expect(mediaScrollRegion).toContainElement(await within(composerDialog).findByLabelText('mediaPreview'))
@@ -579,6 +673,7 @@ describe('GatewayHomePage', () => {
     const file = new File([new Uint8Array([137, 80, 78, 71])], 'photo.png', { type: 'image/png' })
     const fileInputs = screen.getAllByLabelText('photoVideo')
     fireEvent.change(fileInputs[0], { target: { files: [file] } })
+    await screen.findByLabelText('mediaPreview')
     fireEvent.change(screen.getByPlaceholderText('postComposerPersonalPlaceholder'), { target: { value: 'Photo post' } })
     fireEvent.click(screen.getByRole('button', { name: 'post' }))
 
@@ -636,6 +731,7 @@ describe('GatewayHomePage', () => {
 
     const firstInput = screen.getAllByLabelText('photoVideo')[0]
     fireEvent.change(firstInput, { target: { files: [video] } })
+    await screen.findByLabelText('mediaPreview')
     fireEvent.click(within(screen.getByRole('dialog', { name: 'createPost' })).getByRole('button', { name: 'post' }))
     await waitFor(() => expect(apiMocks.createFeedPost).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'createPost' })).not.toBeInTheDocument())
@@ -643,6 +739,7 @@ describe('GatewayHomePage', () => {
     const secondInput = screen.getAllByLabelText('photoVideo')[0]
     expect(secondInput).not.toBe(firstInput)
     fireEvent.change(secondInput, { target: { files: [video] } })
+    await screen.findByLabelText('mediaPreview')
     fireEvent.click(within(screen.getByRole('dialog', { name: 'createPost' })).getByRole('button', { name: 'post' }))
 
     await waitFor(() => expect(apiMocks.uploadMediaFiles).toHaveBeenCalledTimes(2))
@@ -651,7 +748,7 @@ describe('GatewayHomePage', () => {
     expect(apiMocks.uploadMediaFiles.mock.calls[1][0]).toEqual([video])
   })
 
-  it('rejects an oversized feed video before starting the upload request', () => {
+  it('rejects an oversized feed video before starting the upload request', async () => {
     const video = new File([new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112])], 'too-large.mp4', { type: 'video/mp4' })
     Object.defineProperty(video, 'size', { value: (500 * 1024 * 1024) + 1 })
     render(<GatewayHomePage />)
@@ -659,9 +756,78 @@ describe('GatewayHomePage', () => {
     fireEvent.change(screen.getAllByLabelText('photoVideo')[0], { target: { files: [video] } })
 
     const dialog = screen.getByRole('dialog', { name: 'createPost' })
-    expect(within(dialog).getByText('postVideoTooLarge')).toBeInTheDocument()
+    expect(await within(dialog).findByText('mediaFileTooLarge')).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: 'post' })).toBeDisabled()
     expect(apiMocks.uploadMediaFiles).not.toHaveBeenCalled()
+  })
+
+  it('ignores a stale media replacement and blocks submit while the latest file is validating', async () => {
+    const first = new File([new Uint8Array([1])], 'first.png', { type: 'image/png', lastModified: 1 })
+    const second = new File([new Uint8Array([2])], 'second.png', { type: 'image/png', lastModified: 2 })
+    let resolveFirst!: (value: unknown) => void
+    let resolveSecond!: (value: unknown) => void
+    const valid = (file: File) => ({ file, value: { file, mime: file.type, kind: 'image' as const, dimensions: null }, error: null })
+    mediaValidationMocks.validateMediaFiles
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+
+    render(<PostComposer userId="9007199254740993123" displayName="Owner" avatarUrl={null} friends={[]} onCreated={vi.fn()} />)
+    const picker = screen.getAllByLabelText('photoVideo')[0]
+    fireEvent.change(picker, { target: { files: [first] } })
+    const dialog = await screen.findByRole('dialog', { name: 'createPost' })
+    const textarea = within(dialog).getByPlaceholderText('postComposerPersonalPlaceholder')
+    fireEvent.change(textarea, { target: { value: 'pending media post' } })
+
+    fireEvent.change(picker, { target: { files: [second] } })
+    expect(within(dialog).getByRole('button', { name: 'post' })).toBeDisabled()
+
+    await act(async () => {
+      resolveFirst([valid(first)])
+      await Promise.resolve()
+    })
+    expect(within(dialog).queryByLabelText('mediaPreview')).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveSecond([valid(second)])
+      await Promise.resolve()
+    })
+    expect(await within(dialog).findByLabelText('mediaPreview')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'post' })).toBeEnabled()
+  })
+
+  it('merges concurrent appended media without replacing an earlier selection', async () => {
+    const first = new File([new Uint8Array([1])], 'first.png', { type: 'image/png', lastModified: 1 })
+    const second = new File([new Uint8Array([2])], 'second.png', { type: 'image/png', lastModified: 2 })
+    const third = new File([new Uint8Array([3])], 'third.png', { type: 'image/png', lastModified: 3 })
+    let resolveSecond!: (value: unknown) => void
+    let resolveThird!: (value: unknown) => void
+    const valid = (file: File) => ({ file, value: { file, mime: file.type, kind: 'image' as const, dimensions: null }, error: null })
+    mediaValidationMocks.validateMediaFiles
+      .mockImplementationOnce(async (files: File[]) => files.map(valid))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveThird = resolve }))
+
+    render(<PostComposer userId="9007199254740993123" displayName="Owner" avatarUrl={null} friends={[]} onCreated={vi.fn()} />)
+    const picker = screen.getAllByLabelText('photoVideo')[0]
+    fireEvent.change(picker, { target: { files: [first] } })
+    const dialog = await screen.findByRole('dialog', { name: 'createPost' })
+    await within(dialog).findByLabelText('mediaPreview')
+    const textarea = within(dialog).getByPlaceholderText('postComposerPersonalPlaceholder')
+    const appendInput = dialog.querySelector<HTMLInputElement>('.home-add-to-post input[type="file"]')!
+    fireEvent.change(appendInput, { target: { files: [second] } })
+    fireEvent.paste(textarea, { clipboardData: {
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => third }],
+      files: [third],
+      getData: () => '',
+    } })
+
+    await act(async () => {
+      resolveThird([valid(third)])
+      await Promise.resolve()
+      resolveSecond([valid(second)])
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(dialog.querySelectorAll('.home-media-slot')).toHaveLength(3))
   })
 
   it('keeps a successful publish successful when post hydration is temporarily unavailable', async () => {

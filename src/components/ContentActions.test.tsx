@@ -36,10 +36,15 @@ const apiMocks = vi.hoisted(() => ({
 }))
 const messengerMocks = vi.hoisted(() => ({ conversations: vi.fn(), createDirectConversation: vi.fn(), sendMessage: vi.fn() }))
 const translate = vi.hoisted(() => (key: string) => key)
+const mediaValidationMocks = vi.hoisted(() => ({ validateMediaFile: vi.fn() }))
 
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../api/client', () => ({ api: apiMocks }))
 vi.mock('../api/messenger', () => ({ messengerApi: messengerMocks }))
+vi.mock('../lib/mediaValidation', async () => ({
+  ...await vi.importActual<typeof import('../lib/mediaValidation')>('../lib/mediaValidation'),
+  validateMediaFile: mediaValidationMocks.validateMediaFile,
+}))
 vi.mock('../i18n', () => ({ useI18n: () => ({ locale: 'en', t: translate }) }))
 
 const post: GatewayPost = {
@@ -90,6 +95,12 @@ describe('ContentActions refreshed overlays', () => {
     apiMocks.postDetail.mockReset()
     apiMocks.uploadMediaFiles.mockReset()
     apiMocks.cancelPendingMedia.mockReset().mockResolvedValue(undefined)
+    mediaValidationMocks.validateMediaFile.mockReset().mockImplementation(async (file: File) => ({
+      file,
+      mime: file.type,
+      kind: 'image',
+      dimensions: { width: 1, height: 1 },
+    }))
     messengerMocks.createDirectConversation.mockReset()
     messengerMocks.conversations.mockReset().mockResolvedValue([])
     messengerMocks.sendMessage.mockReset()
@@ -227,6 +238,18 @@ describe('ContentActions refreshed overlays', () => {
 
     await waitFor(() => expect(socialMocks.createComment).toHaveBeenCalledWith('1', '90', 'Hi [[mention:3]]', null))
     expect(socialMocks.mentionUser).not.toHaveBeenCalled()
+  })
+
+  it('blocks comments over 8000 grapheme characters', async () => {
+    render(<ContentActions viewerId="1" contentId="90" post={post} />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+
+    const textarea = await screen.findByPlaceholderText('commentAs')
+    fireEvent.change(textarea, { target: { value: 'x'.repeat(8_001) } })
+
+    expect(screen.getByRole('alert')).toHaveTextContent('inputTooLong')
+    expect(screen.getByRole('button', { name: 'sendComment' })).toBeDisabled()
+    expect(socialMocks.createComment).not.toHaveBeenCalled()
   })
 
   it('loads direct replies lazily and starts a reply with the parent author mention', async () => {
@@ -480,7 +503,9 @@ describe('ContentActions refreshed overlays', () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'comment.jpg', { type: 'image/jpeg' })
     const input = container.querySelector<HTMLInputElement>('.comment-compose-tool-list input[type="file"]')!
     fireEvent.change(input, { target: { files: [file] } })
-    fireEvent.click(screen.getByRole('button', { name: 'sendComment' }))
+    const sendButton = screen.getByRole('button', { name: 'sendComment' })
+    await waitFor(() => expect(sendButton).toBeEnabled())
+    fireEvent.click(sendButton)
 
     await waitFor(() => expect(apiMocks.uploadMediaFiles).toHaveBeenCalledWith([file]))
     expect(socialMocks.createComment).toHaveBeenCalledWith('1', '90', '', { type: 0, url: 'https://uploads.example.com/comment.jpg' })
@@ -827,6 +852,34 @@ describe('ContentActions refreshed overlays', () => {
     await waitFor(() => expect(apiMocks.createShareStory).toHaveBeenCalledWith('1', '90', ''))
     expect(onStoryCreated).toHaveBeenCalledWith(story)
     expect(window.sessionStorage.getItem('fakebook.own-unseen-stories.1')).toContain('story-shared-1')
+  })
+
+  it('uses the Story limit for share-to-story and the post limit for feed shares', async () => {
+    const feedPost: GatewayPost = {
+      __typename: 'FeedPostDetail',
+      id: 'feed-share-limit',
+      type: 1,
+      content: 'Share source',
+      privacy: 0,
+      create: '2026-07-21T08:00:00Z',
+      author: { id: '2', name: 'Original Author', avatar: '', isVerified: false },
+      media: [],
+      sharedSource: null,
+    }
+    render(<ContentActions viewerId="1" contentId="feed-share-limit" post={feedPost} />)
+    fireEvent.click(screen.getByRole('button', { name: 'shareAction' }))
+    const dialog = await screen.findByRole('dialog', { name: 'sharePost' })
+    const textarea = within(dialog).getByRole('textbox', { name: 'saySomething' })
+
+    fireEvent.change(textarea, { target: { value: 'x'.repeat(501) } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'shareToStory' }))
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('inputTooLong')
+    expect(apiMocks.createShareStory).not.toHaveBeenCalled()
+
+    fireEvent.change(textarea, { target: { value: 'x'.repeat(63_207) } })
+    expect(within(dialog).getByRole('button', { name: 'shareNow' })).toBeDisabled()
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('inputTooLong')
+    expect(socialMocks.sharePost).not.toHaveBeenCalled()
   })
 
   it('resharing a shared feed post targets the original post instead of nesting the wrapper', async () => {

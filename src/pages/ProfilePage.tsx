@@ -20,6 +20,8 @@ import { VerifiedBadge } from '../components/VerifiedBadge'
 import type { PostPhotoViewerMediaEntry } from '../components/PostPhotoViewer'
 import { useI18n } from '../i18n'
 import { cropImageFile } from '../lib/imageCrop'
+import { INPUT_LIMITS, inputValidationMessage, validateTextInput } from '../lib/inputValidation'
+import { PROFILE_IMAGE_ACCEPT, PROFILE_IMAGE_MIME_TYPES, mediaValidationMessage, validateMediaFile } from '../lib/mediaValidation'
 import { forgetOwnUnseenStory, reconcileOwnUnseenStories, rememberOwnUnseenStory } from '../lib/ownStoryUnseen'
 import { decodePostContent } from '../lib/postContent'
 import { groupProfilePostsByMonth } from '../lib/profilePostGrid'
@@ -350,6 +352,17 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
     || birthDate !== (current.birthDate ?? '')
     || gender !== (current.gender === 'male' ? 'male' : 'female')
   const birthDateInvalid = Boolean(birthDate) && !isAllowedBirthDate(birthDate)
+  const validateDraft = (value: string, field: string, max: number, multiline: boolean) => {
+    try {
+      validateTextInput(value, { field, max, multiline })
+      return null
+    } catch (validationError) {
+      return inputValidationMessage(validationError, t)
+    }
+  }
+  const bioValidationError = validateDraft(bio, 'bio', INPUT_LIMITS.bio, true)
+  const locationValidationError = validateDraft(location, 'location', INPUT_LIMITS.location, false)
+  const textFieldsInvalid = Boolean(bioValidationError || locationValidationError)
 
   async function save() {
     if (!changed || busy) return
@@ -360,10 +373,12 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
     setBusy(true)
     setError(null)
     try {
+      const validatedBio = validateTextInput(bio, { field: 'bio', max: INPUT_LIMITS.bio }).value
+      const validatedLocation = validateTextInput(location, { field: 'location', max: INPUT_LIMITS.location, multiline: false }).value
       const updated = await socialApi.updateProfile(current.id, {
         name: current.displayName,
-        bio: bio.trim(),
-        location: location.trim(),
+        bio: validatedBio,
+        location: validatedLocation,
         birthdate: birthDate,
         gender: gender === 'male',
       })
@@ -373,8 +388,10 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
       setEditTarget(null)
       setGenderMenuOpen(false)
       window.dispatchEvent(new CustomEvent('fakebook:profile-updated', { detail: merged }))
-    } catch {
-      setError(t('profileUpdateError'))
+    } catch (saveError) {
+      setError(saveError instanceof Error && saveError.name === 'InputValidationError'
+        ? inputValidationMessage(saveError, t)
+        : t('profileUpdateError'))
     } finally {
       setBusy(false)
     }
@@ -390,7 +407,7 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
     const removeDisabled = busy || (target === 'bio' && !bio.trim()) || (target === 'location' && !location.trim()) || (target === 'birthDate' && !birthDate) || (target === 'all' && !bio.trim() && !location.trim() && !birthDate)
     return <div className={`profile-about-edit-actions ${placement}`}>
       {removable && <button type="button" className="profile-about-remove" disabled={removeDisabled} onClick={() => removeValue(target)}>{t('remove')}</button>}
-      <span className="profile-about-commit-actions"><button type="button" className="profile-about-cancel" disabled={busy} onClick={cancel}>{t('cancel')}</button><button type="button" className="profile-about-save" disabled={busy || !changed || birthDateInvalid} onClick={() => void save()}>{busy ? t('saving') : t('save')}</button></span>
+      <span className="profile-about-commit-actions"><button type="button" className="profile-about-cancel" disabled={busy} onClick={cancel}>{t('cancel')}</button><button type="button" className="profile-about-save" disabled={busy || !changed || birthDateInvalid || textFieldsInvalid} onClick={() => void save()}>{busy ? t('saving') : t('save')}</button></span>
     </div>
   }
 
@@ -439,7 +456,9 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
     const locationPopoverOpen = locationQueryTouched && location.trim().length >= 3
     const hasLocationOptions = locationPopoverOpen && !locationSuggestionsLoading && !locationSuggestionsError && locationSuggestions.length > 0
     const birthDateErrorId = `${locationListboxId}-birth-date-error`
-    const control = field === 'bio' ? <textarea autoFocus={autoFocus} rows={2} maxLength={500} value={bio} onChange={(event) => setBio(event.target.value)} aria-label={t('bio')} spellCheck={false} data-gramm="false" data-gramm_editor="false" />
+    const fieldValidationError = field === 'bio' ? bioValidationError : field === 'location' ? locationValidationError : null
+    const fieldErrorId = `${locationListboxId}-${field}-validation-error`
+  const control = field === 'bio' ? <textarea autoFocus={autoFocus} rows={2} value={bio} onChange={(event) => { setBio(event.target.value); setError(null) }} aria-label={t('bio')} aria-invalid={Boolean(fieldValidationError) || undefined} aria-describedby={fieldValidationError ? fieldErrorId : undefined} spellCheck={false} data-gramm="false" data-gramm_editor="false" />
       : field === 'location' ? <div className="profile-about-location-field" onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
           setLocationQueryTouched(false)
@@ -450,11 +469,12 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
           autoFocus={autoFocus}
           role="combobox"
           value={location}
-          maxLength={160}
-          onChange={(event) => { setLocation(event.target.value); setLocationQueryTouched(true); setLocationActiveIndex(-1) }}
+          onChange={(event) => { setLocation(event.target.value); setError(null); setLocationQueryTouched(true); setLocationActiveIndex(-1) }}
           onFocus={() => { if (location.trim().length >= 3) setLocationQueryTouched(true) }}
           onKeyDown={handleLocationKeyDown}
           aria-label={t('location')}
+          aria-invalid={Boolean(fieldValidationError) || undefined}
+          aria-describedby={fieldValidationError ? fieldErrorId : undefined}
           aria-autocomplete="list"
           aria-expanded={locationPopoverOpen}
           aria-controls={hasLocationOptions ? locationListboxId : undefined}
@@ -470,6 +490,7 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
           }}><button type="button" className="profile-about-select-trigger" autoFocus={autoFocus} aria-label={t('profileGenderTitle')} aria-haspopup="listbox" aria-expanded={genderMenuOpen} onClick={() => setGenderMenuOpen((open) => !open)}><span>{t(gender === 'male' ? 'genderMale' : 'genderFemale')}</span><ProfileSelectChevronIcon /></button>{genderMenuOpen && <div className="profile-about-gender-options" role="listbox" aria-label={t('profileGenderTitle')}>{(['male', 'female'] as const).map((value) => <button type="button" key={value} role="option" aria-selected={gender === value} onClick={() => { setGender(value); setGenderMenuOpen(false) }}><span>{t(value === 'male' ? 'genderMale' : 'genderFemale')}</span>{gender === value && <ProfileOptionCheckIcon />}</button>)}</div>}</div>
     return <div className={`profile-about-inline-editor${editingAll ? ' editing-all' : ''}`}>
       {control}
+      {fieldValidationError && <p id={fieldErrorId} className="inline-alert" role="alert">{fieldValidationError}</p>}
       {!editingAll && editorActions(field, 'inline')}
     </div>
   }
@@ -993,9 +1014,17 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
     }
   }
 
-  function startCoverEdit(file: File, fromExisting: boolean) {
+  async function startCoverEdit(file: File, fromExisting: boolean) {
     if (avatarEditor.busy) return
-    coverPickerRequestRef.current += 1
+    const requestId = ++coverPickerRequestRef.current
+    setActionError(null)
+    try {
+      await validateMediaFile(file, { allowedMimeTypes: PROFILE_IMAGE_MIME_TYPES })
+    } catch (validationError) {
+      if (requestId === coverPickerRequestRef.current) setActionError(mediaValidationMessage(validationError, t))
+      return
+    }
+    if (requestId !== coverPickerRequestRef.current) return
     avatarEditor.cancel()
     setCoverMenuOpen(false)
     setCoverPickerOpen(false)
@@ -1065,9 +1094,17 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
     setCoverZoom((current) => Math.round(clampCoverValue(current + delta, 1, 3) * 100) / 100)
   }
 
-  function startAvatarEdit(file: File, fromExisting: boolean, source: { contentId: string; mediaId: string } | null = null) {
+  async function startAvatarEdit(file: File, fromExisting: boolean, source: { contentId: string; mediaId: string } | null = null) {
     if (coverSaving) return
-    avatarPickerRequestRef.current += 1
+    const requestId = ++avatarPickerRequestRef.current
+    setActionError(null)
+    try {
+      await validateMediaFile(file, { allowedMimeTypes: PROFILE_IMAGE_MIME_TYPES })
+    } catch (validationError) {
+      if (requestId === avatarPickerRequestRef.current) setActionError(mediaValidationMessage(validationError, t))
+      return
+    }
+    if (requestId !== avatarPickerRequestRef.current) return
     cancelCoverEdit()
     setAvatarMenuOpen(false)
     setAvatarViewMenuOpen(false)
@@ -1107,7 +1144,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
       const blob = await response.blob()
       if (requestId !== avatarPickerRequestRef.current) return
       const extension = blob.type.split('/')[1] || 'jpg'
-      startAvatarEdit(
+      await startAvatarEdit(
         new File([blob], `fakebook-avatar.${extension}`, { type: blob.type || 'image/jpeg' }),
         true,
         { contentId: photo.contentId, mediaId: photo.media.id },
@@ -1325,7 +1362,7 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
       const blob = await response.blob()
       if (requestId !== coverPickerRequestRef.current) return
       const extension = blob.type.split('/')[1] || 'jpg'
-      startCoverEdit(new File([blob], `fakebook-cover.${extension}`, { type: blob.type || 'image/jpeg' }), true)
+      await startCoverEdit(new File([blob], `fakebook-cover.${extension}`, { type: blob.type || 'image/jpeg' }), true)
     } catch {
       if (requestId === coverPickerRequestRef.current) setCoverPickerError(t('existingPhotoLoadError'))
     } finally {
@@ -1464,10 +1501,10 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
                 <button type="button" role="menuitem" onClick={() => void openCoverPicker()}><ProfileCoverPhotoIcon />{t('profileChooseCover')}</button>
                 <button type="button" role="menuitem" onClick={() => { setCoverMenuOpen(false); coverUploadInputRef.current?.click() }}><ProfileCoverUploadIcon />{t('profileUploadCover')}</button>
               </AnchoredMenuPortal>}
-              <input ref={coverUploadInputRef} className="self-profile-cover-file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
+              <input ref={coverUploadInputRef} className="self-profile-cover-file-input" type="file" accept={PROFILE_IMAGE_ACCEPT} onChange={(event) => {
                 const file = event.target.files?.[0]
                 if (file) {
-                  startCoverEdit(file, false)
+                  void startCoverEdit(file, false)
                 }
                 event.currentTarget.value = ''
               }} />
@@ -1501,9 +1538,9 @@ export function ProfilePage({ profile, loading, error, canEdit, viewerId, initia
                   <button type="button" role="menuitem" onClick={() => void openAvatarPicker()}><ProfileCoverPhotoIcon />{t('profileChooseAvatar')}</button>
                   <button type="button" role="menuitem" onClick={() => { setAvatarMenuOpen(false); setAvatarViewMenuOpen(false); avatarUploadInputRef.current?.click() }}><ProfileCoverUploadIcon />{t('profileUploadAvatar')}</button>
                 </AnchoredMenuPortal>}
-                <input ref={avatarUploadInputRef} className="self-profile-cover-file-input self-profile-avatar-file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
+                <input ref={avatarUploadInputRef} className="self-profile-cover-file-input self-profile-avatar-file-input" type="file" accept={PROFILE_IMAGE_ACCEPT} onChange={(event) => {
                   const file = event.target.files?.[0]
-                  if (file) startAvatarEdit(file, false)
+                  if (file) void startAvatarEdit(file, false)
                   event.currentTarget.value = ''
                 }} />
               </div>}

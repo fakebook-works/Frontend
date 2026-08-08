@@ -25,6 +25,19 @@ export const LOCALE_STORAGE_KEY = 'fb.locale'
 const IP_GEOLOCATION_URL = import.meta.env.VITE_IP_GEOLOCATION_URL?.trim() || 'https://ipwho.is/'
 
 const en: Record<string, string> = {
+  invalidInput: 'Check the information you entered.',
+  inputRequired: 'This field is required.',
+  inputTooLong: 'Use no more than {max} characters.',
+  inputInvalidCharacters: 'Remove unsupported or hidden control characters.',
+  emailInvalid: 'Enter a valid email address.',
+  invalidMediaFile: 'This file could not be used.',
+  mediaFileEmpty: 'The selected file is empty.',
+  mediaFileTooLarge: 'This file must be no larger than {max} MB.',
+  mediaFileUnsupported: 'Choose a supported file type.',
+  mediaFileMismatch: 'The file contents do not match its name or type.',
+  mediaImageUnreadable: 'Choose an image that can be opened.',
+  mediaImageDimensions: 'This image is too large to process safely.',
+  mediaTooManyFiles: 'You can add up to {max} files.',
   languageLabel: 'Language',
   themeLabel: 'Theme',
   themeLight: 'Light',
@@ -994,6 +1007,19 @@ const en: Record<string, string> = {
 }
 
 const vi: Record<string, string> = {
+  invalidInput: 'Hãy kiểm tra lại thông tin bạn đã nhập.',
+  inputRequired: 'Trường này là bắt buộc.',
+  inputTooLong: 'Chỉ được nhập tối đa {max} ký tự.',
+  inputInvalidCharacters: 'Hãy xóa các ký tự điều khiển hoặc ký tự ẩn không được hỗ trợ.',
+  emailInvalid: 'Hãy nhập địa chỉ email hợp lệ.',
+  invalidMediaFile: 'Không thể sử dụng tệp này.',
+  mediaFileEmpty: 'Tệp đã chọn đang trống.',
+  mediaFileTooLarge: 'Tệp này không được lớn hơn {max} MB.',
+  mediaFileUnsupported: 'Hãy chọn một loại tệp được hỗ trợ.',
+  mediaFileMismatch: 'Nội dung tệp không khớp với tên hoặc loại tệp.',
+  mediaImageUnreadable: 'Hãy chọn một ảnh có thể mở được.',
+  mediaImageDimensions: 'Ảnh này quá lớn để xử lý an toàn.',
+  mediaTooManyFiles: 'Bạn chỉ có thể thêm tối đa {max} tệp.',
   languageLabel: 'Ngôn ngữ',
   themeLabel: 'Giao diện',
   themeLight: 'Sáng',

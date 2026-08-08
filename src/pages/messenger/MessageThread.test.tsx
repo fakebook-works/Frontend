@@ -41,12 +41,15 @@ function Harness({
   messages,
   onEditMessage = () => undefined,
   onAttachFiles = () => undefined,
+  initialComposeError = null,
 }: {
   messages: MessengerMessageDto[]
   onEditMessage?: (message: MessengerMessageDto, text: string) => void | Promise<void>
-  onAttachFiles?: (files: FileList | File[] | null) => void
+  onAttachFiles?: (files: FileList | File[] | null) => void | Promise<void>
+  initialComposeError?: string | null
 }) {
   const [replyTarget, setReplyTarget] = useState<MessengerMessageDto | null>(null)
+  const [composeError, setComposeError] = useState<string | null>(initialComposeError)
   return <MessageThread
     me={me}
     conversation={conversation}
@@ -61,6 +64,8 @@ function Harness({
     replyTarget={replyTarget}
     onInteract={() => undefined}
     onDraftChange={() => undefined}
+    composeError={composeError}
+    onComposeErrorChange={setComposeError}
     onAttachFiles={onAttachFiles}
     onRemoveAttachment={() => undefined}
     onRemovePendingUpload={() => undefined}
@@ -103,6 +108,13 @@ describe('MessageThread reply navigation', () => {
     } })
 
     expect(onAttachFiles).toHaveBeenCalledWith([image])
+  })
+
+  it('applies the canonical message limit and renders the conversation-scoped error', () => {
+    render(<Harness messages={[]} initialComposeError="inputTooLong" />)
+
+    expect(screen.getByPlaceholderText('Aa')).not.toHaveAttribute('maxLength')
+    expect(screen.getByRole('alert')).toHaveTextContent('inputTooLong')
   })
 
   it('renders structured group activity as a centered non-actionable system line', () => {

@@ -15,9 +15,11 @@ import { MessageThread } from './MessageThread'
 import { NewConversationModal } from './NewConversationModal'
 import { createPendingMediaUploadPreviews, releasePendingMediaUploadPreviews } from './pendingMediaUploadState'
 import type { PendingMediaUploadPreview } from './pendingMediaUploadState'
+import { MESSENGER_MAX_ATTACHMENTS } from './attachmentPolicy'
+import { INPUT_LIMITS, inputValidationMessage, isInputValidationError, validateTextInput } from '../../lib/inputValidation'
+import { isMediaValidationError, mediaValidationMessage } from '../../lib/mediaValidation'
 import { playIncomingMessageSound } from '../../lib/sounds'
-import { encodeMessengerLike } from './helpers'
-import { groupPresenceSummary } from './helpers'
+import { encodeMessengerLike, groupPresenceSummary, rememberRealtimeEventId } from './helpers'
 import type { MessengerLikeLevel } from './helpers'
 import './MessengerPage.css'
 
@@ -55,7 +57,10 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [pendingAttachmentsByConversation, setPendingAttachmentsByConversation] = useState<Record<string, MediaUpload[]>>({})
   const [pendingUploadPreviewsByConversation, setPendingUploadPreviewsByConversation] = useState<Record<string, PendingMediaUploadPreview[]>>({})
+  const [composeErrorsByConversation, setComposeErrorsByConversation] = useState<Record<string, string>>({})
   const pendingUploadPreviewsRef = useRef<Record<string, PendingMediaUploadPreview[]>>({})
+  const attachmentSelectionReservationsRef = useRef<Record<string, number>>({})
+  const attachmentSelectionVersionsRef = useRef<Record<string, number>>({})
   const [uploadingConversationId, setUploadingConversationId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [apiState, setApiState] = useState<'gateway' | 'unavailable'>('gateway')
@@ -76,12 +81,45 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   const [replyToByConversationId, setReplyToByConversationId] = useState<Record<string, string | null>>({})
   const [forwardingMessage, setForwardingMessage] = useState<MessengerMessageDto | null>(null)
   const [managedGroupId, setManagedGroupId] = useState<string | null>(null)
-  const seenEventIds = useRef(new Set<string>())
+  // Inbox and conversation subscriptions can deliver the same outbox event, but
+  // each stream owns different side effects (list refresh/sound vs. thread state).
+  // Keep an LRU per stream so de-duplicating one subscription cannot suppress the
+  // other subscription's required work.
+  const seenInboxEventIds = useRef(new Set<string>())
+  const seenConversationEventIds = useRef(new Set<string>())
   const outgoingTypingTimers = useRef(new Map<string, number>())
   const outgoingTypingSentAt = useRef(new Map<string, number>())
   const incomingTypingTimers = useRef(new Map<string, number>())
   const lastMarkedReadSequence = useRef(new Map<string, string>())
   const latestIncomingSequence = useRef(new Map<string, string>())
+
+  const setConversationComposeError = useCallback((conversationId: string, message: string | null) => {
+    setComposeErrorsByConversation((current) => {
+      if (message) return { ...current, [conversationId]: message }
+      if (!(conversationId in current)) return current
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+  }, [])
+
+  const releaseConversationPendingUploadPreviews = useCallback((conversationId: string) => {
+    attachmentSelectionVersionsRef.current[conversationId] = (attachmentSelectionVersionsRef.current[conversationId] ?? 0) + 1
+    delete attachmentSelectionReservationsRef.current[conversationId]
+
+    const previews = pendingUploadPreviewsRef.current[conversationId] ?? []
+    releasePendingMediaUploadPreviews(previews)
+    const nextPreviewMap = { ...pendingUploadPreviewsRef.current }
+    delete nextPreviewMap[conversationId]
+    pendingUploadPreviewsRef.current = nextPreviewMap
+
+    setPendingUploadPreviewsByConversation((current) => {
+      if (!(conversationId in current)) return current
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+  }, [])
 
   const stopTyping = useCallback((conversationId: string) => {
     const timer = outgoingTypingTimers.current.get(conversationId)
@@ -180,10 +218,10 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   }, [loadConversations, me.id, selectedId])
 
   useEffect(() => messengerApi.subscribeInbox((event) => {
-    if (seenEventIds.current.has(event.eventId)) return
-    seenEventIds.current.add(event.eventId)
+    if (!rememberRealtimeEventId(seenInboxEventIds.current, event.eventId)) return
     if (event.kind === 'CONVERSATION_DELETED' && event.conversationId) {
       const deletedId = event.conversationId
+      releaseConversationPendingUploadPreviews(deletedId)
       setManagedGroupId((current) => current === deletedId ? null : current)
       setConversations((current) => current.filter((conversation) => conversation.id !== deletedId))
       setSelectedId((current) => current === deletedId ? null : current)
@@ -223,7 +261,7 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
         setApiState('gateway')
       }).catch(() => setApiState('unavailable'))
     }
-  }, () => setApiState('unavailable')), [loadConversations, me.id])
+  }, () => setApiState('unavailable')), [loadConversations, me.id, releaseConversationPendingUploadPreviews])
 
   const selected = conversations.find((conversation) => conversation.id === selectedId) ?? conversations[0] ?? null
   const managedGroup = managedGroupId
@@ -306,8 +344,10 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
     // down and reconnect it constantly.
     return messengerApi.subscribeConversations([shownConversationId], (event) => {
       if (event.conversationId !== shownConversationId) return
-      if (seenEventIds.current.has(event.eventId)) return
-      seenEventIds.current.add(event.eventId)
+      if (!rememberRealtimeEventId(seenConversationEventIds.current, event.eventId)) return
+      // Deletion is owned by the inbox stream; do not refetch a conversation
+      // that that stream has just removed.
+      if (event.kind === 'CONVERSATION_DELETED') return
       if (event.kind === 'TYPING_CHANGED') {
         applyTypingEvent(event)
         return
@@ -347,11 +387,15 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   }, [])
 
   const activeMessages = useMemo(() => selected ? messages[selected.id] ?? [] : [], [messages, selected])
+  const activeMessageById = useMemo(
+    () => new Map(activeMessages.map((message) => [message.id, message])),
+    [activeMessages],
+  )
   const selectedGroupPresence = selected?.type === 'GROUP'
     ? groupPresenceSummary(selected, me.id, presenceByUserId, t)
     : null
   const replyTarget = selected
-    ? activeMessages.find((message) => message.id === replyToByConversationId[selected.id]) ?? null
+    ? activeMessageById.get(replyToByConversationId[selected.id] ?? '') ?? null
     : null
   const totalUnread = conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0)
 
@@ -384,7 +428,24 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
     const pendingAttachments = pendingAttachmentsByConversation[selected.id] ?? []
     const localPreviews = pendingUploadPreviewsByConversation[selected.id] ?? []
     if (!draft.trim() && pendingAttachments.length === 0 && localPreviews.length === 0) return
-    const text = draft.trim()
+    if (pendingAttachments.length + localPreviews.length > MESSENGER_MAX_ATTACHMENTS) {
+      setConversationComposeError(selected.id, t('mediaTooManyFiles', { max: MESSENGER_MAX_ATTACHMENTS }))
+      return
+    }
+    let text: string
+    try {
+      const validated = validateTextInput(draft, {
+        field: 'message',
+        max: INPUT_LIMITS.messengerMessage,
+        required: pendingAttachments.length === 0 && localPreviews.length === 0,
+        multiline: true,
+      })
+      text = validated.value
+      setConversationComposeError(selected.id, null)
+    } catch (validationError) {
+      setConversationComposeError(selected.id, inputValidationMessage(validationError, t))
+      return
+    }
     let attachments = pendingAttachments
     const replyToMessageId = replyToByConversationId[selected.id] ?? null
 
@@ -392,10 +453,17 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
       setUploadingConversationId(selected.id)
       try {
         const uploaded = await api.uploadMediaFiles(localPreviews.map((preview) => preview.file))
-        attachments = [...pendingAttachments, ...uploaded].slice(0, 10)
-        setPendingUploadPreviewsByConversation((current) => ({ ...current, [selected.id]: [] }))
+        attachments = [...pendingAttachments, ...uploaded]
+        setPendingUploadPreviewsByConversation((current) => {
+          const next = { ...current, [selected.id]: [] }
+          pendingUploadPreviewsRef.current = next
+          return next
+        })
         releasePendingMediaUploadPreviews(localPreviews)
-      } catch {
+      } catch (uploadError) {
+        setConversationComposeError(selected.id, isMediaValidationError(uploadError)
+          ? mediaValidationMessage(uploadError, t)
+          : t('messengerUnavailableDesc'))
         setApiState('unavailable')
         return
       } finally {
@@ -425,12 +493,16 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
       setMessages((current) => ({ ...current, [selected.id]: (current[selected.id] ?? []).map((message) => message.id === optimistic.id ? sent : message) }))
       setConversations((current) => current.map((conversation) => conversation.id === selected.id ? { ...conversation, lastMessage: sent, updatedAt: sent.createdAt, unreadCount: 0 } : conversation))
       setApiState('gateway')
+      setConversationComposeError(selected.id, null)
       void api.finalizePendingMedia(attachments).catch(() => setApiState('unavailable'))
-    } catch {
+    } catch (sendError) {
       setMessages((current) => ({ ...current, [selected.id]: (current[selected.id] ?? []).filter((message) => message.id !== optimistic.id) }))
       setDrafts((current) => ({ ...current, [selected.id]: text }))
       setPendingAttachmentsByConversation((current) => ({ ...current, [selected.id]: attachments }))
       setReplyToByConversationId((current) => ({ ...current, [selected.id]: replyToMessageId }))
+      setConversationComposeError(selected.id, isInputValidationError(sendError)
+        ? inputValidationMessage(sendError, t)
+        : t('messengerUnavailableDesc'))
       setApiState('unavailable')
     }
   }
@@ -577,6 +649,7 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
     const leavingId = selected.id
     try {
       await messengerApi.leaveConversation(leavingId, me.id)
+      releaseConversationPendingUploadPreviews(leavingId)
       setConversations((current) => current.filter((conversation) => conversation.id !== leavingId))
       setSelectedId(null)
       setMessages((current) => {
@@ -596,6 +669,7 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
         delete next[leavingId]
         return next
       })
+      setConversationComposeError(leavingId, null)
       setApiState('gateway')
     } catch {
       setApiState('unavailable')
@@ -613,6 +687,7 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   }
 
   function removeConversationLocally(conversationId: string) {
+    releaseConversationPendingUploadPreviews(conversationId)
     setManagedGroupId(null)
     setConversations((current) => current.filter((conversation) => conversation.id !== conversationId))
     setSelectedId((current) => current === conversationId ? null : current)
@@ -638,30 +713,60 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
       delete next[conversationId]
       return next
     })
+    setConversationComposeError(conversationId, null)
     setApiState('gateway')
   }
 
   async function attachFiles(conversationId: string, files: FileList | File[] | null) {
     if (!files?.length) return
+    const selectionVersion = attachmentSelectionVersionsRef.current[conversationId] ?? 0
     const current = pendingAttachmentsByConversation[conversationId] ?? []
     const currentPreviews = pendingUploadPreviewsByConversation[conversationId] ?? []
-    const remaining = Math.max(0, 10 - current.length - currentPreviews.length)
-    if (remaining === 0) return
-    const selectedFiles = Array.from(files).slice(0, remaining)
-    const localPreviews = createPendingMediaUploadPreviews(selectedFiles)
-    setPendingUploadPreviewsByConversation((all) => ({
-      ...all,
-      [conversationId]: [...(all[conversationId] ?? []), ...localPreviews],
-    }))
+    const reserved = attachmentSelectionReservationsRef.current[conversationId] ?? 0
+    const remaining = Math.max(0, MESSENGER_MAX_ATTACHMENTS - current.length - currentPreviews.length - reserved)
+    if (remaining === 0) {
+      setConversationComposeError(conversationId, t('mediaTooManyFiles', { max: MESSENGER_MAX_ATTACHMENTS }))
+      return
+    }
+    const incoming = Array.from(files)
+    const overflow = incoming.length > remaining
+    const selectedFiles = incoming.slice(0, remaining)
+    attachmentSelectionReservationsRef.current[conversationId] = reserved + selectedFiles.length
+    const { previews: localPreviews, errors } = await createPendingMediaUploadPreviews(selectedFiles)
+    if ((attachmentSelectionVersionsRef.current[conversationId] ?? 0) !== selectionVersion) {
+      releasePendingMediaUploadPreviews(localPreviews)
+      return
+    }
+    const nextReserved = Math.max(0, (attachmentSelectionReservationsRef.current[conversationId] ?? 0) - selectedFiles.length)
+    if (nextReserved > 0) attachmentSelectionReservationsRef.current[conversationId] = nextReserved
+    else delete attachmentSelectionReservationsRef.current[conversationId]
+    setPendingUploadPreviewsByConversation((all) => {
+      const next = {
+        ...all,
+        [conversationId]: [...(all[conversationId] ?? []), ...localPreviews],
+      }
+      pendingUploadPreviewsRef.current = next
+      return next
+    })
+    const messages = [
+      overflow ? t('mediaTooManyFiles', { max: MESSENGER_MAX_ATTACHMENTS }) : null,
+      errors[0] ? mediaValidationMessage(errors[0], t) : null,
+    ].filter((message): message is string => Boolean(message))
+    setConversationComposeError(conversationId, messages.length > 0 ? messages.join(' ') : null)
   }
 
   function removePendingUploadPreview(conversationId: string, previewId: string) {
     const preview = (pendingUploadPreviewsByConversation[conversationId] ?? []).find((item) => item.id === previewId)
     if (preview) releasePendingMediaUploadPreviews([preview])
-    setPendingUploadPreviewsByConversation((current) => ({
-      ...current,
-      [conversationId]: (current[conversationId] ?? []).filter((item) => item.id !== previewId),
-    }))
+    setPendingUploadPreviewsByConversation((current) => {
+      const next = {
+        ...current,
+        [conversationId]: (current[conversationId] ?? []).filter((item) => item.id !== previewId),
+      }
+      pendingUploadPreviewsRef.current = next
+      return next
+    })
+    setConversationComposeError(conversationId, null)
   }
 
   function selectConversation(id: string) {
@@ -681,12 +786,13 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
       [conversationId]: (current[conversationId] ?? []).filter((item) => item.url !== url),
     }))
     if (attachment) void api.cancelPendingMedia(attachment).catch(() => undefined)
+    setConversationComposeError(conversationId, null)
   }
 
   return <>
     <main className={`messenger-shell${mobileShowThread ? ' thread-open' : ''}${showDetail ? ' detail-open' : ''}`} aria-label="Messenger">
       <ConversationList me={me} conversations={conversations} presenceByUserId={presenceByUserId} selectedId={selectedId} query={query} loading={loading} activeTab={activeTab} totalUnread={totalUnread} onSelect={selectConversation} onQueryChange={setQuery} onTabChange={setActiveTab} onNewMessage={() => setShowNewModal(true)} />
-      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={drafts[selected.id] ?? ''} pendingAttachments={pendingAttachmentsByConversation[selected.id] ?? []} pendingUploadPreviews={pendingUploadPreviewsByConversation[selected.id] ?? []} uploading={uploadingConversationId === selected.id} apiState={apiState} showDetail={showDetail} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} groupPresenceLabel={selectedGroupPresence?.label} groupOnlineCount={selectedGroupPresence?.onlineCount} typingUserId={typingByConversationId[selected.id] ?? null} replyTarget={replyTarget} onInteract={() => markConversationRead(selected.id)} onDraftChange={(value) => updateDraft(selected.id, value)} onAttachFiles={(files) => void attachFiles(selected.id, files)} onRemoveAttachment={removePendingAttachment} onRemovePendingUpload={(id) => removePendingUploadPreview(selected.id, id)} onSubmit={handleSubmit} onSendLike={(level) => void sendLike(level)} onReplyMessage={(message) => setReplyToByConversationId((current) => ({ ...current, [selected.id]: message.id }))} onCancelReply={() => setReplyToByConversationId((current) => ({ ...current, [selected.id]: null }))} onReactMessage={reactToMessage} onRecallMessage={recallMessage} onEditMessage={editChatMessage} onForwardMessage={setForwardingMessage} onOpenProfile={onOpenProfile} onNavigate={onNavigate} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onUnblockDirect={(targetUserId) => void unblockDirectConversation(targetUserId)} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
+      {selected ? <MessageThread me={me} conversation={selected} messages={activeMessages} draft={drafts[selected.id] ?? ''} pendingAttachments={pendingAttachmentsByConversation[selected.id] ?? []} pendingUploadPreviews={pendingUploadPreviewsByConversation[selected.id] ?? []} uploading={uploadingConversationId === selected.id} apiState={apiState} showDetail={showDetail} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} groupPresenceLabel={selectedGroupPresence?.label} groupOnlineCount={selectedGroupPresence?.onlineCount} typingUserId={typingByConversationId[selected.id] ?? null} replyTarget={replyTarget} onInteract={() => markConversationRead(selected.id)} onDraftChange={(value) => updateDraft(selected.id, value)} composeError={composeErrorsByConversation[selected.id] ?? null} onComposeErrorChange={(message) => setConversationComposeError(selected.id, message)} onAttachFiles={(files) => attachFiles(selected.id, files)} onRemoveAttachment={removePendingAttachment} onRemovePendingUpload={(id) => removePendingUploadPreview(selected.id, id)} onSubmit={handleSubmit} onSendLike={(level) => void sendLike(level)} onReplyMessage={(message) => setReplyToByConversationId((current) => ({ ...current, [selected.id]: message.id }))} onCancelReply={() => setReplyToByConversationId((current) => ({ ...current, [selected.id]: null }))} onReactMessage={reactToMessage} onRecallMessage={recallMessage} onEditMessage={editChatMessage} onForwardMessage={setForwardingMessage} onOpenProfile={onOpenProfile} onNavigate={onNavigate} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onUnblockDirect={(targetUserId) => void unblockDirectConversation(targetUserId)} onToggleDetail={() => setShowDetail((value) => !value)} onBack={() => setMobileShowThread(false)} /> : <section className="messenger-empty"><Icon name="messenger" size={56} /><h2>{apiState === 'unavailable' ? t('messengerUnavailable') : t('selectChat')}</h2><p>{apiState === 'unavailable' ? t('messengerUnavailableDesc') : t('chooseConversation')}</p></section>}
       {showDetail && selected && <ConversationDetail me={me} conversation={selected} presence={selectedOther ? presenceByUserId[selectedOther.id] : undefined} onOpenProfile={onOpenProfile} onOpenGroup={selected.type === 'GROUP' ? () => setManagedGroupId(selected.id) : undefined} onLeave={() => void leaveSelectedConversation()} />}
     </main>
     {showNewModal && <NewConversationModal friends={friends} onStart={startConversation} onCreateGroup={startGroupConversation} onClose={() => setShowNewModal(false)} />}

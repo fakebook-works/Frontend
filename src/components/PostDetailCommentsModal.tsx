@@ -8,7 +8,9 @@ import type { MediaUpload, UserSummary } from '../api/types'
 import { useI18n } from '../i18n'
 import { relativeTime } from '../lib/format'
 import { clipboardImageFiles } from '../lib/clipboardMedia'
-import { applyMentionSelection, deleteMentionAtSelection, parseMentionContent, reconcileMentionEntities, serializeMentionContent, type MentionEntity } from '../lib/mentions'
+import { applyMentionSelection, deleteMentionAtSelection, extractMentionUserIds, parseMentionContent, reconcileMentionEntities, serializeMentionContent, type MentionEntity } from '../lib/mentions'
+import { INPUT_LIMITS, InputValidationError, inputValidationMessage, validateTextInput } from '../lib/inputValidation'
+import { UPLOAD_IMAGE_MIME_TYPES, mediaValidationMessage, validateMediaFile } from '../lib/mediaValidation'
 import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
 import { formatPostTimestamp } from '../lib/postTime'
 import { sharedPostSourceToGatewayReel } from '../lib/reelEntry'
@@ -183,6 +185,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   const [expandedCommentHistoryId, setExpandedCommentHistoryId] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const commentLoadSequenceRef = useRef(0)
+  const commentImageSelectionSequenceRef = useRef(0)
   const loadingLikerIdsRef = useRef(new Set<string>())
   const loadedLikerIdsRef = useRef(new Set<string>())
   const viewerDisplayName = viewer?.displayName || t('you')
@@ -222,6 +225,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   }, [commentMenuId])
 
   function changeContent(nextContent: string, caret: number) {
+    setError(null)
     if (editingComment) {
       setEditingComment((current) => current ? {
         ...current,
@@ -318,8 +322,24 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   }
 
   function selectCommentImage(file: File | undefined) {
-    if (!file || !file.type.startsWith('image/')) return
-    setCommentImage({ file, previewUrl: URL.createObjectURL(file) })
+    void validateAndSelectCommentImage(file)
+  }
+
+  async function validateAndSelectCommentImage(file: File | undefined) {
+    if (!file) return
+    const requestId = ++commentImageSelectionSequenceRef.current
+    try {
+      await validateMediaFile(file, { allowedMimeTypes: UPLOAD_IMAGE_MIME_TYPES, decodeImage: false })
+      if (requestId !== commentImageSelectionSequenceRef.current) return
+      setCommentImage((current) => {
+        if (current) URL.revokeObjectURL(current.previewUrl)
+        return { file, previewUrl: URL.createObjectURL(file) }
+      })
+      setError(null)
+    } catch (validationError) {
+      if (requestId !== commentImageSelectionSequenceRef.current) return
+      setError(mediaValidationMessage(validationError, t))
+    }
   }
 
   function patchComment(commentId: string, update: (comment: SocialComment) => SocialComment) {
@@ -530,6 +550,20 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
 
   async function submit(event: FormEvent) {
     event.preventDefault()
+    const draftContent = editingComment?.content ?? content
+    const draftEntities = editingComment?.entities ?? mentionEntities
+    let serializedDraft: string
+    try {
+      validateTextInput(draftContent, { field: 'comment', max: INPUT_LIMITS.comment })
+      serializedDraft = serializeMentionContent(draftContent, draftEntities).trim()
+      const mentionCount = extractMentionUserIds(serializedDraft).length
+      if (mentionCount > INPUT_LIMITS.mentions) {
+        throw new InputValidationError('too_long', 'mentions', { max: INPUT_LIMITS.mentions, actual: mentionCount })
+      }
+    } catch (validationError) {
+      setError(inputValidationMessage(validationError, t))
+      return
+    }
     if (editingComment) {
       const comment = loadedComment(editingComment.commentId)
       if (comment) await saveCommentEdit(comment)
@@ -545,7 +579,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
       await socialApi.createComment(
         viewerId,
         replyTarget?.id ?? targetId,
-        serializeMentionContent(content, mentionEntities).trim(),
+        serializedDraft,
         uploaded ? { type: 0, url: uploaded.url } : null,
       )
       clearPrefetchedCommentPage(targetId, viewerId)
@@ -561,6 +595,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
       setMentionEntities([])
       setMentionCaret(0)
       setReplyTarget(null)
+      commentImageSelectionSequenceRef.current += 1
       setCommentImage(null)
       setEmojiOpen(false)
     } catch {
@@ -662,7 +697,18 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   async function saveCommentEdit(comment: SocialComment) {
     if (!editingComment || editingComment.commentId !== comment.id || savingCommentId) return
     const editState = editingComment
-    const serialized = serializeMentionContent(editState.content, editState.entities).trim()
+    let serialized: string
+    try {
+      validateTextInput(editState.content, { field: 'comment', max: INPUT_LIMITS.comment })
+      serialized = serializeMentionContent(editState.content, editState.entities).trim()
+      const mentionCount = extractMentionUserIds(serialized).length
+      if (mentionCount > INPUT_LIMITS.mentions) {
+        throw new InputValidationError('too_long', 'mentions', { max: INPUT_LIMITS.mentions, actual: mentionCount })
+      }
+    } catch (validationError) {
+      setError(inputValidationMessage(validationError, t))
+      return
+    }
     if (!serialized && !comment.media) return
     if (serialized === comment.content) {
       setEditingComment(null)
@@ -910,6 +956,16 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   const editingTarget = editingComment ? loadedComment(editingComment.commentId) : null
   const composerTarget = editingTarget ?? replyTarget
   const composerHasMedia = editingComment ? Boolean(editingTarget?.media) : Boolean(commentImage)
+  let composerValidationError: string | null = null
+  try {
+    validateTextInput(composerContent, { field: 'comment', max: INPUT_LIMITS.comment })
+    const mentionCount = extractMentionUserIds(serializeMentionContent(composerContent, composerEntities)).length
+    if (mentionCount > INPUT_LIMITS.mentions) {
+      throw new InputValidationError('too_long', 'mentions', { max: INPUT_LIMITS.mentions, actual: mentionCount })
+    }
+  } catch (validationError) {
+    composerValidationError = inputValidationMessage(validationError, t)
+  }
   const composer = <form className={`comment-compose${editingComment ? ' is-editing' : ''}`} onSubmit={submit}>
     <div className="comment-compose-row">
       <div className={`comment-compose-avatar-stack${composerTarget ? ' replying' : ''}`}>
@@ -918,7 +974,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
         {composerTarget && <button type="button" className="comment-compose-reply-cancel-zone" aria-label={t('cancel')} title={t('cancel')} onClick={editingComment ? cancelCommentEdit : cancelReply} />}
       </div>
       <div className="comment-compose-box">
-        <div className="mention-compose-field"><MentionDraftOverlay text={composerContent} entities={composerEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} rows={1} value={composerContent} spellCheck={false} aria-label={editingComment ? t('editComment') : undefined} onChange={(event) => changeContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onPaste={(event) => {
+        <div className="mention-compose-field"><MentionDraftOverlay text={composerContent} entities={composerEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} rows={1} value={composerContent} spellCheck={false} aria-label={editingComment ? t('editComment') : undefined} aria-invalid={Boolean(composerValidationError) || undefined} onChange={(event) => changeContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onPaste={(event) => {
           if (editingComment) return
           const [pastedImage] = clipboardImageFiles(event.clipboardData)
           if (pastedImage) {
@@ -935,14 +991,14 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
           if (editingComment) setEditingComment((current) => current ? { ...current, caret } : current)
           else setMentionCaret(caret)
         }} placeholder={editingComment ? t('editComment') : replyTarget ? t('writeReply') : t('commentAs', { name: viewerDisplayName })} /><MentionSuggestions text={composerContent} people={friends} textareaRef={textareaRef} caretIndex={composerCaret} onSelected={selectMention} placement="above" limit={5} className="comment-mention-suggestions" fitToNames /></div>
-        {!editingComment && commentImage && <div className="comment-image-preview"><img src={commentImage.previewUrl} alt="" /><button type="button" aria-label={t('removeMedia')} onClick={() => setCommentImage(null)}><Icon name="close" size={14} /></button></div>}
+        {!editingComment && commentImage && <div className="comment-image-preview"><img src={commentImage.previewUrl} alt="" /><button type="button" aria-label={t('removeMedia')} onClick={() => { commentImageSelectionSequenceRef.current += 1; setCommentImage(null) }}><Icon name="close" size={14} /></button></div>}
         <div className="comment-compose-tools">
           <div className="comment-compose-tool-list">
             <div className="comment-emoji-wrap"><button type="button" aria-label={t('feeling')} title={t('feeling')} aria-expanded={emojiOpen} onClick={() => setEmojiOpen((open) => !open)}><Icon name="feeling" size={18} /></button>{emojiOpen && <div className="comment-emoji-menu" role="menu">{COMMENT_EMOJIS.map((emoji) => <button key={emoji} type="button" role="menuitem" aria-label={emoji} onClick={() => insertEmoji(emoji)}>{emoji}</button>)}</div>}</div>
-            {!editingComment && <label aria-label={t('attachPhoto')} title={t('attachPhoto')}><Icon name="photo" size={18} /><input type="file" accept="image/*" onChange={(event) => { selectCommentImage(event.target.files?.[0]); event.currentTarget.value = '' }} /></label>}
+            {!editingComment && <label aria-label={t('attachPhoto')} title={t('attachPhoto')}><Icon name="photo" size={18} /><input type="file" accept={UPLOAD_IMAGE_MIME_TYPES.join(',')} onChange={(event) => { selectCommentImage(event.target.files?.[0]); event.currentTarget.value = '' }} /></label>}
             <button type="button" aria-label={t('stickers')} title={t('stickers')}><Icon name="sticker" size={18} /></button>
           </div>
-          <button type="submit" disabled={busy || Boolean(savingCommentId) || (!composerContent.trim() && !composerHasMedia)} aria-label={editingComment ? t('save') : t('sendComment')}><Icon name="send" size={19} /></button>
+          <button type="submit" disabled={busy || Boolean(savingCommentId) || Boolean(composerValidationError) || (!composerContent.trim() && !composerHasMedia)} aria-label={editingComment ? t('save') : t('sendComment')}><Icon name="send" size={19} /></button>
         </div>
       </div>
     </div>
@@ -951,7 +1007,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   if (variant === 'photo-sidebar') {
     return <section className="photo-detail-discussion content-thread-modal" aria-label={t('comments')}>
       {discussionScroll}
-      {error && <p className="form-error content-modal-error">{error}</p>}
+      {(error || composerValidationError) && <p className="form-error content-modal-error" role="alert">{error || composerValidationError}</p>}
       {composer}
     </section>
   }
@@ -965,7 +1021,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
           <button type="button" className="icon-circle subtle" onClick={onClose}><Icon name="close" /></button>
         </header>
         {discussionScroll}
-        {error && <p className="form-error content-modal-error">{error}</p>}
+        {(error || composerValidationError) && <p className="form-error content-modal-error" role="alert">{error || composerValidationError}</p>}
         {composer}
       </section>
     </div>

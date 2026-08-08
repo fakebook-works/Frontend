@@ -4,7 +4,26 @@ import { api, ApiError } from '../api/client'
 import type { AuthSession } from '../api/client'
 import { useAuth } from '../lib/auth'
 import { languageOptions, useI18n } from '../i18n'
+import { containsForbiddenInput } from '../lib/inputValidation'
 import { useTheme } from '../theme'
+
+const PASSWORD_MIN_LENGTH = 8
+const PASSWORD_MAX_LENGTH = 128
+
+function passwordValidationMessage(password: string, t: (key: string, values?: Record<string, string | number>) => string) {
+  const length = password.length
+  if (length === 0) return t('inputRequired')
+  if (containsForbiddenInput(password)) return t('inputInvalidCharacters')
+  if (length < PASSWORD_MIN_LENGTH) return t('passwordMinimum')
+  if (length > PASSWORD_MAX_LENGTH) return t('inputTooLong', { max: PASSWORD_MAX_LENGTH })
+  return null
+}
+
+function existingPasswordValidationMessage(password: string, t: (key: string, values?: Record<string, string | number>) => string) {
+  if (password.length === 0) return t('inputRequired')
+  if (password.length > PASSWORD_MAX_LENGTH) return t('inputTooLong', { max: PASSWORD_MAX_LENGTH })
+  return null
+}
 
 function formatDate(value: string | null, fallback: string) {
   if (!value) return fallback
@@ -61,10 +80,17 @@ export function AccountSecurityPage({ embedded = false, section = 'all' }: { emb
   async function changePassword(e: FormEvent) {
     e.preventDefault()
     setPasswordMessage(null)
-    if (newPassword.length < 8) {
-      setPasswordMessage(t('passwordMinimum'))
+    const currentPasswordError = existingPasswordValidationMessage(currentPassword, t)
+    if (currentPasswordError) {
+      setPasswordMessage(currentPasswordError)
       return
     }
+    const newPasswordError = passwordValidationMessage(newPassword, t)
+    if (newPasswordError) {
+      setPasswordMessage(newPasswordError)
+      return
+    }
+    if (!confirmPassword) return setPasswordMessage(t('inputRequired'))
     if (newPassword !== confirmPassword) {
       setPasswordMessage(t('passwordMismatch'))
       return
@@ -156,9 +182,9 @@ export function AccountSecurityPage({ embedded = false, section = 'all' }: { emb
           {section !== 'sessions' && <section className="card security-panel">
             <div className="panel-heading"><div><h2>{t('changePassword')}</h2><p>{t('changePasswordHelp')}</p></div></div>
             <form className="security-form" onSubmit={changePassword}>
-              <label><span>{t('currentPassword')}</span><input type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required /></label>
-              <label><span>{t('newPasswordLabel')}</span><input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required /></label>
-              <label><span>{t('confirmPassword')}</span><input type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required /></label>
+              <label><span>{t('currentPassword')}</span><input type="password" autoComplete="current-password" maxLength={PASSWORD_MAX_LENGTH} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required /></label>
+              <label><span>{t('newPasswordLabel')}</span><input type="password" autoComplete="new-password" maxLength={PASSWORD_MAX_LENGTH} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required /></label>
+              <label><span>{t('confirmPassword')}</span><input type="password" autoComplete="new-password" maxLength={PASSWORD_MAX_LENGTH} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required /></label>
               {passwordMessage && <p className={passwordMessage === t('passwordChanged') ? 'form-success' : 'form-error'}>{passwordMessage}</p>}
               <button type="submit" className="btn-primary block" disabled={passwordBusy}>{passwordBusy ? t('saving') : t('changePassword')}</button>
             </form>

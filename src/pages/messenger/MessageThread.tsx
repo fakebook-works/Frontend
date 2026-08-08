@@ -8,9 +8,10 @@ import { Icon } from '../../components/Icon'
 import { VerifiedBadge } from '../../components/VerifiedBadge'
 import { LinkPreview } from '../../components/LinkPreview'
 import { clipboardImageFiles } from '../../lib/clipboardMedia'
+import { INPUT_LIMITS, inputValidationMessage, validateTextInput } from '../../lib/inputValidation'
 import { isDirectImageUrl, remoteImageFileFromUrl } from '../../lib/urlMedia'
 import { EmojiButton } from './EmojiButton'
-import { MESSENGER_ATTACHMENT_ACCEPT } from './attachmentPolicy'
+import { MESSENGER_ATTACHMENT_ACCEPT, MESSENGER_MAX_ATTACHMENTS } from './attachmentPolicy'
 import { conversationAvatar, conversationName, formatPresence, formatTime, messageGroupPosition, messengerLikeLevel, shouldShowAvatar, shouldShowTimestamp } from './helpers'
 import type { MessageVisualBreaks, MessengerLikeLevel } from './helpers'
 import { HoldLikeButton } from './HoldLikeButton'
@@ -39,7 +40,9 @@ interface MessageThreadProps {
   typingUserId: string | null
   onInteract: () => void
   onDraftChange: (value: string) => void
-  onAttachFiles: (files: FileList | File[] | null) => void
+  composeError: string | null
+  onComposeErrorChange: (message: string | null) => void
+  onAttachFiles: (files: FileList | File[] | null) => void | Promise<void>
   onRemoveAttachment: (url: string) => void
   onRemovePendingUpload: (id: string) => void
   onSubmit: (e: FormEvent) => void
@@ -75,6 +78,8 @@ export function MessageThread({
   typingUserId,
   onInteract,
   onDraftChange,
+  composeError,
+  onComposeErrorChange,
   onAttachFiles,
   onRemoveAttachment,
   onRemovePendingUpload,
@@ -186,8 +191,12 @@ export function MessageThread({
   const otherParticipant = conversation.participants.find((p) => p.id !== me.id)
   const latestOwnPendingMessage = [...messages].reverse().find((message) => !message.deleted && message.sender.id === me.id && (message.status === 'sent' || message.status === 'delivered'))
   const latestOwnReadMessage = [...messages].reverse().find((message) => !message.deleted && message.sender.id === me.id && message.status === 'read')
+  const messageById = useMemo(
+    () => new Map(messages.map((message) => [message.id, message])),
+    [messages],
+  )
   const editingMessage = editingMessageId
-    ? messages.find((message) => message.id === editingMessageId) ?? null
+    ? messageById.get(editingMessageId) ?? null
     : null
   const visualBreaks = useMemo<MessageVisualBreaks>(() => ({
     beforeMessageIds: new Set(messages
@@ -223,6 +232,7 @@ export function MessageThread({
 
   function beginEditing(message: MessengerMessageDto) {
     onCancelReply()
+    onComposeErrorChange(null)
     setExpandedEditHistoryIds((current) => {
       if (!current.has(message.id)) return current
       const next = new Set(current)
@@ -237,6 +247,7 @@ export function MessageThread({
   function cancelEditing() {
     setEditingMessageId(null)
     setEditDraft('')
+    onComposeErrorChange(null)
     window.requestAnimationFrame(() => inputRef.current?.focus())
   }
 
@@ -251,12 +262,26 @@ export function MessageThread({
 
   async function saveEdit(event: FormEvent, message: MessengerMessageDto) {
     event.preventDefault()
-    const text = editDraft.trim()
-    if (!text || editBusy) return
+    if (editBusy) return
+    let text: string
+    try {
+      const validated = validateTextInput(editDraft, {
+        field: 'message',
+        max: INPUT_LIMITS.messengerMessage,
+        required: true,
+        multiline: true,
+      })
+      text = validated.value
+      onComposeErrorChange(null)
+    } catch (validationError) {
+      onComposeErrorChange(inputValidationMessage(validationError, t))
+      return
+    }
     setEditBusy(true)
     try {
       await onEditMessage(message, text)
       cancelEditing()
+      onComposeErrorChange(null)
     } catch {
       // The parent keeps the existing message and exposes the shared API state.
     } finally {
@@ -313,7 +338,7 @@ export function MessageThread({
           const groupPosition = messageGroupPosition(messages, idx, visualBreaks)
           const likeLevel = messengerLikeLevel(message.body)
           const repliedMessage = message.replyToMessageId
-            ? messages.find((candidate) => candidate.id === message.replyToMessageId)
+            ? messageById.get(message.replyToMessageId)
             : null
           const hasReactions = Boolean(message.reactions?.length)
           const actionable = !message.deleted && !message.id.startsWith('local-')
@@ -378,6 +403,7 @@ export function MessageThread({
       {editingMessage
         ? <div className="messenger-editing-bar"><MessageEditingBar message={editingMessage} onCancel={cancelEditing} /></div>
         : replyTarget && <div className="messenger-replying-bar"><MessageReplyPreview message={replyTarget} viewerId={me.id} composer onCancel={onCancelReply} /></div>}
+      {composeError && <p className="form-error messenger-compose-error" role="alert">{composeError}</p>}
       <form className="messenger-compose" onSubmit={handleSubmit}>
         <input
           ref={fileInputRef}
@@ -413,13 +439,19 @@ export function MessageThread({
           <input
             ref={inputRef}
             value={editingMessage ? editDraft : draft}
-            onChange={(e) => editingMessage ? setEditDraft(e.target.value) : onDraftChange(e.target.value)}
+            aria-invalid={Boolean(composeError)}
+            onChange={(e) => {
+              onComposeErrorChange(null)
+              if (editingMessage) setEditDraft(e.target.value)
+              else onDraftChange(e.target.value)
+            }}
             onPaste={(event) => {
-              if (editingMessage || pendingAttachments.length >= 10) return
+              const pendingCount = pendingAttachments.length + pendingUploadPreviews.length
+              if (editingMessage || pendingCount >= MESSENGER_MAX_ATTACHMENTS) return
               const pastedImages = clipboardImageFiles(event.clipboardData)
               if (pastedImages.length > 0) {
                 event.preventDefault()
-                onAttachFiles(pastedImages.slice(0, 10 - pendingAttachments.length))
+                onAttachFiles(pastedImages.slice(0, MESSENGER_MAX_ATTACHMENTS - pendingCount))
                 return
               }
               const pasted = event.clipboardData.getData('text').trim()
@@ -430,7 +462,13 @@ export function MessageThread({
             placeholder="Aa"
             autoComplete="off"
           />
-          <EmojiButton onPick={(emoji) => editingMessage ? setEditDraft(editDraft + emoji) : onDraftChange(draft + emoji)} />
+          <EmojiButton onPick={(emoji) => {
+            const current = editingMessage ? editDraft : draft
+            const next = `${current}${emoji}`
+            onComposeErrorChange(null)
+            if (editingMessage) setEditDraft(next)
+            else onDraftChange(next)
+          }} />
         </label>
         {editingMessage || draft.trim() || pendingAttachments.length || pendingUploadPreviews.length ? <button
           type="submit"

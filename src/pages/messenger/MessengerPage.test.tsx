@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { MessengerRealtimeEvent } from '../../api/messenger'
 import { MessengerPage } from './MessengerPage'
 
 const messengerMocks = vi.hoisted(() => ({
@@ -11,7 +12,12 @@ const messengerMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   createDirectConversation: vi.fn(),
   createGroupConversation: vi.fn(),
+  leaveConversation: vi.fn(),
+  markDelivered: vi.fn(),
   markRead: vi.fn(),
+  subscribeInbox: vi.fn(),
+  subscribeConversations: vi.fn(),
+  subscribePresence: vi.fn(),
 }))
 const searchFriends = vi.hoisted(() => vi.fn())
 const uploadMocks = vi.hoisted(() => ({
@@ -28,35 +34,62 @@ vi.mock('../../api/messenger', () => ({ messengerApi: {
   sendMessage: messengerMocks.sendMessage,
   createDirectConversation: messengerMocks.createDirectConversation,
   createGroupConversation: messengerMocks.createGroupConversation,
+  markDelivered: messengerMocks.markDelivered,
   markRead: messengerMocks.markRead,
-  leaveConversation: vi.fn(),
+  leaveConversation: messengerMocks.leaveConversation,
   presence: vi.fn().mockResolvedValue([]),
   setTyping: vi.fn().mockResolvedValue(undefined),
-  subscribeInbox: vi.fn(() => vi.fn()),
-  subscribeConversations: vi.fn(() => vi.fn()),
-  subscribePresence: vi.fn(() => vi.fn()),
+  subscribeInbox: messengerMocks.subscribeInbox,
+  subscribeConversations: messengerMocks.subscribeConversations,
+  subscribePresence: messengerMocks.subscribePresence,
 } }))
 vi.mock('../../api/search', () => ({ searchApi: { searchFriends } }))
 vi.mock('../../i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+
+function pngFile(name: string) {
+  return new File([
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  ], name, { type: 'image/png' })
+}
+
+let inboxListener: ((event: MessengerRealtimeEvent) => void) | null = null
+let conversationListener: ((event: MessengerRealtimeEvent) => void) | null = null
 
 describe('Messenger unavailable state', () => {
   window.HTMLElement.prototype.scrollIntoView = vi.fn()
   beforeEach(() => {
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn((file: File) => `blob:${file.name}`) })
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 800, height: 600, close: vi.fn() }))
     messengerMocks.conversations.mockReset().mockRejectedValue(new Error('offline'))
     messengerMocks.messages.mockReset().mockResolvedValue([])
     messengerMocks.message.mockReset()
     messengerMocks.sendMessage.mockReset()
     messengerMocks.createDirectConversation.mockReset()
     messengerMocks.createGroupConversation.mockReset()
+    messengerMocks.leaveConversation.mockReset().mockResolvedValue(undefined)
+    messengerMocks.markDelivered.mockReset().mockResolvedValue(undefined)
     messengerMocks.markRead.mockReset().mockResolvedValue(undefined)
+    inboxListener = null
+    conversationListener = null
+    messengerMocks.subscribeInbox.mockReset().mockImplementation((listener) => {
+      inboxListener = listener
+      return () => { if (inboxListener === listener) inboxListener = null }
+    })
+    messengerMocks.subscribeConversations.mockReset().mockImplementation((_conversationIds, listener) => {
+      conversationListener = listener
+      return () => { if (conversationListener === listener) conversationListener = null }
+    })
+    messengerMocks.subscribePresence.mockReset().mockReturnValue(() => undefined)
     searchFriends.mockReset().mockResolvedValue([])
     uploadMocks.uploadMediaFiles.mockReset()
     uploadMocks.finalizePendingMedia.mockReset().mockResolvedValue(undefined)
     uploadMocks.cancelPendingMedia.mockReset().mockResolvedValue(undefined)
   })
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
 
   it('shows an honest unavailable state instead of generated conversations', async () => {
     render(<MessengerPage me={{ id: 'me', username: 'me', displayName: 'Me', avatarUrl: null }} friends={[]} onOpenProfile={vi.fn()} />)
@@ -95,7 +128,9 @@ describe('Messenger unavailable state', () => {
     await screen.findByRole('button', { name: 'newMessage' })
     fireEvent.click(screen.getByRole('button', { name: 'newMessage' }))
     fireEvent.click(screen.getByRole('button', { name: 'createGroupChat' }))
-    fireEvent.change(screen.getByPlaceholderText('groupChatNamePlaceholder'), { target: { value: 'Weekend' } })
+    const titleInput = screen.getByPlaceholderText('groupChatNamePlaceholder')
+    expect(titleInput).not.toHaveAttribute('maxLength')
+    fireEvent.change(titleInput, { target: { value: 'Weekend' } })
     fireEvent.click(screen.getByRole('button', { name: /Friend One/ }))
     fireEvent.click(screen.getByRole('button', { name: /Friend Two/ }))
     fireEvent.click(screen.getByRole('button', { name: 'startGroupChat' }))
@@ -160,7 +195,7 @@ describe('Messenger unavailable state', () => {
     const { container } = render(<MessengerPage me={me} friends={[friendOne, friendTwo]} onOpenProfile={vi.fn()} />)
     await screen.findAllByText('Friend One')
     const fileInput = container.querySelector<HTMLInputElement>('.messenger-file-input')!
-    fireEvent.change(fileInput, { target: { files: [new File(['image'], 'first.png', { type: 'image/png' })] } })
+    fireEvent.change(fileInput, { target: { files: [pngFile('first.png')] } })
     expect(await screen.findByText('first.png')).toBeInTheDocument()
     expect(uploadMocks.uploadMediaFiles).not.toHaveBeenCalled()
 
@@ -178,6 +213,52 @@ describe('Messenger unavailable state', () => {
     expect(uploadMocks.cancelPendingMedia).not.toHaveBeenCalled()
   })
 
+  it('releases the pending preview URL after leaving a group conversation', async () => {
+    const me = { id: 'me', username: 'me', displayName: 'Me', avatarUrl: null }
+    const friend = { id: 'friend-1', username: 'friend-1', displayName: 'Friend One', avatarUrl: null }
+    messengerMocks.conversations.mockResolvedValue([{
+      id: 'group-leave',
+      type: 'GROUP' as const,
+      participants: [me, friend],
+      title: 'Leave Group',
+      avatarUrl: null,
+      updatedAt: '2026-01-02',
+      unreadCount: 0,
+      lastMessage: null,
+    }])
+
+    const { container } = render(<MessengerPage me={me} friends={[friend]} onOpenProfile={vi.fn()} />)
+    await screen.findAllByText('Leave Group')
+    fireEvent.change(container.querySelector<HTMLInputElement>('.messenger-file-input')!, {
+      target: { files: [pngFile('leave-group.png')] },
+    })
+    expect(await screen.findByText('leave-group.png')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'leaveConversation' }))
+
+    await waitFor(() => expect(messengerMocks.leaveConversation).toHaveBeenCalledWith('group-leave', me.id))
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:leave-group.png'))
+    expect(screen.queryByText('leave-group.png')).not.toBeInTheDocument()
+  })
+
+  it('keeps the first ten valid attachments and reports selection overflow', async () => {
+    const me = { id: 'me', username: 'me', displayName: 'Me', avatarUrl: null }
+    const friend = { id: 'friend-1', username: 'friend-1', displayName: 'Friend One', avatarUrl: null }
+    messengerMocks.conversations.mockResolvedValue([
+      { id: 'conversation-1', type: 'DIRECT', participants: [me, friend], title: null, avatarUrl: null, updatedAt: '2026-01-02', unreadCount: 0, lastMessage: null },
+    ])
+
+    const { container } = render(<MessengerPage me={me} friends={[friend]} onOpenProfile={vi.fn()} />)
+    await screen.findAllByText('Friend One')
+    fireEvent.change(container.querySelector<HTMLInputElement>('.messenger-file-input')!, {
+      target: { files: Array.from({ length: 11 }, (_, index) => pngFile(`photo-${index}.png`)) },
+    })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('mediaTooManyFiles')
+    await waitFor(() => expect(container.querySelectorAll('.messenger-attachment-tray .attachment-chip')).toHaveLength(10))
+    expect(uploadMocks.uploadMediaFiles).not.toHaveBeenCalled()
+  })
+
   it('caps local previews before upload so a later selection cannot create orphan pending assets', async () => {
     const me = { id: 'me', username: 'me', displayName: 'Me', avatarUrl: null }
     const friend = { id: 'friend-1', username: 'friend-1', displayName: 'Friend One', avatarUrl: null }
@@ -189,7 +270,7 @@ describe('Messenger unavailable state', () => {
     const { container } = render(<MessengerPage me={me} friends={[friend]} onOpenProfile={vi.fn()} />)
     await screen.findAllByText('Friend One')
     const fileInput = container.querySelector<HTMLInputElement>('.messenger-file-input')!
-    const files = Array.from({ length: 12 }, (_, index) => new File(['image'], `image-${index}.png`, { type: 'image/png' }))
+    const files = Array.from({ length: 12 }, (_, index) => pngFile(`image-${index}.png`))
     fireEvent.change(fileInput, { target: { files: files.slice(0, 6) } })
     fireEvent.change(fileInput, { target: { files: files.slice(6) } })
 
@@ -220,6 +301,43 @@ describe('Messenger unavailable state', () => {
 
     fireEvent.click(document.querySelector('.messenger-messages')!)
     await waitFor(() => expect(messengerMocks.markRead).toHaveBeenCalledWith('conversation-9', '9'))
+  })
+
+  it('runs inbox and selected-conversation side effects for the same outbox event', async () => {
+    const me = { id: 'me', username: 'me', displayName: 'Me', avatarUrl: null }
+    const friend = { id: 'friend', username: 'friend', displayName: 'Friend', avatarUrl: null }
+    const message = {
+      id: 'shared-message', conversationId: 'conversation-shared', sequence: '12', sender: friend,
+      body: 'Shared event', createdAt: '2026-07-20T00:00:00Z', status: 'delivered' as const,
+      attachments: [], reactions: [], deleted: false,
+    }
+    messengerMocks.conversations.mockResolvedValue([{
+      id: 'conversation-shared', type: 'DIRECT' as const, participants: [me, friend], title: null, avatarUrl: null,
+      updatedAt: message.createdAt, unreadCount: 0, lastMessage: message,
+    }])
+    messengerMocks.messages.mockResolvedValue([message])
+    messengerMocks.message.mockResolvedValue(message)
+    render(<MessengerPage me={me} friends={[friend]} onOpenProfile={vi.fn()} />)
+    await screen.findByText('Shared event')
+    await waitFor(() => {
+      expect(inboxListener).not.toBeNull()
+      expect(conversationListener).not.toBeNull()
+    })
+    const conversationCallsBeforeEvent = messengerMocks.conversations.mock.calls.length
+    const event = {
+      eventId: 'shared-event', kind: 'MESSAGE_ADDED', conversationId: message.conversationId,
+      messageId: message.id, userId: friend.id, sequence: message.sequence,
+      occurredAt: message.createdAt, expiresAt: null,
+    }
+
+    await act(async () => {
+      conversationListener?.(event)
+      inboxListener?.(event)
+    })
+
+    await waitFor(() => expect(messengerMocks.message).toHaveBeenCalledWith(message.id, me.id))
+    await waitFor(() => expect(messengerMocks.conversations.mock.calls.length).toBeGreaterThan(conversationCallsBeforeEvent))
+    expect(screen.getAllByText('Shared event').length).toBeGreaterThan(0)
   })
 
   it('opens the full-page profile only from the thread avatar', async () => {

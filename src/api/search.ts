@@ -1,6 +1,7 @@
 import { gatewayGraphQl } from './client'
 import type { GatewayPost, SharedPostSource } from './gatewayTypes'
 import type { SocialContent, SocialGroup, SocialProfile } from './social'
+import { validateTextInput } from '../lib/inputValidation'
 
 export type SearchTab = 'posts' | 'people' | 'reels' | 'groups'
 export type ProfileConnectionSearchType = 'friends' | 'following' | 'followers'
@@ -87,6 +88,22 @@ interface SearchAuthorGraphQl {
 
 const SEARCH_USER_FIELDS = `id name avatar bio isVerified friendCount followerCount followingCount privacy`
 const SEARCH_GROUP_FIELDS = `id avatar background name bio privacy create memberCount adminCount`
+const SEARCH_QUERY_MAX_LENGTH = 200
+const MAX_SEARCH_PAGE = 1_000_000
+const MAX_SEARCH_PAGE_SIZE = 50
+
+function normalizeSearchKeyword(keyword: string) {
+  return validateTextInput(keyword, {
+    field: 'search',
+    max: SEARCH_QUERY_MAX_LENGTH,
+    multiline: false,
+  }).value
+}
+
+function clampInteger(value: number, minimum: number, maximum: number, fallback: number) {
+  if (!Number.isFinite(value)) return fallback
+  return Math.max(minimum, Math.min(maximum, Math.trunc(value)))
+}
 
 function userFromSearch(value: SearchUserGraphQl): SocialProfile {
   return {
@@ -212,7 +229,7 @@ function resolveIndependentSearchBranches<A, B>(
 }
 
 export async function fastSearch(keyword: string): Promise<QuickSearchItem[]> {
-  const normalized = keyword.trim()
+  const normalized = normalizeSearchKeyword(keyword)
   if (normalized.length < 1) return []
   const data = await gatewayGraphQl<{ fastSearch: Array<
     | { __typename: 'UserSearchResult'; viewerIsSelf: boolean; viewerIsFriend: boolean; viewerIsFollowing: boolean; user: SearchUserGraphQl }
@@ -240,9 +257,9 @@ export async function fastSearch(keyword: string): Promise<QuickSearchItem[]> {
 }
 
 export async function fastSearchGroups(keyword: string, pageSize = 8): Promise<QuickGroupSearchItem[]> {
-  const normalized = keyword.trim()
+  const normalized = normalizeSearchKeyword(keyword)
   if (normalized.length < 1) return []
-  const size = Math.max(1, Math.min(8, Math.trunc(pageSize)))
+  const size = clampInteger(pageSize, 1, 8, 8)
   const data = await gatewayGraphQl<{
     searchGroups: {
       items: Array<{ viewerIsMember: boolean; group: SearchGroupGraphQl } | null>
@@ -263,9 +280,9 @@ export async function fastSearchGroups(keyword: string, pageSize = 8): Promise<Q
 }
 
 export async function searchGroupScope(keyword: string, page = 1, pageSize = 20): Promise<GroupScopedSearchResult> {
-  const normalized = keyword.trim()
-  const safePage = Math.max(1, Math.min(1_000_000, Math.trunc(page)))
-  const size = Math.max(1, Math.min(50, Math.trunc(pageSize)))
+  const normalized = normalizeSearchKeyword(keyword)
+  const safePage = clampInteger(page, 1, MAX_SEARCH_PAGE, 1)
+  const size = clampInteger(pageSize, 1, MAX_SEARCH_PAGE_SIZE, 20)
   const empty: GroupScopedSearchResult = { page: safePage, hasNextPage: false, groups: [], posts: [] }
   if (normalized.length < 1) return empty
 
@@ -307,8 +324,10 @@ export async function searchGroupScope(keyword: string, page = 1, pageSize = 20)
 }
 
 export async function search(keyword: string, tab: SearchTab, page = 1, pageSize = 20): Promise<SearchPageResult> {
-  const normalized = keyword.trim()
-  const empty: SearchPageResult = { tab, page, hasNextPage: false, users: [], groups: [], posts: [], reels: [] }
+  const normalized = normalizeSearchKeyword(keyword)
+  const safePage = clampInteger(page, 1, MAX_SEARCH_PAGE, 1)
+  const safePageSize = clampInteger(pageSize, 1, MAX_SEARCH_PAGE_SIZE, 20)
+  const empty: SearchPageResult = { tab, page: safePage, hasNextPage: false, users: [], groups: [], posts: [], reels: [] }
   if (normalized.length < 1) return empty
 
   if (tab === 'people') {
@@ -316,7 +335,7 @@ export async function search(keyword: string, tab: SearchTab, page = 1, pageSize
       `query SearchUsers($keyword: String!, $page: Int!, $size: Int!) {
         searchUsers(keyword: $keyword, pageNumber: $page, pageSize: $size) { items { user { ${SEARCH_USER_FIELDS} } } pageInfo { hasNextPage } }
       }`,
-      { keyword: normalized, page, size: pageSize },
+      { keyword: normalized, page: safePage, size: safePageSize },
     )
     const users = data.searchUsers.items.flatMap((item): SearchProfile[] => {
       if (!item) return []
@@ -331,7 +350,7 @@ export async function search(keyword: string, tab: SearchTab, page = 1, pageSize
       `query SearchGroups($keyword: String!, $page: Int!, $size: Int!) {
         searchGroups(keyword: $keyword, pageNumber: $page, pageSize: $size) { items { group { ${SEARCH_GROUP_FIELDS} } } pageInfo { hasNextPage } }
       }`,
-      { keyword: normalized, page, size: pageSize },
+      { keyword: normalized, page: safePage, size: safePageSize },
     )
     const hydrated = data.searchGroups.items.flatMap((item): SearchGroup[] => {
       if (!item) return []
@@ -349,7 +368,7 @@ export async function search(keyword: string, tab: SearchTab, page = 1, pageSize
           pageInfo { hasNextPage }
         }
       }`,
-      { keyword: normalized, page, size: pageSize },
+      { keyword: normalized, page: safePage, size: safePageSize },
     )
     const reels: SearchReel[] = data.searchReels.items.flatMap((item) => item ? [{
       id: String(item.reel.id),
@@ -374,19 +393,19 @@ export async function search(keyword: string, tab: SearchTab, page = 1, pageSize
     return { ...empty, hasNextPage: data.searchReels.pageInfo.hasNextPage, reels }
   }
 
-  const size = Math.max(1, Math.ceil(pageSize / 2))
+  const size = Math.max(1, Math.ceil(safePageSize / 2))
   const [feedResult, groupResult] = resolveIndependentSearchBranches(await Promise.allSettled([
     gatewayGraphQl<{ searchFeedPosts: SearchPostPage }>(
       `query SearchFeedPosts($keyword: String!, $page: Int!, $size: Int!) {
       searchFeedPosts(keyword: $keyword, pageNumber: $page, pageSize: $size) { items { post { ${FEED_POST_FIELDS} } } pageInfo { hasNextPage } }
     }`,
-      { keyword: normalized, page, size },
+      { keyword: normalized, page: safePage, size },
     ),
     gatewayGraphQl<{ searchGroupPosts: SearchPostPage }>(
       `query SearchGroupPosts($keyword: String!, $page: Int!, $size: Int!) {
         searchGroupPosts(keyword: $keyword, pageNumber: $page, pageSize: $size) { items { post { ${GROUP_POST_FIELDS} } } pageInfo { hasNextPage } }
       }`,
-      { keyword: normalized, page, size },
+      { keyword: normalized, page: safePage, size },
     ),
   ] as const))
   const posts = [
@@ -401,8 +420,10 @@ export async function search(keyword: string, tab: SearchTab, page = 1, pageSize
 }
 
 export async function searchDirectContacts(keyword: string, page = 1, pageSize = 20): Promise<SocialProfile[]> {
-  const normalized = keyword.trim()
+  const normalized = normalizeSearchKeyword(keyword)
   if (normalized.length < 1) return []
+  const safePage = clampInteger(page, 1, MAX_SEARCH_PAGE, 1)
+  const size = clampInteger(pageSize, 1, MAX_SEARCH_PAGE_SIZE, 20)
   const data = await gatewayGraphQl<{
     searchDirectContacts: { items: Array<{ user: SearchUserGraphQl } | null> }
   }>(
@@ -411,14 +432,16 @@ export async function searchDirectContacts(keyword: string, page = 1, pageSize =
         items { user { ${SEARCH_USER_FIELDS} } }
       }
     }`,
-    { keyword: normalized, page, size: pageSize },
+    { keyword: normalized, page: safePage, size },
   )
   return data.searchDirectContacts.items.flatMap((item) => item ? [userFromSearch(item.user)] : [])
 }
 
 export async function searchFriends(keyword: string, page = 1, pageSize = 20): Promise<SocialProfile[]> {
-  const normalized = keyword.trim()
+  const normalized = normalizeSearchKeyword(keyword)
   if (normalized.length < 1) return []
+  const safePage = clampInteger(page, 1, MAX_SEARCH_PAGE, 1)
+  const size = clampInteger(pageSize, 1, MAX_SEARCH_PAGE_SIZE, 20)
   const data = await gatewayGraphQl<{
     searchFriends: { items: Array<{ user: SearchUserGraphQl } | null> }
   }>(
@@ -427,7 +450,7 @@ export async function searchFriends(keyword: string, page = 1, pageSize = 20): P
         items { user { ${SEARCH_USER_FIELDS} } }
       }
     }`,
-    { keyword: normalized, page, size: pageSize },
+    { keyword: normalized, page: safePage, size },
   )
   return data.searchFriends.items.flatMap((item) => item ? [userFromSearch(item.user)] : [])
 }
@@ -438,8 +461,10 @@ export async function searchProfileConnections(
   page = 1,
   pageSize = 100,
 ): Promise<SocialProfile[]> {
-  const normalized = keyword.trim()
+  const normalized = normalizeSearchKeyword(keyword)
   if (normalized.length < 1) return []
+  const safePage = clampInteger(page, 1, MAX_SEARCH_PAGE, 1)
+  const size = clampInteger(pageSize, 1, 100, 100)
   const type = connectionType === 'friends' ? 'FRIENDS' : connectionType === 'following' ? 'FOLLOWING' : 'FOLLOWERS'
   const data = await gatewayGraphQl<{
     searchProfileConnections: { items: Array<{ user: SearchUserGraphQl } | null> }
@@ -449,7 +474,7 @@ export async function searchProfileConnections(
         items { user { ${SEARCH_USER_FIELDS} } }
       }
     }`,
-    { keyword: normalized, type, page, size: pageSize },
+    { keyword: normalized, type, page: safePage, size },
   )
   return data.searchProfileConnections.items.flatMap((item) => item ? [userFromSearch(item.user)] : [])
 }

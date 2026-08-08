@@ -8,12 +8,13 @@ interface AvatarProps {
   className?: string
   onClick?: () => void
   title?: string | false
+  loading?: 'eager' | 'lazy'
 }
 
-export function Avatar({ name, src, size = 40, online = false, className, onClick, title = name }: AvatarProps) {
+export function Avatar({ name, src, size = 40, online = false, className, onClick, title = name, loading = 'lazy' }: AvatarProps) {
   const style = { width: size, height: size, fontSize: Math.round(size * 0.42) }
   const classes = ['avatar', className, onClick ? 'avatar-clickable' : null].filter(Boolean).join(' ')
-  const inner = src ? <img src={src} alt="" /> : <span>{initials(name)}</span>
+  const inner = src ? <img src={src} alt="" loading={loading} decoding="async" /> : <span>{initials(name)}</span>
 
   if (onClick) {
     return (

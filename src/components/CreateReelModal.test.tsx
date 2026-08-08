@@ -12,10 +12,15 @@ const apiMocks = vi.hoisted(() => ({
 }))
 const socialMocks = vi.hoisted(() => ({ createReel: vi.fn() }))
 const cropMocks = vi.hoisted(() => ({ cropReelVideoFile: vi.fn() }))
+const mediaValidationMocks = vi.hoisted(() => ({ validateMediaFile: vi.fn() }))
 
 vi.mock('../api/client', () => ({ api: apiMocks }))
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../lib/reelCrop', () => ({ cropReelVideoFile: cropMocks.cropReelVideoFile, ReelCropError: class ReelCropError extends Error { code = 'unsupported' as const } }))
+vi.mock('../lib/mediaValidation', async () => ({
+  ...await vi.importActual<typeof import('../lib/mediaValidation')>('../lib/mediaValidation'),
+  validateMediaFile: mediaValidationMocks.validateMediaFile,
+}))
 vi.mock('../i18n', () => ({
   useI18n: () => ({ t: (key: string) => key, locale: 'en' }),
 }))
@@ -39,6 +44,7 @@ describe('CreateReelModal', () => {
     apiMocks.cancelPendingMedia.mockReset().mockResolvedValue(undefined)
     apiMocks.postDetail.mockReset().mockResolvedValue(null)
     cropMocks.cropReelVideoFile.mockReset().mockImplementation(async (source: File) => new File([source], `${source.name.replace(/\.[^.]+$/, '')}-cropped.mp4`, { type: 'video/mp4' }))
+    mediaValidationMocks.validateMediaFile.mockReset().mockImplementation(async (file: File) => ({ file, mime: file.type, kind: 'video', dimensions: null }))
     socialMocks.createReel.mockReset().mockResolvedValue({
       id: '9007199254740993001',
       type: 4,
@@ -70,6 +76,7 @@ describe('CreateReelModal', () => {
     expect(container.querySelector('.reel-composer-backdrop')?.parentElement).toBe(document.body)
     const file = new File(['reel'], 'reel.mp4', { type: 'video/mp4' })
     fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [file] } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'publish' })).toBeEnabled())
     expect(container.querySelector('[aria-label="videoSettings"]')).not.toBeInTheDocument()
     expect(container.querySelector('[aria-label="videoFullscreen"]')).not.toBeInTheDocument()
     fireEvent.change(screen.getByRole('slider', { name: 'reelFrame' }), { target: { value: '100' } })
@@ -124,7 +131,11 @@ describe('CreateReelModal', () => {
     const file = new File(['reel'], 'wide-reel.mp4', { type: 'video/mp4' })
     fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [file] } })
 
-    const video = container.querySelector<HTMLVideoElement>('video')!
+    const video = await waitFor(() => {
+      const element = container.querySelector<HTMLVideoElement>('video')
+      expect(element).not.toBeNull()
+      return element!
+    })
     Object.defineProperties(video, {
       duration: { configurable: true, value: 12 },
       videoWidth: { configurable: true, value: 2000 },
@@ -154,13 +165,13 @@ describe('CreateReelModal', () => {
     })))
   })
 
-  it('accepts exactly 500 MiB and rejects one byte more before upload', () => {
+  it('accepts exactly 500 MiB and rejects one byte more before upload', async () => {
     const { container } = renderComposer()
     const input = container.querySelector<HTMLInputElement>('input[type="file"]')!
     const allowed = new File(['x'], 'allowed.mp4', { type: 'video/mp4' })
     Object.defineProperty(allowed, 'size', { configurable: true, value: MAX_REEL_BYTES })
     fireEvent.change(input, { target: { files: [allowed] } })
-    expect(screen.getByRole('button', { name: 'publish' })).toBeEnabled()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'publish' })).toBeEnabled())
     expect(screen.queryByText('reelVideoTooLarge')).not.toBeInTheDocument()
 
     const oversized = new File(['x'], 'oversized.mp4', { type: 'video/mp4' })
@@ -176,11 +187,28 @@ describe('CreateReelModal', () => {
     fireEvent.change(container.querySelector('input[type="file"]')!, {
       target: { files: [new File(['reel'], 'reel.mp4', { type: 'video/mp4' })] },
     })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'publish' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'publish' }))
 
     await waitFor(() => expect(cropMocks.cropReelVideoFile).toHaveBeenCalled())
     await waitFor(() => expect(apiMocks.cancelPendingMedia).toHaveBeenCalledWith(expect.objectContaining({ assetId: 'asset-1' })))
     expect(screen.getByText('createReelError')).toBeInTheDocument()
     expect(onCreated).not.toHaveBeenCalled()
+  })
+
+  it('counts captions by grapheme and blocks captions over 2200 characters', async () => {
+    const { container } = renderComposer()
+    const file = new File(['reel'], 'reel.mp4', { type: 'video/mp4' })
+    fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [file] } })
+    await waitFor(() => expect(mediaValidationMocks.validateMediaFile).toHaveBeenCalled())
+
+    const caption = screen.getByPlaceholderText('reelCaptionPlaceholder')
+    fireEvent.change(caption, { target: { value: '👨‍👩‍👧‍👦' } })
+    expect(screen.getByText('1/2200')).toBeInTheDocument()
+
+    fireEvent.change(caption, { target: { value: 'x'.repeat(2_201) } })
+    expect(screen.getByRole('alert')).toHaveTextContent('inputTooLong')
+    expect(screen.getByRole('button', { name: 'publish' })).toBeDisabled()
+    expect(socialMocks.createReel).not.toHaveBeenCalled()
   })
 })

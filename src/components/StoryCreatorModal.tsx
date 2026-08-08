@@ -1,10 +1,12 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { FormEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { api } from '../api/client'
 import type { NormalStory } from '../api/gatewayTypes'
 import type { MediaUpload } from '../api/types'
 import { useI18n } from '../i18n'
 import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
+import { INPUT_LIMITS, inputValidationMessage, validateTextInput } from '../lib/inputValidation'
+import { POST_MEDIA_ACCEPT, POST_MEDIA_MIME_TYPES, mediaValidationMessage, validateMediaFile } from '../lib/mediaValidation'
 import {
   DEFAULT_STORY_BACKGROUND,
   STORY_BACKGROUND_PRESETS,
@@ -42,12 +44,22 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [content, setContent] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [fileKind, setFileKind] = useState<'image' | 'video' | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
   const [zoom, setZoom] = useState(1)
   const [rotation, setRotation] = useState(0)
   const [backgroundColor, setBackgroundColor] = useState(DEFAULT_STORY_BACKGROUND)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const fileSelectionRequestRef = useRef(0)
+  const captionValidationError = useMemo(() => {
+    try {
+      validateTextInput(content, { field: 'story', max: INPUT_LIMITS.story })
+      return null
+    } catch (validationError) {
+      return inputValidationMessage(validationError, t)
+    }
+  }, [content, t])
 
   useEffect(() => {
     if (!file) {
@@ -74,6 +86,7 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
     if (open) return
     setContent('')
     setFile(null)
+    setFileKind(null)
     setZoom(1)
     setRotation(0)
     setBackgroundColor(DEFAULT_STORY_BACKGROUND)
@@ -83,7 +96,24 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
   if (!open) return null
 
   function chooseFile(next: File | null) {
+    void validateAndChooseFile(next)
+  }
+
+  async function validateAndChooseFile(next: File | null) {
     if (!next) return
+    const requestId = fileSelectionRequestRef.current + 1
+    fileSelectionRequestRef.current = requestId
+    try {
+      const validated = await validateMediaFile(next, { allowedMimeTypes: POST_MEDIA_MIME_TYPES, decodeImage: false })
+      if (requestId !== fileSelectionRequestRef.current) return
+      if (validated.kind !== 'image' && validated.kind !== 'video') throw new Error('Unsupported story media')
+      setFileKind(validated.kind)
+    } catch (validationError) {
+      if (requestId !== fileSelectionRequestRef.current) return
+      setError(mediaValidationMessage(validationError, t))
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
     setFile(next)
     setZoom(1)
     setRotation(0)
@@ -91,7 +121,9 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
   }
 
   function clearMedia() {
+    fileSelectionRequestRef.current += 1
     setFile(null)
+    setFileKind(null)
     setZoom(1)
     setRotation(0)
     if (fileInputRef.current) fileInputRef.current.value = ''
@@ -109,19 +141,26 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
   async function publish(event: FormEvent) {
     event.preventDefault()
     if (!content.trim() && !file) return
+    let validatedCaption: string
+    try {
+      validatedCaption = validateTextInput(content, { field: 'story', max: INPUT_LIMITS.story }).value
+    } catch (validationError) {
+      setError(inputValidationMessage(validationError, t))
+      return
+    }
     setBusy(true)
     setError(null)
     let upload: MediaUpload | null = null
     let persisted = false
     try {
       const imageWasEdited = Math.abs(zoom - 1) > .001 || rotation % 360 !== 0
-      const uploadFile = file && file.type.startsWith('image/') && imageWasEdited
+      const uploadFile = file && fileKind === 'image' && imageWasEdited
         ? await createEditedStoryImage(file, { zoom, rotation })
         : file
       upload = uploadFile ? await api.uploadMedia(uploadFile) : null
       const created = await api.createNormalStory({
         authorId,
-        content: file ? content.trim() : encodeStoryContent(content, backgroundColor),
+        content: file ? validatedCaption : encodeStoryContent(validatedCaption, backgroundColor),
         media: upload ? { type: mediaType(upload.type), url: upload.url } : null,
       })
       persisted = true
@@ -136,7 +175,7 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
   }
 
   const transform = `scale(${zoom}) rotate(${rotation}deg)`
-  const isVideo = file?.type.startsWith('video/') ?? false
+  const isVideo = fileKind === 'video'
   const canEditImage = Boolean(file && !isVideo)
 
   function handleZoomWheel(event: ReactWheelEvent<HTMLElement>) {
@@ -174,7 +213,7 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
             <label htmlFor={inputId} className={`story-media-tool${file ? ' selected' : ''}${busy ? ' disabled' : ''}`} title={t('storyChooseMedia')}>
               <span className="story-tool-icon"><Icon name="photo" size={23} /></span>
               {file && <span className="story-media-selected"><Icon name="check" size={12} /></span>}
-              <input ref={fileInputRef} id={inputId} type="file" accept="image/*,video/*" aria-label={t('storyChooseMedia')} disabled={busy} onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} />
+              <input ref={fileInputRef} id={inputId} type="file" accept={POST_MEDIA_ACCEPT} aria-label={t('storyChooseMedia')} disabled={busy} onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} />
             </label>
           </aside>
 
@@ -193,10 +232,10 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
               <textarea
                 autoFocus
                 value={content}
-                onChange={(event) => setContent(event.target.value)}
+                onChange={(event) => { setContent(event.target.value); setError(null) }}
                 aria-label={t('storyPrompt')}
+                aria-invalid={Boolean(captionValidationError) || undefined}
                 placeholder={t('storyPrompt')}
-                maxLength={500}
               />
             </div>
           </section>
@@ -215,8 +254,8 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
       </div>
 
       <footer className="story-creator-foot">
-        {error && <p className="form-error" role="alert">{error}</p>}
-        <button type="submit" className="btn-primary story-publish-button" disabled={busy || (!content.trim() && !file)}>{busy ? t('posting') : t('publishStory')}</button>
+        {(error || captionValidationError) && <p className="form-error" role="alert">{error || captionValidationError}</p>}
+        <button type="submit" className="btn-primary story-publish-button" disabled={busy || Boolean(captionValidationError) || (!content.trim() && !file)}>{busy ? t('posting') : t('publishStory')}</button>
       </footer>
     </form>
   </div></BodyPortal>

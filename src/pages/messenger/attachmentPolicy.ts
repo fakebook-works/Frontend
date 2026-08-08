@@ -1,29 +1,9 @@
-export const MESSENGER_ATTACHMENT_ACCEPT = [
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'video/mp4',
-  'audio/webm',
-  'audio/mp4',
-  'application/pdf',
-  '.pdf',
-  'application/msword',
-  '.doc',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.docx',
-  'application/vnd.ms-excel',
-  '.xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.xlsx',
-  'application/vnd.ms-powerpoint',
-  '.ppt',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  '.pptx',
-  'text/plain',
-  '.txt',
-  'text/csv',
-  '.csv',
-  'application/rtf',
-  '.rtf',
-].join(',')
+import {
+  MEDIA_LIMITS,
+  MESSENGER_ATTACHMENT_ACCEPT as UPLOAD_MESSENGER_ATTACHMENT_ACCEPT,
+  MESSENGER_ATTACHMENT_MIME_TYPES,
+} from '../../lib/mediaValidation'
+
+export const MESSENGER_ATTACHMENT_ACCEPT = UPLOAD_MESSENGER_ATTACHMENT_ACCEPT
+export const MESSENGER_MAX_ATTACHMENTS = MEDIA_LIMITS.selectionCount
+export { MESSENGER_ATTACHMENT_MIME_TYPES }

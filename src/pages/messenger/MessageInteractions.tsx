@@ -10,6 +10,25 @@ import './MessageInteractions.css'
 
 const QUICK_REACTIONS = ['🌺', '👀', '😱', '😢', '🙀', '👌'] as const
 
+const hoverTimestampHideListeners = new Set<() => void>()
+
+function hideAllHoverTimestamps() {
+  hoverTimestampHideListeners.forEach((hide) => hide())
+}
+
+function subscribeToMediaViewerOpen(hide: () => void) {
+  const shouldAttachGlobalListener = hoverTimestampHideListeners.size === 0
+  hoverTimestampHideListeners.add(hide)
+  if (shouldAttachGlobalListener) window.addEventListener('messenger-media-viewer-open', hideAllHoverTimestamps)
+
+  return () => {
+    hoverTimestampHideListeners.delete(hide)
+    if (hoverTimestampHideListeners.size === 0) {
+      window.removeEventListener('messenger-media-viewer-open', hideAllHoverTimestamps)
+    }
+  }
+}
+
 function ReactionIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.4" /><circle cx="9" cy="10" r=".8" className="fill" /><circle cx="15" cy="10" r=".8" className="fill" /><path d="M8.6 14.1c1 1.45 2.1 2.15 3.4 2.15s2.4-.7 3.4-2.15" /></svg>
 }
@@ -190,13 +209,13 @@ export function MessageHoverTimestamp({ createdAt, mine }: { createdAt: string; 
     anchor.addEventListener('mouseleave', hide)
     anchor.addEventListener('focusin', show)
     anchor.addEventListener('focusout', handleFocusOut)
-    window.addEventListener('messenger-media-viewer-open', hide)
+    const unsubscribeMediaViewerOpen = subscribeToMediaViewerOpen(hide)
     return () => {
       anchor.removeEventListener('mouseenter', show)
       anchor.removeEventListener('mouseleave', hide)
       anchor.removeEventListener('focusin', show)
       anchor.removeEventListener('focusout', handleFocusOut)
-      window.removeEventListener('messenger-media-viewer-open', hide)
+      unsubscribeMediaViewerOpen()
     }
   }, [])
 

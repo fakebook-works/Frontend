@@ -2,6 +2,7 @@
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PROFILE_IMAGE_ACCEPT } from '../lib/mediaValidation'
 import { ProfilePage } from './ProfilePage'
 
 const socialMocks = vi.hoisted(() => ({
@@ -45,6 +46,10 @@ const searchMocks = vi.hoisted(() => ({ searchProfileConnections: vi.fn() }))
 const locationMocks = vi.hoisted(() => ({ searchLocations: vi.fn() }))
 const cropMocks = vi.hoisted(() => ({ cropImageFile: vi.fn() }))
 const i18nMocks = vi.hoisted(() => ({ t: (key: string, values?: Record<string, unknown>) => key === 'profileUserReels' ? `${key}:${String(values?.name ?? '')}` : key, locale: 'en' }))
+
+function jpegFile(name: string, payload = 'image') {
+  return new File([Uint8Array.from([0xff, 0xd8, 0xff]), payload], name, { type: 'image/jpeg' })
+}
 
 vi.mock('../api/social', () => ({
   socialApi: {
@@ -137,6 +142,7 @@ describe('ProfilePage messaging', () => {
     cropMocks.cropImageFile.mockReset().mockResolvedValue(new File(['cropped'], 'cover-cropped.jpg', { type: 'image/jpeg' }))
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:cover-preview') })
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 1600, height: 900, close: vi.fn() }))
   })
 
   afterEach(() => {
@@ -882,6 +888,10 @@ describe('ProfilePage messaging', () => {
     expect(bioEditor).toHaveAttribute('spellcheck', 'false')
     expect(aboutColumns[0].querySelector('.self-profile-bio-icon')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'save' })).toBeDisabled()
+    fireEvent.change(bioEditor, { target: { value: 'a'.repeat(102) } })
+    expect(screen.getByRole('alert')).toHaveTextContent('inputTooLong')
+    expect(bioEditor).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('button', { name: 'save' })).toBeDisabled()
     fireEvent.change(bioEditor, { target: { value: 'Updated bio' } })
     expect(screen.getByRole('button', { name: 'save' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: 'cancel' }))
@@ -1104,8 +1114,9 @@ describe('ProfilePage messaging', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'profileAddCover' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'profileUploadCover' }))
-    const original = new File(['original'], 'cover.jpg', { type: 'image/jpeg' })
+    const original = jpegFile('cover.jpg', 'original')
     fireEvent.change(container.querySelector<HTMLInputElement>('.self-profile-cover-file-input')!, { target: { files: [original] } })
+    await waitFor(() => expect(container.querySelector('.self-profile-cover-preview')).toBeInTheDocument())
     const preview = container.querySelector<HTMLElement>('.self-profile-cover-preview')!
     expect(preview).toBeInTheDocument()
     const previewImage = preview.querySelector('img')!
@@ -1132,7 +1143,7 @@ describe('ProfilePage messaging', () => {
     window.removeEventListener('fakebook:profile-updated', profileUpdated)
   })
 
-  it('cancels an inline cover preview without changing the saved cover', () => {
+  it('cancels an inline cover preview without changing the saved cover', async () => {
     const profile = {
       id: 'me', username: 'owner', email: 'owner@example.com', displayName: 'Owner Name', avatarUrl: null,
       backgroundUrl: '/media/current-cover.jpg', bio: null, location: null, birthDate: null, gender: null,
@@ -1143,14 +1154,35 @@ describe('ProfilePage messaging', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'profileEditCover' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'profileUploadCover' }))
-    fireEvent.change(container.querySelector<HTMLInputElement>('.self-profile-cover-file-input')!, { target: { files: [new File(['next'], 'next.jpg', { type: 'image/jpeg' })] } })
-    expect(container.querySelector('.self-profile-cover-preview')).toBeInTheDocument()
+    fireEvent.change(container.querySelector<HTMLInputElement>('.self-profile-cover-file-input')!, { target: { files: [jpegFile('next.jpg', 'next')] } })
+    await waitFor(() => expect(container.querySelector('.self-profile-cover-preview')).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: 'cancel' }))
 
     expect(container.querySelector('.self-profile-cover-preview')).not.toBeInTheDocument()
     expect(container.querySelector<HTMLElement>('.profile-cover')?.style.backgroundImage).toContain('/media/current-cover.jpg')
     expect(socialMocks.changeUserBackground).not.toHaveBeenCalled()
+  })
+
+  it('rejects an avatar whose bytes are not an image before opening the crop editor', async () => {
+    const profile = {
+      id: 'me', username: 'owner', email: 'owner@example.com', displayName: 'Owner Name', avatarUrl: null,
+      backgroundUrl: null, bio: null, location: null, birthDate: null, gender: null,
+      createdAt: '2026-01-01T00:00:00Z', privacy: 0, isVerified: false, friendCount: 0, postCount: 0,
+      followerCount: 0, followingCount: 0,
+    }
+    const { container } = render(<ProfilePage profile={profile} loading={false} error={null} canEdit viewerId="me" onEdit={vi.fn()} onNavigate={vi.fn()} onMessage={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'profileEditAvatar' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'profileUploadAvatar' }))
+    const input = container.querySelector<HTMLInputElement>('.self-profile-avatar-file-input')!
+    expect(input).toHaveAttribute('accept', PROFILE_IMAGE_ACCEPT)
+    const disguisedPdf = new File([Uint8Array.from([0x25, 0x50, 0x44, 0x46, 0x2d])], 'avatar.jpg', { type: 'image/jpeg' })
+    fireEvent.change(input, { target: { files: [disguisedPdf] } })
+
+    expect(await screen.findByText('mediaFileMismatch')).toBeInTheDocument()
+    expect(container.querySelector('.self-profile-avatar-preview')).not.toBeInTheDocument()
+    expect(apiMocks.uploadMediaFiles).not.toHaveBeenCalled()
   })
 
   it('opens the avatar menu and publishes an uploaded original after inline circular positioning', async () => {
@@ -1161,7 +1193,7 @@ describe('ProfilePage messaging', () => {
       followerCount: 0, followingCount: 0,
     }
     const updated = { ...profile, avatarUrl: '/media/avatar-cropped.jpg' }
-    const original = new File(['avatar-original'], 'avatar.jpg', { type: 'image/jpeg' })
+    const original = jpegFile('avatar.jpg', 'avatar-original')
     const cropped = new File(['avatar-cropped'], 'avatar-cropped.jpg', { type: 'image/jpeg' })
     cropMocks.cropImageFile.mockResolvedValue(cropped)
     apiMocks.uploadMediaFiles.mockResolvedValue([
@@ -1180,6 +1212,7 @@ describe('ProfilePage messaging', () => {
     fireEvent.change(container.querySelector<HTMLInputElement>('.self-profile-avatar-file-input')!, { target: { files: [original] } })
 
     const avatarWrap = container.querySelector<HTMLElement>('.self-profile-avatar-wrap')!
+    await waitFor(() => expect(container.querySelector('.self-profile-avatar-preview')).toBeInTheDocument())
     const preview = container.querySelector<HTMLElement>('.self-profile-avatar-preview')!
     const previewImage = preview.querySelector('img')!
     expect(avatarWrap).toHaveClass('editing-avatar')
@@ -1227,7 +1260,7 @@ describe('ProfilePage messaging', () => {
     apiMocks.uploadMediaFiles.mockResolvedValue([{ url: '/media/existing-cropped.jpg', type: 'image', contentType: 'image/jpeg', size: 16, name: 'existing-cropped.jpg' }])
     socialMocks.changeUserAvatar.mockResolvedValue({ ...profile, avatarUrl: '/media/existing-cropped.jpg' })
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
-      Uint8Array.from([101, 120, 105, 115, 116, 105, 110, 103]),
+      Uint8Array.from([0xff, 0xd8, 0xff, 101, 120, 105, 115, 116, 105, 110, 103]),
       { status: 200, headers: { 'Content-Type': 'image/jpeg' } },
     ))
     const { container } = render(<ProfilePage profile={profile} loading={false} error={null} canEdit viewerId="me" onEdit={vi.fn()} onNavigate={vi.fn()} onMessage={vi.fn()} />)
@@ -1334,8 +1367,11 @@ describe('ProfilePage messaging', () => {
     expect(onNavigate).toHaveBeenCalledWith('/content/text-june')
   })
 
-  it('scrolls the embedded profile page first, then both columns while clamping the shorter one', async () => {
-    vi.stubGlobal('innerWidth', 900)
+  it('maps the outer profile scrollbar to both columns and clamps the shorter one', async () => {
+    vi.stubGlobal('innerWidth', 1024)
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { top: this.classList.contains('self-profile-destination-grid') ? 800 : 0 } as DOMRect
+    })
     const { container } = render(<div className="authenticated-destination-scroll"><ProfilePage
       profile={{
         id: 'me', username: 'owner', email: 'owner@example.com', displayName: 'Owner Name', avatarUrl: null,
@@ -1368,36 +1404,26 @@ describe('ProfilePage messaging', () => {
       clientHeight: { configurable: true, value: 500 },
       scrollHeight: { configurable: true, value: 2000 },
     })
-    infoColumn.scrollTop = 400
-    postColumn.scrollTop = 300
-
-    expect(fireEvent.wheel(grid, { deltaY: 250 })).toBe(true)
-    expect(destinationViewport.scrollTop).toBe(0)
-    expect(infoColumn.scrollTop).toBe(400)
-    expect(postColumn.scrollTop).toBe(300)
     act(() => {
-      vi.stubGlobal('innerWidth', 1024)
       window.dispatchEvent(new Event('resize'))
     })
+    await waitFor(() => expect(container.querySelector<HTMLElement>('.self-profile-page')?.style.getPropertyValue('--profile-column-scroll-span')).toBe('1500px'))
 
-    fireEvent.wheel(grid, { deltaY: 250 })
-    await waitFor(() => {
-      expect(destinationViewport.scrollTop).toBeCloseTo(250, 1)
-      expect(infoColumn.scrollTop).toBe(400)
-      expect(postColumn.scrollTop).toBe(300)
-    })
+    destinationViewport.scrollTop = 250
+    fireEvent.scroll(destinationViewport)
+    expect(infoColumn.scrollTop).toBe(0)
+    expect(postColumn.scrollTop).toBe(0)
 
-    destinationViewport.scrollTop = 800
-    fireEvent.wheel(grid, { deltaY: 250 })
-    await waitFor(() => {
-      expect(infoColumn.scrollTop).toBe(500)
-      expect(postColumn.scrollTop).toBeCloseTo(550, 1)
-    })
+    destinationViewport.scrollTop = 1050
+    fireEvent.scroll(destinationViewport)
+    expect(infoColumn.scrollTop).toBe(250)
+    expect(postColumn.scrollTop).toBe(250)
 
-    fireEvent.wheel(grid, { deltaY: 250 })
-    await waitFor(() => {
-      expect(infoColumn.scrollTop).toBe(500)
-      expect(postColumn.scrollTop).toBeCloseTo(800, 1)
-    })
+    destinationViewport.scrollTop = 1500
+    fireEvent.scroll(destinationViewport)
+    expect(infoColumn.scrollTop).toBe(500)
+    expect(postColumn.scrollTop).toBe(700)
+    expect(fireEvent.wheel(grid, { deltaY: 250 })).toBe(true)
+    rectSpy.mockRestore()
   })
 })

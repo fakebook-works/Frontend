@@ -19,6 +19,8 @@ import { PostPrivacyIcon } from '../components/PostPrivacyIcon'
 import { ProfilePostGridCard, ProfilePostGridIcon, ProfilePostListIcon, type ProfileGridMediaTarget } from '../components/ProfilePostGrid'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
+import { INPUT_LIMITS, inputValidationMessage, validateTextInput } from '../lib/inputValidation'
+import { PROFILE_IMAGE_ACCEPT, PROFILE_IMAGE_MIME_TYPES, mediaValidationMessage, validateMediaFile } from '../lib/mediaValidation'
 import { useInlineImageCrop } from '../lib/useInlineImageCrop'
 import { useImageAmbientColor } from '../lib/useImageAmbientColor'
 import { groupProfilePostsByMonth } from '../lib/profilePostGrid'
@@ -120,19 +122,35 @@ function GroupEditModal({ group, onClose, onUpdated }: { group: SocialGroup; onC
   const [privacy, setPrivacy] = useState(group.privacy)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const validationError = (() => {
+    try {
+      validateTextInput(name, { field: 'groupName', max: INPUT_LIMITS.groupName, required: true, multiline: false })
+      validateTextInput(bio, { field: 'groupDescription', max: INPUT_LIMITS.groupDescription })
+      return null
+    } catch (inputError) {
+      return inputValidationMessage(inputError, t)
+    }
+  })()
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!name.trim()) return
+    if (validationError) {
+      setError(validationError)
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      const updated = await socialApi.updateGroup(group.id, { name: name.trim(), bio: bio.trim(), privacy })
+      const validatedName = validateTextInput(name, { field: 'groupName', max: INPUT_LIMITS.groupName, required: true, multiline: false }).value
+      const validatedBio = validateTextInput(bio, { field: 'groupDescription', max: INPUT_LIMITS.groupDescription }).value
+      const updated = await socialApi.updateGroup(group.id, { name: validatedName, bio: validatedBio, privacy: privacy === 1 ? 1 : 0 })
       if (!updated) throw new Error('Missing group update')
       onUpdated(updated)
       onClose()
-    } catch {
-      setError(t('updateGroupError'))
+    } catch (submitError) {
+      setError(submitError instanceof Error && submitError.name === 'InputValidationError'
+        ? inputValidationMessage(submitError, t)
+        : t('updateGroupError'))
     } finally {
       setBusy(false)
     }
@@ -142,12 +160,12 @@ function GroupEditModal({ group, onClose, onUpdated }: { group: SocialGroup; onC
     <form className="modal group-profile-edit-modal" onSubmit={submit} onClick={(event) => event.stopPropagation()}>
       <header className="modal-head"><h2>{t('editGroup')}</h2><button type="button" className="group-profile-modal-close" onClick={onClose} aria-label={t('close')}><Icon name="close" size={21} /></button></header>
       <div className="group-profile-edit-fields">
-        <label><span>{t('groupName')}</span><input autoFocus value={name} maxLength={100} onChange={(event) => setName(event.target.value)} /></label>
-        <label><span>{t('groupDescription')}</span><textarea rows={5} value={bio} maxLength={2000} onChange={(event) => setBio(event.target.value)} /></label>
-        <label><span>{t('privacy')}</span><select value={privacy} onChange={(event) => setPrivacy(Number(event.target.value))}><option value={0}>{t('publicGroup')}</option><option value={1}>{t('privateGroup')}</option></select></label>
+      <label><span>{t('groupName')}</span><input autoFocus value={name} aria-invalid={Boolean(validationError) || undefined} onChange={(event) => { setName(event.target.value); setError(null) }} /></label>
+      <label><span>{t('groupDescription')}</span><textarea rows={5} value={bio} aria-invalid={Boolean(validationError) || undefined} onChange={(event) => { setBio(event.target.value); setError(null) }} /></label>
+        <label><span>{t('privacy')}</span><select value={privacy} onChange={(event) => setPrivacy(event.target.value === '1' ? 1 : 0)}><option value={0}>{t('publicGroup')}</option><option value={1}>{t('privateGroup')}</option></select></label>
         {error && <p className="form-error">{error}</p>}
       </div>
-      <footer className="modal-foot"><button type="button" className="btn-soft" onClick={onClose}>{t('cancel')}</button><button type="submit" className="btn-primary" disabled={busy || !name.trim()}>{busy ? t('saving') : t('save')}</button></footer>
+      <footer className="modal-foot"><button type="button" className="btn-soft" onClick={onClose}>{t('cancel')}</button><button type="submit" className="btn-primary" disabled={busy || Boolean(validationError)}>{busy ? t('saving') : t('save')}</button></footer>
     </form>
   </div>
 }
@@ -208,32 +226,43 @@ function GroupAboutCard({ group, locale, admin, compact = false, onUpdated }: { 
   }
 
   const changed = descriptionValue.trim() !== (current.bio ?? '').trim() || privacyValue !== current.privacy
+  const descriptionValidationError = (() => {
+    try {
+      validateTextInput(descriptionValue, { field: 'groupDescription', max: INPUT_LIMITS.groupDescription })
+      return null
+    } catch (inputError) {
+      return inputValidationMessage(inputError, t)
+    }
+  })()
 
   async function saveEdit() {
     if (!changed || busy) return
     setBusy(true)
     setError(null)
     try {
-      const updated = await socialApi.updateGroup(current.id, { name: current.name, bio: descriptionValue.trim(), privacy: privacyValue })
+      const validatedBio = validateTextInput(descriptionValue, { field: 'groupDescription', max: INPUT_LIMITS.groupDescription }).value
+      const updated = await socialApi.updateGroup(current.id, { bio: validatedBio, privacy: privacyValue === 1 ? 1 : 0 })
       if (!updated) throw new Error('Missing group update')
       setCurrent(updated)
       onUpdated(updated)
       setEditTarget(null)
       setPrivacyMenuOpen(false)
-    } catch {
-      setError(t('updateGroupError'))
+    } catch (saveError) {
+      setError(saveError instanceof Error && saveError.name === 'InputValidationError'
+        ? inputValidationMessage(saveError, t)
+        : t('updateGroupError'))
     } finally {
       setBusy(false)
     }
   }
 
   function editorActions(placement: 'header' | 'inline') {
-    return <div className={`profile-about-edit-actions ${placement}`}><span className="profile-about-commit-actions"><button type="button" className="profile-about-cancel" disabled={busy} onClick={cancelEdit}>{t('cancel')}</button><button type="button" className="profile-about-save" disabled={busy || !changed} onClick={() => void saveEdit()}>{busy ? t('saving') : t('save')}</button></span></div>
+    return <div className={`profile-about-edit-actions ${placement}`}><span className="profile-about-commit-actions"><button type="button" className="profile-about-cancel" disabled={busy} onClick={cancelEdit}>{t('cancel')}</button><button type="button" className="profile-about-save" disabled={busy || !changed || Boolean(descriptionValidationError)} onClick={() => void saveEdit()}>{busy ? t('saving') : t('save')}</button></span></div>
   }
 
   function descriptionEditor() {
     const editingAll = editTarget === 'all'
-    return <div className={`profile-about-inline-editor${editingAll ? ' editing-all' : ''}`}><textarea autoFocus rows={2} maxLength={2000} value={descriptionValue} onChange={(event) => setDescriptionValue(event.target.value)} aria-label={t('groupDescription')} spellCheck={false} data-gramm="false" data-gramm_editor="false" />{!editingAll && editorActions('inline')}</div>
+  return <div className={`profile-about-inline-editor${editingAll ? ' editing-all' : ''}`}><textarea autoFocus rows={2} value={descriptionValue} onChange={(event) => { setDescriptionValue(event.target.value); setError(null) }} aria-label={t('groupDescription')} aria-invalid={Boolean(descriptionValidationError) || undefined} spellCheck={false} data-gramm="false" data-gramm_editor="false" />{descriptionValidationError && <p className="inline-alert" role="alert">{descriptionValidationError}</p>}{!editingAll && editorActions('inline')}</div>
   }
 
   function privacyEditor() {
@@ -416,6 +445,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   const groupInfoColumnRef = useRef<HTMLElement>(null)
   const groupPostSentinelRef = useRef<HTMLDivElement>(null)
   const postRequestSequenceRef = useRef(0)
+  const imageSelectionSequenceRef = useRef(0)
   const postsLoadMoreBusyRef = useRef(false)
   const avatarEditor = useInlineImageCrop(groupId)
   const coverEditor = useInlineImageCrop(groupId)
@@ -754,9 +784,19 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
     }
   }
 
-  function chooseUpload(kind: GroupImageKind, file: File) {
+  async function chooseUpload(kind: GroupImageKind, file: File) {
+    const requestId = ++imageSelectionSequenceRef.current
     setImageMenu(null)
     setExistingPicker(null)
+    setError(null)
+    try {
+      await validateMediaFile(file, { allowedMimeTypes: PROFILE_IMAGE_MIME_TYPES })
+    } catch (validationError) {
+      if (requestId !== imageSelectionSequenceRef.current) return
+      setError(mediaValidationMessage(validationError, t))
+      return
+    }
+    if (requestId !== imageSelectionSequenceRef.current) return
     if (kind === 'avatar') {
       coverEditor.cancel()
       avatarEditor.start(file, false)
@@ -767,12 +807,15 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
   }
 
   async function chooseExisting(photo: SocialPhoto, kind: GroupImageKind) {
+    const requestId = ++imageSelectionSequenceRef.current
     try {
       const response = await fetch(photo.media.url, { credentials: 'include' })
       if (!response.ok) throw new Error('Fetch failed')
       const blob = await response.blob()
       const extension = blob.type.split('/')[1] || 'jpg'
       const file = new File([blob], `fakebook-group.${extension}`, { type: blob.type || 'image/jpeg' })
+      await validateMediaFile(file, { allowedMimeTypes: PROFILE_IMAGE_MIME_TYPES })
+      if (requestId !== imageSelectionSequenceRef.current) return
       if (kind === 'avatar') {
         coverEditor.cancel()
         avatarEditor.start(file, true, { contentId: photo.contentId, mediaId: photo.media.id })
@@ -781,8 +824,11 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
         coverEditor.start(file, true, { contentId: photo.contentId, mediaId: photo.media.id })
       }
       setExistingPicker(null)
-    } catch {
-      setError(t('existingPhotoLoadError'))
+    } catch (chooseError) {
+      if (requestId !== imageSelectionSequenceRef.current) return
+      setError(chooseError instanceof Error && chooseError.name === 'MediaValidationError'
+        ? mediaValidationMessage(chooseError, t)
+        : t('existingPhotoLoadError'))
     }
   }
 
@@ -856,7 +902,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
                 <button type="button" className="cover-edit-confirm" disabled={coverEditor.busy} onClick={() => void saveCroppedImage('background')}><Icon name="check" size={16} />{coverEditor.busy ? t('uploading') : t('confirm')}</button>
               </div> : <button type="button" className="self-profile-edit-cover" aria-haspopup="menu" aria-expanded={imageMenu === 'background'} onClick={() => setImageMenu((current) => current === 'background' ? null : 'background')}><GroupCoverCameraIcon />{group.backgroundUrl ? t('editCoverPhoto') : t('addCoverPhoto')}</button>}
               {!coverEditor.target && imageMenu === 'background' && <AnchoredMenuPortal anchor={coverActionRef.current} className="self-profile-cover-menu" matchAnchorWidth onRequestClose={() => setImageMenu(null)}><button type="button" role="menuitem" onClick={() => { setExistingPicker('background'); setImageMenu(null) }}><GroupCoverPhotoIcon />{t('chooseGroupCover')}</button><button type="button" role="menuitem" onClick={() => { setImageMenu(null); coverUploadInputRef.current?.click() }}><GroupCoverUploadIcon />{t('uploadPhoto')}</button></AnchoredMenuPortal>}
-              <input ref={coverUploadInputRef} className="self-profile-cover-file-input group-profile-cover-file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) chooseUpload('background', file); event.currentTarget.value = '' }} />
+              <input ref={coverUploadInputRef} className="self-profile-cover-file-input group-profile-cover-file-input" type="file" accept={PROFILE_IMAGE_ACCEPT} onChange={(event) => { const file = event.target.files?.[0]; if (file) void chooseUpload('background', file); event.currentTarget.value = '' }} />
             </div>}
           </div>
           <div className="profile-destination-header group-profile-identity-row">
@@ -873,7 +919,7 @@ export function GroupProfilePage({ groupId, userId, onBack, onNavigate, onOpenRe
                 onPointerCancel={avatarEditor.endDrag}
                 onKeyDown={avatarEditor.moveWithKeyboard}
               ><img src={avatarEditor.target.previewUrl} alt="" draggable={false} style={avatarEditor.imageStyle} onLoad={(event) => avatarEditor.onImageLoad(event.currentTarget)} /></div> : <Avatar name={group.name} src={group.avatarUrl} size={156} />}
-              {membership.isAdmin && !avatarEditor.target && <div className="self-profile-avatar-action" ref={avatarActionRef}><button type="button" className="self-profile-avatar-camera" aria-label={t('changeGroupAvatar')} aria-haspopup="menu" aria-expanded={imageMenu === 'avatar'} onClick={() => setImageMenu((current) => current === 'avatar' ? null : 'avatar')}><GroupCoverCameraIcon /></button>{imageMenu === 'avatar' && <AnchoredMenuPortal anchor={avatarActionRef.current} align="start" className="self-profile-cover-menu self-profile-avatar-menu" onRequestClose={() => setImageMenu(null)}><button type="button" role="menuitem" onClick={() => { setExistingPicker('avatar'); setImageMenu(null) }}><GroupCoverPhotoIcon />{t('chooseGroupAvatar')}</button><button type="button" role="menuitem" onClick={() => { setImageMenu(null); avatarUploadInputRef.current?.click() }}><GroupCoverUploadIcon />{t('uploadPhoto')}</button></AnchoredMenuPortal>}<input ref={avatarUploadInputRef} className="self-profile-cover-file-input self-profile-avatar-file-input group-profile-avatar-file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) chooseUpload('avatar', file); event.currentTarget.value = '' }} /></div>}
+              {membership.isAdmin && !avatarEditor.target && <div className="self-profile-avatar-action" ref={avatarActionRef}><button type="button" className="self-profile-avatar-camera" aria-label={t('changeGroupAvatar')} aria-haspopup="menu" aria-expanded={imageMenu === 'avatar'} onClick={() => setImageMenu((current) => current === 'avatar' ? null : 'avatar')}><GroupCoverCameraIcon /></button>{imageMenu === 'avatar' && <AnchoredMenuPortal anchor={avatarActionRef.current} align="start" className="self-profile-cover-menu self-profile-avatar-menu" onRequestClose={() => setImageMenu(null)}><button type="button" role="menuitem" onClick={() => { setExistingPicker('avatar'); setImageMenu(null) }}><GroupCoverPhotoIcon />{t('chooseGroupAvatar')}</button><button type="button" role="menuitem" onClick={() => { setImageMenu(null); avatarUploadInputRef.current?.click() }}><GroupCoverUploadIcon />{t('uploadPhoto')}</button></AnchoredMenuPortal>}<input ref={avatarUploadInputRef} className="self-profile-cover-file-input self-profile-avatar-file-input group-profile-avatar-file-input" type="file" accept={PROFILE_IMAGE_ACCEPT} onChange={(event) => { const file = event.target.files?.[0]; if (file) void chooseUpload('avatar', file); event.currentTarget.value = '' }} /></div>}
             </div>
             <div className="profile-destination-title group-profile-title"><h1>{group.name}</h1><p className="self-profile-summary-line group-profile-summary-line"><PostPrivacyIcon privacy={group.privacy === 0 ? 0 : 2} group size={15} />{group.privacy === 0 ? t('publicGroup') : t('privateGroup')}<i>·</i>{t('membersCount', { count: groupMemberCount })}</p><GroupMemberStack people={visiblePeople} onNavigate={onNavigate} />{membership.isAdmin && avatarEditor.target && <div className="self-profile-cover-edit-controls self-profile-avatar-edit-controls">
               <button type="button" className="cover-edit-icon" aria-label={t('storyZoomIn')} disabled={avatarEditor.busy || avatarEditor.zoom >= 3} onClick={() => avatarEditor.changeZoom(.2)}><Icon name="plus" size={17} /></button>

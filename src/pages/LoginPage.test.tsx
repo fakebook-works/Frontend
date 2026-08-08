@@ -64,6 +64,27 @@ describe('Facebook-clone authentication UX', () => {
     }))
   })
 
+  it('blocks malformed login credentials before calling Authentication', async () => {
+    render(<LoginPage />)
+    const email = screen.getByPlaceholderText('emailAddress')
+    fireEvent.change(email, { target: { value: 'not-an-email' } })
+    fireEvent.change(screen.getByPlaceholderText('loginPassword'), { target: { value: 'Secret123!' } })
+    fireEvent.submit(email.closest('form')!)
+
+    expect(await screen.findByText('emailInvalid')).toBeInTheDocument()
+    expect(authMocks.login).not.toHaveBeenCalled()
+  })
+
+  it('enforces the shared 128-character password maximum', async () => {
+    render(<LoginPage />)
+    fireEvent.change(screen.getByPlaceholderText('emailAddress'), { target: { value: 'owner@example.com' } })
+    fireEvent.change(screen.getByPlaceholderText('loginPassword'), { target: { value: 'x'.repeat(129) } })
+    fireEvent.click(screen.getByRole('button', { name: 'loginLogIn' }))
+
+    expect(await screen.findByText('inputTooLong')).toBeInTheDocument()
+    expect(authMocks.login).not.toHaveBeenCalled()
+  })
+
   it('shows password strength and blocks signup when confirmation does not match', async () => {
     render(<LoginPage />)
     fireEvent.click(screen.getByRole('button', { name: 'createAccount' }))
@@ -96,6 +117,23 @@ describe('Facebook-clone authentication UX', () => {
     fireEvent.click(screen.getByRole('button', { name: 'signUp' }))
 
     expect(await screen.findByText('birthDateAgeError')).toBeInTheDocument()
+    expect(authMocks.register).not.toHaveBeenCalled()
+  })
+
+  it('rejects an overlong signup display name before registration', async () => {
+    render(<LoginPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'createAccount' }))
+
+    fireEvent.change(screen.getByPlaceholderText('fullName'), { target: { value: 'n'.repeat(51) } })
+    fireEvent.change(screen.getByPlaceholderText('emailAddress'), { target: { value: 'an@example.com' } })
+    fireEvent.change(screen.getByPlaceholderText('newPassword'), { target: { value: 'StrongPass123!' } })
+    fireEvent.change(screen.getByPlaceholderText('confirmPassword'), { target: { value: 'StrongPass123!' } })
+    fireEvent.change(screen.getByLabelText('birthDateLabel'), { target: { value: '2000-01-15' } })
+    fireEvent.change(screen.getByLabelText('genderLabel'), { target: { value: 'male' } })
+    fireEvent.change(screen.getByPlaceholderText('locationLabel'), { target: { value: 'Ho Chi Minh City' } })
+    fireEvent.click(screen.getByRole('button', { name: 'signUp' }))
+
+    expect(await screen.findByText('inputTooLong')).toBeInTheDocument()
     expect(authMocks.register).not.toHaveBeenCalled()
   })
 })

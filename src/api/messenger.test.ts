@@ -59,6 +59,13 @@ describe('messenger GraphQL adapter', () => {
     expect(gatewayGraphQl).not.toHaveBeenCalled()
   })
 
+  it('rejects blank or oversized group titles before network I/O', async () => {
+    await expect(createGroupConversation(' '.repeat(3), ['2', '3'], '1')).rejects.toThrow()
+    await expect(createGroupConversation('x'.repeat(121), ['2', '3'], '1')).rejects.toThrow()
+    await expect(updateGroupConversation('group-1', '1', { title: null })).rejects.toThrow()
+    expect(gatewayGraphQl).not.toHaveBeenCalled()
+  })
+
   it('omits unchanged optional group fields instead of accidentally clearing them', async () => {
     gatewayGraphQl.mockResolvedValue({
       updateGroupConversation: {
@@ -185,6 +192,25 @@ describe('messenger GraphQL adapter', () => {
     expect(result.sender).toEqual(viewer)
     expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('sender {')
     expect(getProfiles).not.toHaveBeenCalled()
+  })
+
+  it('rejects oversized messages and attachment overflow before network I/O', async () => {
+    const viewer = { id: '1', username: 'me', displayName: 'Me', avatarUrl: null }
+    const attachment = {
+      url: '/media/files/photo.jpg',
+      type: 'image' as const,
+      contentType: 'image/jpeg',
+      size: 3,
+      name: 'photo.jpg',
+    }
+
+    await expect(sendMessage('conversation-1', viewer, { body: 'x'.repeat(10_001) })).rejects.toThrow()
+    await expect(sendMessage('conversation-1', viewer, {
+      body: '',
+      attachments: Array.from({ length: 11 }, () => attachment),
+    })).rejects.toThrow()
+    await expect(editMessage('message-1', 'x'.repeat(10_001), '1')).rejects.toThrow()
+    expect(gatewayGraphQl).not.toHaveBeenCalled()
   })
 
   it('sends a real reply reference and maps reactions from the message service', async () => {

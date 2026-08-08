@@ -40,6 +40,11 @@ describe('Search Gateway adapter', () => {
     expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 'a' })
   })
 
+  it('rejects search text above 200 characters before reaching Gateway', async () => {
+    await expect(searchApi.fastSearch('x'.repeat(201))).rejects.toMatchObject({ code: 'too_long', field: 'search' })
+    expect(gatewayGraphQl).not.toHaveBeenCalled()
+  })
+
   it('runs the Groups sidebar quick search against group references only', async () => {
     gatewayGraphQl.mockResolvedValue({ searchGroups: { items: [{
       viewerIsMember: true,
@@ -158,6 +163,15 @@ describe('Search Gateway adapter', () => {
     expect(result).toMatchObject({ tab: 'people', users: [], page: 1 })
     expect(gatewayGraphQl).toHaveBeenCalledTimes(1)
     expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 'a', page: 1, size: 20 })
+  })
+
+  it('clamps full-search pagination before sending variables to Gateway', async () => {
+    gatewayGraphQl.mockResolvedValue({ searchUsers: { items: [], pageInfo: { hasNextPage: false } } })
+
+    const result = await searchApi.search('people', 'people', 0, 500)
+
+    expect(result.page).toBe(1)
+    expect(gatewayGraphQl.mock.calls[0][1]).toEqual({ keyword: 'people', page: 1, size: 50 })
   })
 
   it('searches only direct Messenger contacts from the first character', async () => {

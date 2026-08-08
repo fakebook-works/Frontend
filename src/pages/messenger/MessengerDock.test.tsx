@@ -31,13 +31,14 @@ const soundMocks = vi.hoisted(() => ({
   playIncomingMessageSound: vi.fn(),
   playLikeSound: vi.fn(),
 }))
+const translate = vi.hoisted(() => (key: string) => key)
 
 vi.mock('../../api/messenger', () => ({ messengerApi: messengerMocks }))
 vi.mock('../../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../../api/client', () => ({ api: uploadMocks }))
 vi.mock('../../lib/sounds', () => soundMocks)
 vi.mock('../../i18n', () => ({
-  useI18n: () => ({ t: (key: string) => key }),
+  useI18n: () => ({ t: translate }),
 }))
 
 const me: UserSummary = {
@@ -56,6 +57,12 @@ function friend(id: string): UserSummary {
     avatarUrl: null,
     isVerified: false,
   }
+}
+
+function pngFile(name: string) {
+  return new File([
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  ], name, { type: 'image/png' })
 }
 
 function directConversation(friendId: string): MessengerConversationDto {
@@ -134,6 +141,7 @@ describe('MessengerDock overflow windows', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1440 })
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn((file: File) => `blob:${file.name}`) })
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 800, height: 600, close: vi.fn() }))
     window.HTMLElement.prototype.scrollIntoView = vi.fn()
     messengerMocks.conversations.mockReset().mockResolvedValue([])
     messengerMocks.messages.mockReset().mockResolvedValue([])
@@ -194,6 +202,27 @@ describe('MessengerDock overflow windows', () => {
     expect(messengerMocks.subscribeInbox).not.toHaveBeenCalled()
     expect(messengerMocks.subscribeConversations).not.toHaveBeenCalled()
     expect(messengerMocks.subscribePresence).not.toHaveBeenCalled()
+  })
+
+  it('keeps the inbox stream stable when the parent replaces its panel-close callback', async () => {
+    const firstClose = vi.fn()
+    const latestClose = vi.fn()
+    const sharedProps = {
+      me,
+      friends: [] as UserSummary[],
+      panelOpen: true,
+      onOpenAll: () => undefined,
+      onOpenProfile: () => undefined,
+    }
+    const { rerender } = render(<MessengerDock {...sharedProps} onPanelClose={firstClose} />)
+    await waitFor(() => expect(messengerMocks.subscribeInbox).toHaveBeenCalledTimes(1))
+
+    rerender(<MessengerDock {...sharedProps} onPanelClose={latestClose} />)
+    expect(messengerMocks.subscribeInbox).toHaveBeenCalledTimes(1)
+
+    fireEvent.mouseDown(document.body)
+    expect(firstClose).not.toHaveBeenCalled()
+    expect(latestClose).toHaveBeenCalledOnce()
   })
 
   it('always renders the compose rail with the home-aligned dock layout on Home', () => {
@@ -528,6 +557,83 @@ describe('MessengerDock overflow windows', () => {
     fireEvent.click(within(chat).getByPlaceholderText('Aa'))
     await waitFor(() => expect(messengerMocks.markRead).toHaveBeenCalledWith(incomingConversation.id, '1'))
     await waitFor(() => expect(chat).not.toHaveClass('has-attention'))
+  })
+
+  it('processes a shared outbox event on both inbox and conversation streams', async () => {
+    const incomingMessage: MessengerMessageDto = {
+      id: 'shared-stream-message', conversationId: 'conversation-2', sequence: '11', sender: friend('2'), body: 'Shared stream event',
+      createdAt: '2026-07-18T00:00:00Z', status: 'delivered', attachments: [], reactions: [], deleted: false,
+    }
+    const incomingConversation = { ...directConversation('2'), unreadCount: 1, lastMessage: incomingMessage }
+    messengerMocks.conversations.mockResolvedValue([incomingConversation])
+    messengerMocks.messages.mockResolvedValue([incomingMessage])
+    messengerMocks.message.mockResolvedValue(incomingMessage)
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    await waitFor(() => expect(conversationListeners.get('conversation-2')).toBeDefined())
+    const conversationsBeforeEvent = messengerMocks.conversations.mock.calls.length
+
+    const event = {
+      eventId: 'shared-stream-event', kind: 'MESSAGE_ADDED', conversationId: 'conversation-2',
+      messageId: incomingMessage.id, userId: '2', sequence: incomingMessage.sequence ?? null,
+      occurredAt: incomingMessage.createdAt, expiresAt: null,
+    }
+    await act(async () => {
+      // Deliver conversation first to exercise the ordering that used to suppress
+      // the inbox's sound/list-refresh side effects.
+      conversationListeners.get('conversation-2')?.(event)
+      inboxListener?.(event)
+    })
+
+    await waitFor(() => expect(soundMocks.playIncomingMessageSound).toHaveBeenCalledOnce())
+    await waitFor(() => expect(messengerMocks.conversations.mock.calls.length).toBeGreaterThan(conversationsBeforeEvent))
+    expect(messengerMocks.message).toHaveBeenCalledWith(incomingMessage.id, me.id)
+    expect(await within(chat).findByText('Shared stream event')).toBeInTheDocument()
+  })
+
+  it('allows sends in different chats while keeping each chat locked independently', async () => {
+    const resolvers = new Map<string, () => void>()
+    messengerMocks.sendMessage.mockImplementation((conversationId: string, _viewer: UserSummary, payload: { body: string }) => (
+      new Promise<MessengerMessageDto>((resolve) => {
+        resolvers.set(conversationId, () => resolve({
+          id: `sent-${conversationId}`,
+          conversationId,
+          sequence: '1',
+          sender: me,
+          body: payload.body,
+          createdAt: '2026-07-18T00:00:01Z',
+          status: 'sent',
+          attachments: [],
+          reactions: [],
+          deleted: false,
+        }))
+      })
+    ))
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chatTwo = await screen.findByRole('region', { name: 'Friend 2' })
+    fireEvent.click(screen.getByRole('button', { name: 'open-3' }))
+    const chatThree = await screen.findByRole('region', { name: 'Friend 3' })
+
+    fireEvent.change(within(chatTwo).getByPlaceholderText('Aa'), { target: { value: 'Message two' } })
+    fireEvent.change(within(chatThree).getByPlaceholderText('Aa'), { target: { value: 'Message three' } })
+    fireEvent.click(within(chatTwo).getByRole('button', { name: 'sendMessage' }))
+    await waitFor(() => expect(messengerMocks.sendMessage).toHaveBeenCalledTimes(1))
+
+    // Chat three must remain sendable while chat two's request is pending.
+    expect(within(chatThree).getByRole('button', { name: 'sendMessage' })).toBeEnabled()
+    fireEvent.click(within(chatThree).getByRole('button', { name: 'sendMessage' }))
+    await waitFor(() => expect(messengerMocks.sendMessage).toHaveBeenCalledTimes(2))
+    expect(messengerMocks.sendMessage.mock.calls.map(([conversationId]) => conversationId)).toEqual([
+      'conversation-2',
+      'conversation-3',
+    ])
+
+    await act(async () => {
+      resolvers.get('conversation-3')?.()
+      resolvers.get('conversation-2')?.()
+    })
   })
 
   it('does not mark an automatically opened incoming chat read from minimize', async () => {
@@ -924,12 +1030,13 @@ describe('MessengerDock overflow windows', () => {
     render(<Harness />)
     fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
     const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    expect(within(chat).getByPlaceholderText('Aa')).not.toHaveAttribute('maxLength')
     const attachmentControl = within(chat).getByLabelText('addAttachment')
     const input = attachmentControl instanceof HTMLInputElement
       ? attachmentControl
       : attachmentControl.querySelector<HTMLInputElement>('input')!
 
-    fireEvent.change(input, { target: { files: [new File(['image'], 'preview.png', { type: 'image/png' })] } })
+    fireEvent.change(input, { target: { files: [pngFile('preview.png')] } })
 
     const preview = await within(chat).findByRole('img', { name: 'preview.png' })
     expect(preview).toHaveAttribute('src', 'blob:preview.png')
@@ -945,6 +1052,52 @@ describe('MessengerDock overflow windows', () => {
     ]))
   })
 
+  it('releases a pending preview URL when realtime deletion removes its conversation', async () => {
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    const attachmentControl = within(chat).getByLabelText('addAttachment')
+    const input = attachmentControl instanceof HTMLInputElement
+      ? attachmentControl
+      : attachmentControl.querySelector<HTMLInputElement>('input')!
+
+    fireEvent.change(input, { target: { files: [pngFile('delete-me.png')] } })
+    expect(await within(chat).findByRole('img', { name: 'delete-me.png' })).toHaveAttribute('src', 'blob:delete-me.png')
+
+    act(() => {
+      inboxListener?.({
+        eventId: 'conversation-deleted-2',
+        kind: 'CONVERSATION_DELETED',
+        conversationId: 'conversation-2',
+        messageId: null,
+        userId: null,
+        sequence: null,
+        occurredAt: '2026-08-08T00:00:00Z',
+        expiresAt: null,
+      })
+    })
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Friend 2' })).not.toBeInTheDocument())
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:delete-me.png')
+  })
+
+  it('reports attachment overflow in the affected floating conversation', async () => {
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    const attachmentControl = within(chat).getByLabelText('addAttachment')
+    const input = attachmentControl instanceof HTMLInputElement
+      ? attachmentControl
+      : attachmentControl.querySelector<HTMLInputElement>('input')!
+
+    fireEvent.change(input, {
+      target: { files: Array.from({ length: 11 }, (_, index) => pngFile(`dock-${index}.png`)) },
+    })
+
+    expect(await within(chat).findByRole('alert')).toHaveTextContent('mediaTooManyFiles')
+    await waitFor(() => expect(chat.querySelectorAll('.mini-compose-preview')).toHaveLength(10))
+  })
+
   it('pastes a copied image into the floating chat attachment preview', async () => {
     uploadMocks.uploadMediaFiles.mockResolvedValue([{
       url: 'http://localhost/media/files/clipboard.png',
@@ -954,7 +1107,7 @@ describe('MessengerDock overflow windows', () => {
     render(<Harness />)
     fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
     const chat = await screen.findByRole('region', { name: 'Friend 2' })
-    const image = new File(['clipboard'], 'clipboard.png', { type: 'image/png' })
+    const image = pngFile('clipboard.png')
 
     fireEvent.paste(within(chat).getByPlaceholderText('Aa'), { clipboardData: {
       items: [{ kind: 'file', type: 'image/png', getAsFile: () => image }],

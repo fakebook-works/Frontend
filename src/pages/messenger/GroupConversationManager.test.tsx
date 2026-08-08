@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessengerConversationDto, UserSummary } from '../../api/types'
+import { PROFILE_IMAGE_ACCEPT } from '../../lib/mediaValidation'
 
 const updateGroupConversation = vi.hoisted(() => vi.fn())
 const addConversationMembers = vi.hoisted(() => vi.fn())
@@ -9,6 +10,7 @@ const removeConversationMember = vi.hoisted(() => vi.fn())
 const setConversationMemberRole = vi.hoisted(() => vi.fn())
 const leaveConversation = vi.hoisted(() => vi.fn())
 const deleteGroupConversation = vi.hoisted(() => vi.fn())
+const uploadMediaFiles = vi.hoisted(() => vi.fn())
 
 vi.mock('../../api/messenger', () => ({
   messengerApi: {
@@ -22,7 +24,7 @@ vi.mock('../../api/messenger', () => ({
 }))
 vi.mock('../../api/client', () => ({
   api: {
-    uploadMediaFiles: vi.fn(),
+    uploadMediaFiles,
     cancelPendingMedia: vi.fn(),
     finalizePendingMedia: vi.fn(),
   },
@@ -30,6 +32,7 @@ vi.mock('../../api/client', () => ({
 vi.mock('../../lib/useFriendSearch', () => ({
   useFriendSearch: (people: UserSummary[]) => ({ people, loading: false, failed: false }),
 }))
+vi.mock('../../i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 import { GroupConversationManager } from './GroupConversationManager'
 
@@ -69,6 +72,21 @@ describe('GroupConversationManager', () => {
   afterEach(() => cleanup())
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('rejects a non-image group avatar before opening the cropper or uploading', async () => {
+    const { container } = renderManager()
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.group-manager-menu button')!)
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!
+
+    expect(input.accept).toBe(PROFILE_IMAGE_ACCEPT)
+    fireEvent.change(input, {
+      target: { files: [new File(['%PDF-'], 'avatar.pdf', { type: 'application/pdf' })] },
+    })
+
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(container.querySelector('.group-manager-crop')).toBeNull()
+    expect(uploadMediaFiles).not.toHaveBeenCalled()
   })
 
   it('shows administrator actions and marks administrators with a crown', () => {

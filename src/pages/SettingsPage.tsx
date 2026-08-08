@@ -5,12 +5,30 @@ import { socialApi, type SocialProfile } from '../api/social'
 import { Icon } from '../components/Icon'
 import { languageOptions, useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
+import { INPUT_LIMITS, inputValidationMessage, validateEmailInput, validateTextInput } from '../lib/inputValidation'
 import { readDefaultPostPrivacy, writeDefaultPostPrivacy } from '../lib/privacy'
 import { useTheme } from '../theme'
 import { AccountSecurityPage } from './AccountSecurityPage'
 import { PremiumPage } from './PremiumPage'
 
 export type SettingsSection = 'overview' | 'profile' | 'security' | 'privacy' | 'sessions' | 'language' | 'appearance' | 'premium'
+
+const SEARCH_QUERY_MAX_LENGTH = 200
+const PASSWORD_MAX_LENGTH = 128
+
+function isAccountPrivacy(value: number): value is 0 | 1 {
+  return value === 0 || value === 1
+}
+
+function isPostPrivacy(value: number): value is 0 | 1 | 2 | 3 {
+  return value === 0 || value === 1 || value === 2 || value === 3
+}
+
+function existingPasswordValidationMessage(password: string, t: (key: string, values?: Record<string, string | number>) => string) {
+  if (password.length === 0) return t('inputRequired')
+  if (password.length > PASSWORD_MAX_LENGTH) return t('inputTooLong', { max: PASSWORD_MAX_LENGTH })
+  return null
+}
 
 const sectionMeta: Array<{ id: SettingsSection; icon: 'settings' | 'lock' | 'globe' | 'clock' | 'gift' | 'friends'; title: string; description: string }> = [
   { id: 'profile', icon: 'settings', title: 'settingsProfile', description: 'settingsProfileDesc' },
@@ -41,7 +59,7 @@ export function SettingsPage({ initialSection = 'overview' }: { initialSection?:
         <h1>{t('settingsPrivacy')}</h1>
         <label className="settings-search">
           <Icon name="search" size={18} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('searchSettings')} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} maxLength={SEARCH_QUERY_MAX_LENGTH} placeholder={t('searchSettings')} />
         </label>
         <nav aria-label={t('settingsPrivacy')}>
           {visibleSections.map((item) => (
@@ -79,7 +97,7 @@ function SettingsOverview({ query, onQueryChange, onOpen }: { query: string; onQ
   return <div className="settings-overview">
     <section className="settings-overview-search">
       <h2>{t('findSettingsYouNeed')}</h2>
-      <label className="settings-main-search"><Icon name="search" size={22} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={t('searchSettings')} /></label>
+      <label className="settings-main-search"><Icon name="search" size={22} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} maxLength={SEARCH_QUERY_MAX_LENGTH} placeholder={t('searchSettings')} /></label>
     </section>
     <section className="settings-overview-panel">
       <h2>{t('frequentSettings')}</h2>
@@ -106,7 +124,7 @@ function ProfileSettings() {
   const [message, setMessage] = useState<string | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState(user?.email ?? '')
-  const [privacy, setPrivacy] = useState(0)
+  const [privacy, setPrivacy] = useState<0 | 1>(0)
   const [currentPassword, setCurrentPassword] = useState('')
 
   useEffect(() => {
@@ -125,17 +143,33 @@ function ProfileSettings() {
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    if (!displayName.trim()) return setMessage(t('nameRequired'))
-    const normalizedEmail = email.trim().toLowerCase()
-    if (!normalizedEmail) return setMessage(t('emailRequired'))
+    let normalizedName: string
+    let normalizedEmail: string
+    try {
+      normalizedName = validateTextInput(displayName, {
+        field: 'displayName',
+        max: INPUT_LIMITS.displayName,
+        required: true,
+        multiline: false,
+      }).value
+      normalizedEmail = validateEmailInput(email)
+    } catch (validationError) {
+      setMessage(inputValidationMessage(validationError, t))
+      return
+    }
+    if (!isAccountPrivacy(privacy)) return setMessage(t('invalidInput'))
     const emailChanged = normalizedEmail !== user?.email.trim().toLowerCase()
-    if (emailChanged && !currentPassword) return setMessage(t('emailChangePasswordRequired'))
+    if (emailChanged) {
+      if (!currentPassword) return setMessage(t('emailChangePasswordRequired'))
+      const passwordError = existingPasswordValidationMessage(currentPassword, t)
+      if (passwordError) return setMessage(passwordError)
+    }
     setSaving(true)
     setMessage(null)
     try {
       if (!user) return
       const updated = await socialApi.updateProfile(user.userId, {
-        name: displayName.trim(),
+        name: normalizedName,
         bio: profile?.bio ?? null,
         location: profile?.location ?? null,
         gender: profile?.gender === 'male' ? true : profile?.gender === 'female' ? false : null,
@@ -170,10 +204,10 @@ function ProfileSettings() {
         <form className="settings-card profile-settings-form account-identity-settings" onSubmit={save} noValidate>
           <div className="account-identity-intro"><span><Icon name="settings" size={22} /></span><div><strong>{t('accountInformation')}</strong><small>{t('accountInformationHelp')}</small></div></div>
           <div className="settings-form-grid account-identity-grid">
-            <label><span>{t('nameLabel')}</span><input value={displayName} onChange={(e) => setDisplayName(e.target.value)} autoComplete="name" /></label>
-            <label><span>{t('emailAddress')}</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></label>
-            <label><span>{t('accountPrivacy')}</span><select value={privacy} onChange={(e) => setPrivacy(Number(e.target.value))}><option value={0}>{t('accountModeNormal')}</option><option value={1}>{t('accountModeAdvanced')}</option></select><small>{t('accountPrivacyHelp')}</small></label>
-            {email.trim().toLowerCase() !== user?.email.trim().toLowerCase() && <label><span>{t('currentPassword')}</span><input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" /><small>{t('emailChangeVerificationHelp')}</small></label>}
+            <label><span>{t('nameLabel')}</span><input value={displayName} onChange={(e) => setDisplayName(e.target.value)} autoComplete="name" maxLength={INPUT_LIMITS.displayName} /></label>
+            <label><span>{t('emailAddress')}</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" maxLength={INPUT_LIMITS.email} /></label>
+            <label><span>{t('accountPrivacy')}</span><select value={privacy} onChange={(e) => { const value = e.target.value; if (value === '0' || value === '1') setPrivacy(Number(value) as 0 | 1) }}><option value={0}>{t('accountModeNormal')}</option><option value={1}>{t('accountModeAdvanced')}</option></select><small>{t('accountPrivacyHelp')}</small></label>
+            {email.trim().toLowerCase() !== user?.email.trim().toLowerCase() && <label><span>{t('currentPassword')}</span><input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" maxLength={PASSWORD_MAX_LENGTH} /><small>{t('emailChangeVerificationHelp')}</small></label>}
           </div>
           {message && <p className={message === t('profileSaved') ? 'form-success' : 'form-error'}>{message}</p>}
           <div className="settings-actions"><button type="submit" className="btn-primary" disabled={saving}>{saving ? t('saving') : t('saveChanges')}</button></div>
@@ -186,10 +220,15 @@ function ProfileSettings() {
 function PrivacySettings() {
   const { user } = useAuth()
   const { t } = useI18n()
-  const [postPrivacy, setPostPrivacy] = useState(() => String(user ? readDefaultPostPrivacy(user.userId) : 0))
+  const [postPrivacy, setPostPrivacy] = useState(() => {
+    const value = user ? readDefaultPostPrivacy(user.userId) : 0
+    return String(isPostPrivacy(value) ? value : 0)
+  })
   function update(value: string) {
-    setPostPrivacy(value)
-    if (user) writeDefaultPostPrivacy(user.userId, Number(value))
+    if (value !== '0' && value !== '1' && value !== '2' && value !== '3') return
+    const parsed = Number(value)
+    setPostPrivacy(String(parsed))
+    if (user) writeDefaultPostPrivacy(user.userId, parsed)
   }
   return <div className="settings-section"><SettingsHeading title={t('settingsPrivacyControl')} description={t('settingsPrivacyDesc')} /><div className="settings-card setting-choice"><div><strong>{t('defaultPostAudience')}</strong><span>{t('defaultPostAudienceDesc')}</span></div><select value={postPrivacy} onChange={(e) => update(e.target.value)}><option value="0">{t('privacyPublic')}</option><option value="1">{t('privacyFriendsFollowers')}</option><option value="2">{t('privacyFriends')}</option><option value="3">{t('privacyOnlyMe')}</option></select></div></div>
 }

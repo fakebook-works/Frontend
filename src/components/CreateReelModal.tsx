@@ -5,6 +5,8 @@ import type { GatewayPost } from '../api/gatewayTypes'
 import type { MediaUpload } from '../api/types'
 import { socialApi } from '../api/social'
 import { useI18n } from '../i18n'
+import { INPUT_LIMITS, graphemeLength, inputValidationMessage, validateTextInput } from '../lib/inputValidation'
+import { POST_MEDIA_MIME_TYPES, mediaValidationMessage, validateMediaFile } from '../lib/mediaValidation'
 import { clampReelFocalPoint, MAX_REEL_ASPECT_RATIO, MAX_REEL_BYTES, MIN_REEL_ASPECT_RATIO, ratioFromSlider, sliderFromRatio } from '../lib/reelPresentation'
 import { cropReelVideoFile, ReelCropError } from '../lib/reelCrop'
 import { Avatar } from './Avatar'
@@ -19,10 +21,6 @@ function ratioLabel(value: number) {
   if (Math.abs(value - MIN_REEL_ASPECT_RATIO) < 0.02) return '9:16'
   if (Math.abs(value - 1) < 0.02) return '1:1'
   return `${value.toFixed(2)}:1`
-}
-
-function isVideoFile(file: File) {
-  return file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(file.name)
 }
 
 function PrivacyCaret() {
@@ -54,10 +52,19 @@ export default function CreateReelModal({ userId, displayName, avatarUrl, isVeri
   const [error, setError] = useState<string | null>(null)
   const privacyRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const fileSelectionRequestRef = useRef(0)
   const previewFrameRef = useRef<HTMLDivElement>(null)
   const cropDragRef = useRef<{ pointerId: number; startClientX: number; startClientY: number; startFocalX: number; startFocalY: number; overflowX: number; overflowY: number; moved: boolean } | null>(null)
   const suppressPreviewClickRef = useRef(false)
   const aspectRatio = useMemo(() => ratioFromSlider(cropSlider), [cropSlider])
+  const captionValidationError = useMemo(() => {
+    try {
+      validateTextInput(content, { field: 'reelCaption', max: INPUT_LIMITS.reelCaption })
+      return null
+    } catch (validationError) {
+      return inputValidationMessage(validationError, t)
+    }
+  }, [content, t])
   const privacyOptions: Array<{ value: PostPrivacy; label: string }> = [
     { value: 0, label: t('privacyPublic') },
     { value: 1, label: t('privacyFriendsFollowers') },
@@ -88,15 +95,36 @@ export default function CreateReelModal({ userId, displayName, avatarUrl, isVeri
   }, [busy, onClose, privacyOpen])
 
   function chooseFile(nextFile: File | null) {
+    void validateAndChooseFile(nextFile)
+  }
+
+  async function validateAndChooseFile(nextFile: File | null) {
     setError(null)
     if (!nextFile) return
-    if (!isVideoFile(nextFile)) {
+    const requestId = fileSelectionRequestRef.current + 1
+    fileSelectionRequestRef.current = requestId
+    const looksLikeImage = nextFile.type.toLowerCase().startsWith('image/') || /\.(?:avif|gif|jpe?g|png|webp)$/iu.test(nextFile.name)
+    if (looksLikeImage) {
       setError(t('reelVideoOnly'))
       if (inputRef.current) inputRef.current.value = ''
       return
     }
     if (nextFile.size > MAX_REEL_BYTES) {
       setError(t('reelVideoTooLarge'))
+      if (inputRef.current) inputRef.current.value = ''
+      return
+    }
+    try {
+      const validated = await validateMediaFile(nextFile, { allowedMimeTypes: POST_MEDIA_MIME_TYPES, decodeImage: false })
+      if (requestId !== fileSelectionRequestRef.current) return
+      if (validated.kind !== 'video') {
+        setError(t('reelVideoOnly'))
+        if (inputRef.current) inputRef.current.value = ''
+        return
+      }
+    } catch (validationError) {
+      if (requestId !== fileSelectionRequestRef.current) return
+      setError(looksLikeImage ? t('reelVideoOnly') : mediaValidationMessage(validationError, t))
       if (inputRef.current) inputRef.current.value = ''
       return
     }
@@ -159,6 +187,13 @@ export default function CreateReelModal({ userId, displayName, avatarUrl, isVeri
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (!file || busy) return
+    let validatedCaption: string
+    try {
+      validatedCaption = validateTextInput(content, { field: 'reelCaption', max: INPUT_LIMITS.reelCaption }).value
+    } catch (validationError) {
+      setError(inputValidationMessage(validationError, t))
+      return
+    }
     setBusy(true)
     setError(null)
     let uploaded: MediaUpload | null = null
@@ -170,7 +205,7 @@ export default function CreateReelModal({ userId, displayName, avatarUrl, isVeri
       const croppedFile = await cropReelVideoFile(file, { aspectRatio, focalPointX, focalPointY })
       uploaded = await api.uploadMedia(croppedFile)
       const created = await socialApi.createReel(userId, {
-        content: content.trim(),
+        content: validatedCaption,
         privacy,
         aspectRatio,
         focalPointX,
@@ -243,13 +278,13 @@ export default function CreateReelModal({ userId, displayName, avatarUrl, isVeri
           <label className={file ? 'reel-video-picker selected' : 'reel-video-picker'}>
             <span className="reel-video-picker-icon"><ReelIcon size={27} filled /></span>
             <span><strong>{file ? t('reelReplaceVideo') : t('chooseReelVideo')}</strong><small>{file?.name ?? t('reelVideoRequirements')}</small></span>
-            <input ref={inputRef} type="file" accept="video/*,.mp4,.mov,.m4v,.webm" disabled={busy} onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} />
+            <input ref={inputRef} type="file" accept="video/mp4,.mp4" disabled={busy} onChange={(event) => chooseFile(event.target.files?.[0] ?? null)} />
           </label>
 
           <label className="reel-caption-field">
             <span>{t('caption')}</span>
-            <textarea rows={5} maxLength={5000} value={content} disabled={busy} placeholder={t('reelCaptionPlaceholder')} onChange={(event) => setContent(event.target.value)} />
-            <small>{content.length}/5000</small>
+          <textarea rows={5} value={content} disabled={busy} aria-invalid={Boolean(captionValidationError) || undefined} placeholder={t('reelCaptionPlaceholder')} onChange={(event) => { setContent(event.target.value); setError(null) }} />
+            <small>{graphemeLength(content)}/{INPUT_LIMITS.reelCaption}</small>
           </label>
 
           <div className="reel-privacy-field" ref={privacyRef}>
@@ -258,8 +293,8 @@ export default function CreateReelModal({ userId, displayName, avatarUrl, isVeri
             {privacyOpen && <div className="reel-privacy-menu" role="listbox" aria-label={t('privacy')}>{privacyOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => { setPrivacy(option.value); setPrivacyOpen(false) }}><PostPrivacyIcon privacy={option.value} size={19} /><span>{option.label}</span></button>)}</div>}
           </div>
 
-          {error && <p className="form-error reel-composer-error">{error}</p>}
-          <button className="btn-primary reel-publish-button" type="submit" disabled={busy || !file}>{busy ? t('posting') : t('publish')}</button>
+          {(error || captionValidationError) && <p className="form-error reel-composer-error" role="alert">{error || captionValidationError}</p>}
+          <button className="btn-primary reel-publish-button" type="submit" disabled={busy || !file || Boolean(captionValidationError)}>{busy ? t('posting') : t('publish')}</button>
         </section>
 
         <section className="reel-preview-panel" aria-label={t('reelPreview')}>

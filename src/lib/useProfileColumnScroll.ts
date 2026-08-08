@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 
 interface ProfileColumnScrollOptions {
@@ -10,161 +10,131 @@ interface ProfileColumnScrollOptions {
 }
 
 /**
- * Mirrors the profile page's wheel routing: the document reaches the content
- * rail first, then both columns advance until each reaches its own boundary.
- * The shorter column stays pinned while the longer column continues.
+ * Uses the destination viewport as the only user-facing scrollbar, then maps
+ * its progress onto both profile columns. The shorter column stays pinned at
+ * its boundary while the longer column continues without trapping wheel/touch.
  */
 export function useProfileColumnScroll({ active, pageRef, firstColumnRef, secondColumnRef, resetKey }: ProfileColumnScrollOptions) {
+  const preservedLayoutRef = useRef<{
+    page: HTMLElement | null
+    resetKey: string | null
+    gridStart: number
+  }>({ page: null, resetKey: null, gridStart: 0 })
+
   useEffect(() => {
     if (!active) return
     const page = pageRef.current
     const firstColumn = firstColumnRef.current
     const secondColumn = secondColumnRef.current
     if (!page || !firstColumn || !secondColumn) return
+    const grid = firstColumn.parentElement
+    if (!grid || grid !== secondColumn.parentElement) return
     const columns = [firstColumn, secondColumn]
-    columns.forEach((column) => { column.scrollTop = 0 })
+    const preservedLayout = preservedLayoutRef.current
+    const resetLayout = preservedLayout.page !== page || preservedLayout.resetKey !== resetKey
+    if (resetLayout) {
+      preservedLayout.page = page
+      preservedLayout.resetKey = resetKey
+      preservedLayout.gridStart = 0
+      page.style.removeProperty('--profile-column-scroll-span')
+      columns.forEach((column) => { column.scrollTop = 0 })
+    }
 
     const destinationViewport = page.closest<HTMLElement>('.authenticated-destination-scroll')
-    const pageScrollTop = () => destinationViewport?.scrollTop ?? (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0)
-    const pageScrollLimit = () => destinationViewport
-      ? Math.max(0, destinationViewport.scrollHeight - destinationViewport.clientHeight)
-      : Math.max(0, Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) - window.innerHeight)
-    const scrollPageTo = (top: number) => {
-      const next = Math.max(0, top)
-      if (destinationViewport) destinationViewport.scrollTop = next
-      else window.scrollTo({ top: next, left: window.scrollX, behavior: 'auto' })
-    }
+    if (!destinationViewport) return
     const columnLimit = (column: HTMLElement) => Math.max(0, column.scrollHeight - column.clientHeight)
-    const scrollColumnsBy = (delta: number) => {
-      columns.forEach((column) => {
-        column.scrollTop = Math.min(columnLimit(column), Math.max(0, column.scrollTop + delta))
+    let columnLimits = [0, 0]
+    let columnSpan = 0
+    let renderedSpan = -1
+    let gridStart = preservedLayout.gridStart
+    let wasDesktop = window.innerWidth > 980
+    let frame: number | null = null
+
+    const gridStartFromLayout = () => {
+      const viewportRect = destinationViewport.getBoundingClientRect()
+      const gridRect = grid.getBoundingClientRect()
+      return Math.max(0, destinationViewport.scrollTop + gridRect.top - viewportRect.top)
+    }
+    const syncColumns = () => {
+      if (window.innerWidth <= 980) return
+      const progress = Math.max(0, Math.min(columnSpan, destinationViewport.scrollTop - gridStart))
+      columns.forEach((column, index) => {
+        const next = Math.min(columnLimits[index] ?? 0, progress)
+        if (Math.abs(column.scrollTop - next) > .5) column.scrollTop = next
       })
     }
-    const nestedScrollableCanMove = (target: EventTarget | null, delta: number) => {
-      let node = target instanceof HTMLElement ? target : null
-      while (node && node !== page && !columns.includes(node)) {
-        const overflowY = window.getComputedStyle(node).overflowY
-        const maxScroll = Math.max(0, node.scrollHeight - node.clientHeight)
-        if ((overflowY === 'auto' || overflowY === 'scroll') && maxScroll > 0) {
-          if ((delta > 0 && node.scrollTop < maxScroll) || (delta < 0 && node.scrollTop > 0)) return true
-        }
-        node = node.parentElement
-      }
-      return false
+    const observedChildren = new Set<Element>()
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => scheduleMeasure())
+    const observeColumnChildren = () => {
+      const currentChildren = new Set(columns.flatMap((column) => Array.from(column.children)))
+      observedChildren.forEach((child) => {
+        if (currentChildren.has(child)) return
+        resizeObserver?.unobserve(child)
+        observedChildren.delete(child)
+      })
+      currentChildren.forEach((child) => {
+        if (observedChildren.has(child)) return
+        observedChildren.add(child)
+        resizeObserver?.observe(child)
+      })
     }
-    const clampColumns = () => columns.forEach((column) => {
-      column.scrollTop = Math.min(columnLimit(column), Math.max(0, column.scrollTop))
-    })
-
-    let pendingDelta = 0
-    let animationFrame: number | null = null
-    let lastFrameTime = 0
-    const routeAnimatedStep = (delta: number) => {
-      if (delta > 0) {
-        let remaining = delta
-        let consumed = 0
-        const pageTop = pageScrollTop()
-        const pageStep = Math.min(remaining, Math.max(0, pageScrollLimit() - pageTop))
-        if (pageStep > 0) {
-          scrollPageTo(pageTop + pageStep)
-          remaining -= pageStep
-          consumed += pageStep
-        }
-        const columnStep = Math.min(remaining, Math.max(...columns.map((column) => columnLimit(column) - column.scrollTop)))
-        if (columnStep > 0) {
-          scrollColumnsBy(columnStep)
-          consumed += columnStep
-        }
-        return consumed
-      }
-
-      let remaining = -delta
-      let consumed = 0
-      const columnStep = Math.min(remaining, Math.max(...columns.map((column) => column.scrollTop)))
-      if (columnStep > 0) {
-        scrollColumnsBy(-columnStep)
-        remaining -= columnStep
-        consumed += columnStep
-      }
-      const pageTop = pageScrollTop()
-      const pageStep = Math.min(remaining, pageTop)
-      if (pageStep > 0) {
-        scrollPageTo(pageTop - pageStep)
-        consumed += pageStep
-      }
-      return -consumed
-    }
-    const stopAnimation = () => {
-      pendingDelta = 0
-      if (animationFrame != null) window.cancelAnimationFrame(animationFrame)
-      animationFrame = null
-      lastFrameTime = 0
-    }
-    const animateColumns = (timestamp: number) => {
-      animationFrame = null
-      const magnitude = Math.abs(pendingDelta)
-      if (magnitude < .35) {
-        if (magnitude > .01) routeAnimatedStep(pendingDelta)
-        pendingDelta = 0
-        lastFrameTime = 0
-        return
-      }
-      const elapsed = lastFrameTime === 0 ? 16.67 : Math.min(32, Math.max(1, timestamp - lastFrameTime))
-      lastFrameTime = timestamp
-      const easing = 1 - Math.exp(-elapsed / 22)
-      const frameLimit = 96 * elapsed / 16.67
-      const stepMagnitude = Math.min(frameLimit, Math.max(.35, magnitude * easing))
-      const step = Math.sign(pendingDelta) * stepMagnitude
-      const consumed = routeAnimatedStep(step)
-      if (Math.abs(consumed) < .01 || Math.abs(consumed) + .01 < Math.abs(step)) {
-        pendingDelta = 0
-        lastFrameTime = 0
-        return
-      }
-      pendingDelta -= consumed
-      animationFrame = window.requestAnimationFrame(animateColumns)
-    }
-    const queueColumnDelta = (delta: number) => {
-      if (pendingDelta !== 0 && Math.sign(pendingDelta) !== Math.sign(delta)) pendingDelta = 0
-      pendingDelta = Math.max(-720, Math.min(720, pendingDelta + delta))
-      if (animationFrame == null) animationFrame = window.requestAnimationFrame(animateColumns)
-    }
-
-    const routeWheel = (event: WheelEvent) => {
-      // The responsive layout intentionally uses one native page scroller.
-      // Keep the listener mounted so resizing across the breakpoint works
-      // without remounting the profile, but only intercept desktop wheels.
+    const measure = () => {
+      frame = null
       if (window.innerWidth <= 980) {
-        stopAnimation()
+        wasDesktop = false
+        renderedSpan = -1
+        columnSpan = 0
+        columnLimits = [0, 0]
+        page.style.removeProperty('--profile-column-scroll-span')
+        columns.forEach((column) => { column.scrollTop = 0 })
         return
       }
-      if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
-      const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE
-        ? event.deltaY * 16
-        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-          ? event.deltaY * window.innerHeight
-          : event.deltaY
-      if (Math.abs(delta) < .01) return
-      if (nestedScrollableCanMove(event.target, delta)) {
-        stopAnimation()
-        return
+      if (!wasDesktop) {
+        gridStart = gridStartFromLayout()
+        preservedLayout.gridStart = gridStart
+        wasDesktop = true
       }
-
-      event.preventDefault()
-      queueColumnDelta(delta)
+      columnLimits = columns.map(columnLimit)
+      const nextSpan = Math.max(...columnLimits)
+      columnSpan = nextSpan
+      const nextRenderedSpan = Math.ceil(nextSpan)
+      if (renderedSpan !== nextRenderedSpan) {
+        renderedSpan = nextRenderedSpan
+        page.style.setProperty('--profile-column-scroll-span', `${nextRenderedSpan}px`)
+      }
+      observeColumnChildren()
+      syncColumns()
     }
-
-    page.addEventListener('wheel', routeWheel, { passive: false })
-    const handleResize = () => {
-      stopAnimation()
-      if (window.innerWidth <= 980) columns.forEach((column) => { column.scrollTop = 0 })
-      else clampColumns()
+    function scheduleMeasure() {
+      if (frame != null) return
+      frame = window.requestAnimationFrame(measure)
     }
+    const handleResize = () => scheduleMeasure()
+    const handleLoad = () => scheduleMeasure()
+    const mutationObserver = new MutationObserver(() => scheduleMeasure())
+
+    if (resetLayout) {
+      gridStart = gridStartFromLayout()
+      preservedLayout.gridStart = gridStart
+    }
+    resizeObserver?.observe(grid)
+    observeColumnChildren()
+    mutationObserver.observe(grid, { childList: true, subtree: true })
+    destinationViewport.addEventListener('scroll', syncColumns, { passive: true })
     window.addEventListener('resize', handleResize)
+    page.addEventListener('load', handleLoad, true)
+    measure()
     return () => {
-      stopAnimation()
-      page.removeEventListener('wheel', routeWheel)
+      if (frame != null) window.cancelAnimationFrame(frame)
+      resizeObserver?.disconnect()
+      mutationObserver.disconnect()
+      destinationViewport.removeEventListener('scroll', syncColumns)
       window.removeEventListener('resize', handleResize)
+      page.removeEventListener('load', handleLoad, true)
+      // React Activity tears effects down while keeping the destination DOM and
+      // hook state. Preserve the spacer, anchor and column offsets so the parent
+      // can restore its saved outer scrollTop before this effect reconnects.
+      // A different resetKey/page explicitly clears them at the next setup.
     }
   }, [active, firstColumnRef, pageRef, resetKey, secondColumnRef])
 }
