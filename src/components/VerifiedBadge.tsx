@@ -1,6 +1,6 @@
 import { useI18n } from '../i18n'
 
-export function VerifiedBadge({ verified, size = 15, marginLeft = 4 }: { verified?: boolean; size?: number; marginLeft?: number }) {
+export function VerifiedBadge({ verified, size = 15, marginLeft = 0 }: { verified?: boolean; size?: number; marginLeft?: number }) {
   const { t } = useI18n()
   if (!verified) return null
 

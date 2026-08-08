@@ -1204,7 +1204,7 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
               : <span className="story-text-preview" style={{ background: sharedBackground?.background ?? ('backgroundColor' in decodedContent ? decodedContent.backgroundColor : undefined) }}>{decodedContent.text || t('stories')}</span>}
             {!sharedStory && preview && decodedContent.text && <p className="home-story-caption-preview">{decodedContent.text}</p>}
             <span className={`story-avatar-ring${unseen ? ' unseen' : ''}`}><Avatar name={bucket.author.name} src={bucket.author.avatar || null} size={32} /></span>
-            <strong>{own ? t('yourStory') : bucket.author.name}<VerifiedBadge verified={!own && bucket.author.isVerified} size={12} /></strong>
+            <strong>{own ? t('yourStory') : bucket.author.name}<VerifiedBadge verified={!own && bucket.author.isVerified} size={12} marginLeft={2} /></strong>
           </button>
         </article>
       })}
