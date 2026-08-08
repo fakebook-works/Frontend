@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthenticatedApp } from './AuthenticatedApp'
 
 const fastSearch = vi.hoisted(() => vi.fn())
 const recordSearchResultView = vi.hoisted(() => vi.fn())
 const heartbeatPresence = vi.hoisted(() => vi.fn())
+const getRelationProfiles = vi.hoisted(() => vi.fn())
 
 vi.mock('../lib/auth', () => ({
   useAuth: () => ({
@@ -17,7 +18,7 @@ vi.mock('../lib/auth', () => ({
 
 vi.mock('../api/social', () => ({ socialApi: {
   getProfile: vi.fn().mockResolvedValue(null),
-  getRelationProfiles: vi.fn().mockResolvedValue([]),
+  getRelationProfiles,
 } }))
 vi.mock('../api/notifications', () => ({ notificationApi: {
   notifications: vi.fn().mockResolvedValue({ items: [], unreadCount: 0 }),
@@ -47,15 +48,15 @@ vi.mock('../i18n', () => ({
   useI18n: () => ({ locale: 'en', setLocale: vi.fn(), t: (key: string) => key }),
 }))
 
-vi.mock('./GatewayHomePage', () => ({ GatewayHomePage: ({ refreshToken = 0, onOpenReel, onNavigate }: { refreshToken?: number; onOpenReel?: (reel: { __typename: 'ReelDetail'; id: string; type: number; content: string; privacy: number; create: string; author: { id: string; name: string; avatar: string; isVerified: boolean }; media: never[] }) => void; onNavigate?: (path: string) => void }) => <div data-testid="home-page" data-refresh-token={refreshToken}>home-page<button type="button" onClick={() => onOpenReel?.({ __typename: 'ReelDetail', id: 'home-reel', type: 2, content: 'Home reel', privacy: 0, create: '2026-08-02T00:00:00Z', author: { id: '1', name: 'Test', avatar: '', isVerified: false }, media: [] })}>open-home-reel</button><button type="button" onClick={() => onNavigate?.('/content/home-post')}>open-home-post</button><button type="button" onClick={() => onNavigate?.('/photo/home-post/media-1')}>open-home-photo</button></div>, GatewayPostCard: () => <div>post-card</div> }))
+vi.mock('./GatewayHomePage', () => ({ HOME_REFRESH_EVENT: 'fakebook:home-refresh', GatewayHomePage: ({ onOpenReel, onNavigate }: { onOpenReel?: (reel: { __typename: 'ReelDetail'; id: string; type: number; content: string; privacy: number; create: string; author: { id: string; name: string; avatar: string; isVerified: boolean }; media: never[] }) => void; onNavigate?: (path: string) => void }) => <div data-testid="home-page">home-page<button type="button" onClick={() => onOpenReel?.({ __typename: 'ReelDetail', id: 'home-reel', type: 2, content: 'Home reel', privacy: 0, create: '2026-08-02T00:00:00Z', author: { id: '1', name: 'Test', avatar: '', isVerified: false }, media: [] })}>open-home-reel</button><button type="button" onClick={() => onNavigate?.('/content/home-post')}>open-home-post</button><button type="button" onClick={() => onNavigate?.('/photo/home-post/media-1')}>open-home-photo</button></div>, GatewayPostCard: () => <div>post-card</div> }))
 vi.mock('./FriendsPage', () => ({ FriendsPage: ({ onOpenReel }: { onOpenReel?: (ownerId: string, reelId: string, reel: { id: string; type: number; content: string; privacy: number; createdAt: string; authorId: string; media: never[] }) => void }) => <div>friends-page<button type="button" onClick={() => onOpenReel?.('friend-2', 'friend-reel', { id: 'friend-reel', type: 2, content: '', privacy: 0, createdAt: '', authorId: 'friend-2', media: [] })}>open-friends-profile-reel</button></div> }))
 vi.mock('./ProfilePage', () => ({ ProfilePage: ({ onOpenReel }: { onOpenReel?: (ownerId: string, reelId: string, reel: { id: string; type: number; content: string; privacy: number; createdAt: string; authorId: string; media: never[] }) => void }) => <div data-testid="profile-page" data-active-tab="posts">profile-page<button type="button" onClick={() => onOpenReel?.('2', 'profile-reel', { id: 'profile-reel', type: 2, content: 'Profile reel', privacy: 0, createdAt: '2026-08-02T00:00:00Z', authorId: '2', media: [] })}>open-profile-reel</button></div> }))
 vi.mock('./GroupsPage', () => ({ GroupsPage: () => <div>groups-page</div>, GroupProfilePage: () => <div>group-profile-page</div> }))
-vi.mock('./ReelsPage', () => ({ ReelsPage: ({ mode, active, entryReelId, entryReel, onEntryClose, onNavigate }: { mode: string; active?: boolean; entryReelId?: string | null; entryReel?: { id: string } | null; onEntryClose?: () => void; onNavigate: (path: string) => void }) => <div data-testid={entryReelId ? 'reel-overlay' : `reels-page-${mode}`} data-active={active ? 'true' : 'false'} data-reel-id={entryReelId ?? undefined} data-has-seed={entryReel?.id === entryReelId ? 'true' : 'false'}>reels-page{!entryReelId && <><input aria-label={`reel-position-${mode}`} defaultValue="" /><button type="button" onClick={() => onNavigate('/reels/for-you')}>open-for-you</button><button type="button" onClick={() => onNavigate('/reels/following')}>open-following</button></>}{entryReelId && <button type="button" onClick={onEntryClose}>close-reel-overlay</button>}</div> }))
+vi.mock('./ReelsPage', () => ({ ReelsPage: ({ mode, active, entryReelId, entryReel, onEntryClose, onOpenReelOverlay, onNavigate }: { mode: string; active?: boolean; entryReelId?: string | null; entryReel?: { id: string } | null; onEntryClose?: () => void; onOpenReelOverlay?: (reel: { id: string; type: number; content: string; privacy: number; createdAt: string; authorId: string; media: never[] }) => void; onNavigate: (path: string) => void }) => <div data-testid={entryReelId ? 'reel-overlay' : `reels-page-${mode}`} data-active={active ? 'true' : 'false'} data-reel-id={entryReelId ?? undefined} data-has-seed={entryReel?.id === entryReelId ? 'true' : 'false'}>reels-page{!entryReelId && <><input aria-label={`reel-position-${mode}`} defaultValue="" /><button type="button" onClick={() => onNavigate('/reels/for-you')}>open-for-you</button><button type="button" onClick={() => onNavigate('/reels/following')}>open-following</button><button type="button" aria-label={`open-reel-overlay-${mode}`} onClick={() => onOpenReelOverlay?.({ id: `${mode}-overlay`, type: 2, content: '', privacy: 0, createdAt: '', authorId: '2', media: [] })}>open-overlay</button></>}{entryReelId && <button type="button" onClick={onEntryClose}>close-reel-overlay</button>}</div> }))
 vi.mock('./SavedPage', () => ({ SavedPage: () => <div>saved-page</div> }))
 vi.mock('./SettingsPage', () => ({ SettingsPage: ({ initialSection }: { initialSection: string }) => <div>settings-{initialSection}</div> }))
 vi.mock('../components/ContentActions', () => ({
-  ContentDetailOverlay: ({ contentId, onClose, onOpenImage }: { contentId: string; onClose: () => void; onOpenImage?: (post: { __typename: 'FeedPostDetail'; id: string; media: Array<{ id: string; type: number; url: string }> }, media: { id: string; type: number; url: string }, index: number) => void }) => <div data-testid="content-overlay" data-content-id={contentId}><button type="button" onClick={onClose}>close-content-overlay</button><button type="button" onClick={() => onOpenImage?.({ __typename: 'FeedPostDetail', id: contentId, media: [{ id: 'media-1', type: 0, url: '/media-1.jpg' }] }, { id: 'media-1', type: 0, url: '/media-1.jpg' }, 0)}>open-detail-photo</button></div>,
+  ContentDetailOverlay: ({ contentId, onClose, onOpenImage }: { contentId: string; onClose: () => void; onOpenImage?: (post: { __typename: 'FeedPostDetail'; id: string; media: Array<{ id: string; type: number; url: string }> }, media: { id: string; type: number; url: string }, index: number) => void }) => <div className="modal-backdrop content-modal-backdrop"><div data-testid="content-overlay" data-content-id={contentId}><button type="button" onClick={onClose}>close-content-overlay</button><button type="button" onClick={() => onOpenImage?.({ __typename: 'FeedPostDetail', id: contentId, media: [{ id: 'media-1', type: 0, url: '/media-1.jpg' }] }, { id: 'media-1', type: 0, url: '/media-1.jpg' }, 0)}>open-detail-photo</button></div></div>,
 }))
 vi.mock('../components/PostPhotoViewer', () => ({
   PostPhotoViewer: ({ contentId, initialMediaId, onClose }: { contentId: string; initialMediaId?: string; onClose: () => void }) => <div data-testid="photo-overlay" data-content-id={contentId} data-media-id={initialMediaId}><button type="button" onClick={onClose}>close-photo-overlay</button></div>,
@@ -67,6 +68,7 @@ describe('AuthenticatedApp routing and navigation', () => {
     fastSearch.mockReset().mockResolvedValue([])
     recordSearchResultView.mockReset().mockResolvedValue(true)
     heartbeatPresence.mockReset().mockResolvedValue({ userId: '1', isOnline: true, expiresAt: null, updatedAt: '' })
+    getRelationProfiles.mockReset().mockResolvedValue([])
   })
   afterEach(() => {
     cleanup()
@@ -193,23 +195,28 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(groupGlyph.querySelectorAll('g[clip-path] path')).toHaveLength(1)
   })
 
-  it('refreshes the current Home from either the active Home tab or the Fakebook logo', () => {
+  it('refreshes active Home by event without navigating or rerendering the shell tree', () => {
     const { container } = render(<AuthenticatedApp />)
     const homePage = screen.getByTestId('home-page')
     const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
+    const pushState = vi.spyOn(window.history, 'pushState')
 
-    expect(homePage).toHaveAttribute('data-refresh-token', '0')
+    const dispatchEvent = vi.spyOn(window, 'dispatchEvent')
     fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="home"]')!)
-    expect(homePage).toHaveAttribute('data-refresh-token', '1')
     fireEvent.click(container.querySelector<HTMLButtonElement>('.app-brand')!)
-    expect(homePage).toHaveAttribute('data-refresh-token', '2')
+    expect(dispatchEvent.mock.calls.filter(([event]) => event.type === 'fakebook:home-refresh')).toHaveLength(2)
+    expect(screen.getByTestId('home-page')).toBe(homePage)
+    expect(pushState).not.toHaveBeenCalled()
+    dispatchEvent.mockRestore()
+    pushState.mockRestore()
   })
 
-  it('keeps each visited primary destination mounted and restores its own scroll position', () => {
+  it('keeps each visited primary destination mounted and restores its own scroll position', async () => {
     render(<AuthenticatedApp />)
     const navigation = screen.getByRole('navigation', { name: 'appNavigation' })
     const scrollRoot = screen.getByTestId('destination-scroll-root')
     const homePage = screen.getByTestId('home-page')
+    await waitFor(() => expect(getRelationProfiles).toHaveBeenCalledTimes(1))
 
     scrollRoot.scrollTop = 640
     fireEvent.scroll(scrollRoot)
@@ -226,6 +233,7 @@ describe('AuthenticatedApp routing and navigation', () => {
     fireEvent.click(navigation.querySelector<HTMLButtonElement>('button[aria-label="friends"]')!)
     expect(screen.getByText('friends-page')).toBe(friendsPage)
     expect(scrollRoot.scrollTop).toBe(175)
+    expect(getRelationProfiles).toHaveBeenCalledTimes(1)
   })
 
   it('keeps each visited Reel feed tab mounted with its own viewer position', () => {
@@ -268,6 +276,49 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(window.location.pathname).toBe('/')
     expect(screen.getByTestId('home-page')).toBe(homePage)
     expect(scrollRoot.scrollTop).toBe(640)
+  })
+
+  it('closes a Home overlay when the active Home navigation button is pressed', async () => {
+    render(<AuthenticatedApp />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-home-post' }))
+    expect(await screen.findByTestId('content-overlay')).toBeInTheDocument()
+
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'appNavigation' })).getByRole('button', { name: 'home' }))
+
+    await waitFor(() => expect(screen.queryByTestId('content-overlay')).not.toBeInTheDocument())
+    expect(window.location.pathname).toBe('/home')
+  })
+
+  it('treats repeated Reel close requests as one history operation', () => {
+    render(<AuthenticatedApp />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-home-reel' }))
+    const close = screen.getByRole('button', { name: 'close-reel-overlay' })
+    const back = vi.spyOn(window.history, 'back').mockImplementation(() => undefined)
+
+    fireEvent.click(close)
+    fireEvent.click(close)
+
+    expect(back).toHaveBeenCalledTimes(1)
+    back.mockRestore()
+  })
+
+  it('keeps the preserved Reel destination mounted but inactive behind its route overlay', () => {
+    window.history.replaceState({}, '', '/reels/for-you')
+    render(<AuthenticatedApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-reel-overlay-for-you' }))
+
+    expect(screen.getByTestId('reels-page-for-you')).toHaveAttribute('data-active', 'false')
+    expect(screen.getByTestId('reel-overlay')).toHaveAttribute('data-active', 'true')
+  })
+
+  it('closes a non-back Reel overlay to its stored background instead of a generic fallback', () => {
+    window.history.replaceState({ fakebookOverlay: { backgroundHref: '/friends/suggestions', returnWithBack: false } }, '', '/reel/direct-reel?source=for-you')
+    render(<AuthenticatedApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'close-reel-overlay' }))
+
+    expect(window.location.pathname).toBe('/friends/suggestions')
   })
 
   it('closes a route-owned Reel from Profile All without changing the tab or scroll position', async () => {
@@ -353,8 +404,9 @@ describe('AuthenticatedApp routing and navigation', () => {
     window.history.replaceState({}, '', '/content/direct-post')
     const first = render(<AuthenticatedApp />)
 
-    expect(screen.getByTestId('home-page')).toBeInTheDocument()
+    expect(screen.getByTestId('home-page')).toBeVisible()
     expect(await screen.findByTestId('content-overlay')).toHaveAttribute('data-content-id', 'direct-post')
+    expect(document.querySelectorAll('.content-modal-backdrop')).toHaveLength(1)
     expect(document.querySelector('.app-shell-topbar')).toHaveClass('is-content-detail')
     fireEvent.click(screen.getByRole('button', { name: 'close-content-overlay' }))
     expect(window.location.pathname).toBe('/home')

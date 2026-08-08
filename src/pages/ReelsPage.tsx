@@ -29,7 +29,8 @@ import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
 import { reelOverlayHref } from '../lib/overlayRoutes'
 import { detectVideoHasAudio } from '../lib/videoAudio'
 import { prefetchCommentPage } from '../lib/commentPagePrefetch'
-import { parseMentionContent, type MentionDisplayUser } from '../lib/mentions'
+import type { MentionDisplayUser } from '../lib/mentions'
+import { buildMentionTruncationMap } from '../lib/mentionTruncation'
 import { gatewayReelToSocialContent } from '../lib/reelEntry'
 
 export type ReelMode = 'for-you' | 'following' | 'mine' | 'saved' | 'liked' | 'shared' | 'watched'
@@ -163,31 +164,10 @@ export function shrinkReelFrameToViewport(frame: { width: number; height: number
   }
 }
 
-function captionBoundaries(content: string, mentions: readonly MentionDisplayUser[], unavailableLabel: string) {
-  const users = new Map(mentions.map((mention) => [mention.userId, mention]))
-  const boundaries: Array<{ raw: string; display: string }> = [{ raw: '', display: '' }]
-  let raw = ''
-  let display = ''
-  parseMentionContent(content).forEach((segment) => {
-    if (segment.type === 'mention') {
-      const mention = users.get(segment.userId)
-      raw += `[[mention:${segment.userId}]]`
-      display += mention?.available && mention.name ? mention.name : unavailableLabel
-      boundaries.push({ raw, display })
-      return
-    }
-    Array.from(segment.value).forEach((character) => {
-      raw += character
-      display += character
-      boundaries.push({ raw, display })
-    })
-  })
-  return boundaries
-}
-
-function ReelCaption({ content, mentions, onNavigate }: {
+function ReelCaption({ content, mentions, active, onNavigate }: {
   content: string
   mentions: readonly MentionDisplayUser[]
+  active: boolean
   onNavigate: (path: string) => void
 }) {
   const { t } = useI18n()
@@ -202,10 +182,32 @@ function ReelCaption({ content, mentions, onNavigate }: {
   }, [content])
 
   useLayoutEffect(() => {
+    if (!active) return
     const root = rootRef.current
     if (!root) return
-    const measure = () => {
+    const boundaryMap = buildMentionTruncationMap(content, mentions, t('fakebookUser'))
+    let probe: HTMLDivElement | null = null
+    let lastMeasuredWidth = -1
+
+    const ensureProbe = () => {
+      if (probe) return probe
+      probe = document.createElement('div')
+      Object.assign(probe.style, {
+        position: 'fixed',
+        visibility: 'hidden',
+        pointerEvents: 'none',
+        inset: '0 auto auto -100000px',
+        whiteSpace: 'pre-wrap',
+        overflowWrap: 'anywhere',
+      })
+      document.body.appendChild(probe)
+      return probe
+    }
+
+    const measure = (force = false) => {
       const width = root.getBoundingClientRect().width || root.clientWidth
+      if (!force && Math.abs(width - lastMeasuredWidth) < .5) return
+      lastMeasuredWidth = width
       if (width <= 0) {
         const fallbackOverflow = content.length > 120 || content.split(/\r?\n/).length > 2
         setCollapsible(fallbackOverflow)
@@ -214,56 +216,49 @@ function ReelCaption({ content, mentions, onNavigate }: {
       }
       const computed = window.getComputedStyle(root)
       const lineHeight = Number.parseFloat(computed.lineHeight) || (Number.parseFloat(computed.fontSize) || 14) * 1.4
-      const probe = document.createElement('div')
-      Object.assign(probe.style, {
-        position: 'fixed',
-        visibility: 'hidden',
-        pointerEvents: 'none',
-        inset: '0 auto auto -100000px',
+      const measurementProbe = ensureProbe()
+      Object.assign(measurementProbe.style, {
         width: `${width}px`,
         font: computed.font,
         fontSize: computed.fontSize,
         fontWeight: computed.fontWeight,
         letterSpacing: computed.letterSpacing,
         lineHeight: computed.lineHeight,
-        whiteSpace: 'pre-wrap',
-        overflowWrap: 'anywhere',
       })
-      document.body.appendChild(probe)
-      const boundaries = captionBoundaries(content, mentions, t('fakebookUser'))
-      const fullDisplay = boundaries[boundaries.length - 1]?.display ?? ''
-      probe.textContent = fullDisplay
+      measurementProbe.textContent = boundaryMap.display
       const maxHeight = (lineHeight * 2) + .5
-      const overflowing = probe.scrollHeight > maxHeight
+      const overflowing = measurementProbe.scrollHeight > maxHeight
       if (!overflowing) {
         setCollapsible(false)
         setCollapsedContent(content)
-        probe.remove()
         return
       }
 
       const suffix = `… ${t('reelSeeMore')}`
       let low = 0
-      let high = Math.max(0, boundaries.length - 1)
+      let high = Math.max(0, boundaryMap.rawOffsets.length - 1)
       while (low < high) {
         const middle = Math.ceil((low + high) / 2)
-        probe.textContent = `${boundaries[middle].display.trimEnd()}${suffix}`
-        if (probe.scrollHeight <= maxHeight) low = middle
+        const displayOffset = boundaryMap.displayOffsets[middle] ?? 0
+        measurementProbe.textContent = `${boundaryMap.display.slice(0, displayOffset).trimEnd()}${suffix}`
+        if (measurementProbe.scrollHeight <= maxHeight) low = middle
         else high = middle - 1
       }
       setCollapsible(true)
-      setCollapsedContent(boundaries[low]?.raw.trimEnd() ?? '')
-      probe.remove()
+      const rawOffset = boundaryMap.rawOffsets[low] ?? 0
+      setCollapsedContent(content.slice(0, rawOffset).trimEnd())
     }
-    measure()
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    measure(true)
+    const handleWindowResize = () => measure()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => measure())
     observer?.observe(root)
-    window.addEventListener('resize', measure)
+    if (!observer) window.addEventListener('resize', handleWindowResize)
     return () => {
       observer?.disconnect()
-      window.removeEventListener('resize', measure)
+      if (!observer) window.removeEventListener('resize', handleWindowResize)
+      probe?.remove()
     }
-  }, [content, mentions, t])
+  }, [active, content, mentions, t])
 
   const visibleContent = expanded ? content : collapsedContent
   return <div ref={rootRef} className={`reel-caption${expanded ? ' expanded' : ''}`}>
@@ -322,6 +317,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   const wheelResetTimerRef = useRef<number | null>(null)
   const programmaticTargetIndexRef = useRef<number | null>(null)
   const programmaticSettleTimerRef = useRef<number | null>(null)
+  const entryCloseRequestedRef = useRef(false)
   const reelsRef = useRef(reels)
   const activeIndexRef = useRef(activeIndex)
   reelsRef.current = reels
@@ -332,6 +328,15 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     programmaticSettleTimerRef.current = null
     programmaticTargetIndexRef.current = null
   }, [])
+
+  const requestViewerClose = useCallback(() => {
+    cancelProgrammaticScroll()
+    setCommentReelId(null)
+    setLibraryViewerOpen(false)
+    if (!entryViewer || entryCloseRequestedRef.current) return
+    entryCloseRequestedRef.current = true
+    onEntryClose?.()
+  }, [cancelProgrammaticScroll, entryViewer, onEntryClose])
 
   const settleProgrammaticScroll = useCallback(() => {
     const targetIndex = programmaticTargetIndexRef.current
@@ -351,7 +356,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     setLoading(!entrySeed)
     setError(null)
     setCommentReelId(null)
-    setLibraryViewerOpen(entryViewer)
+    setLibraryViewerOpen(entryViewer && !entryCloseRequestedRef.current)
     setViewCounts({})
     cancelProgrammaticScroll()
     if (scrollFrameRef.current != null && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(scrollFrameRef.current)
@@ -369,7 +374,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
       activeIndexRef.current = nextIndex
       setActiveIndex(nextIndex)
       reelPositionCacheRef.current.set(requestKey, { reelId: nextReels[nextIndex]?.id ?? null, index: nextIndex })
-      setLibraryViewerOpen(entryViewer)
+      setLibraryViewerOpen(entryViewer && !entryCloseRequestedRef.current)
       // Reset the stage scroll to 0 instantly before the rAF scroll so that
       // handleStageScroll cannot misread the stale position from the previous
       // tab against the new (shorter or differently-ordered) reel list and flip
@@ -496,7 +501,9 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   // close/navigation may have left the local viewer flag off. Route intent
   // must reopen the viewer independently from whether data needs refetching.
   useLayoutEffect(() => {
-    if (active && entryViewer) setLibraryViewerOpen(true)
+    if (!active || !entryViewer) return
+    entryCloseRequestedRef.current = false
+    setLibraryViewerOpen(true)
   }, [active, entryReelId, entrySource, entryViewer])
 
   useEffect(() => {
@@ -566,12 +573,11 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     if (!libraryViewerOpen) return
     const closeViewerOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || commentReelId) return
-      if (entryViewer) onEntryClose?.()
-      else setLibraryViewerOpen(false)
+      requestViewerClose()
     }
     window.addEventListener('keydown', closeViewerOnEscape)
     return () => window.removeEventListener('keydown', closeViewerOnEscape)
-  }, [commentReelId, entryViewer, libraryViewerOpen, onEntryClose])
+  }, [commentReelId, libraryViewerOpen, requestViewerClose])
 
   useEffect(() => {
     if (creatorProfileUserRef.current === userId) return
@@ -850,10 +856,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
   }
 
   function closeLibraryViewer() {
-    cancelProgrammaticScroll()
-    setCommentReelId(null)
-    if (entryViewer) onEntryClose?.()
-    else setLibraryViewerOpen(false)
+    requestViewerClose()
   }
 
   const navigateFromReel = useCallback((path: string) => {
@@ -900,14 +903,16 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     }
 
     if (next.length === 0 && entryViewer) {
-      onEntryClose?.()
+      requestViewerClose()
       return
     }
     window.requestAnimationFrame?.(() => {
       const stage = stageRef.current
       if (stage && stage.clientHeight > 0) scrollReelStage(stage, nextIndex * stage.clientHeight)
     })
-  }, [cancelProgrammaticScroll, entryViewer, onEntryClose])
+  }, [cancelProgrammaticScroll, entryViewer, requestViewerClose])
+
+  if (entryViewer && !libraryViewerOpen) return null
 
   return <><main ref={pageRef} className={`reels-page${libraryMode && !libraryViewerOpen ? ' is-library' : ''}${libraryViewerOpen ? ' is-library-viewer' : ''}${commentsSidebarOpen ? ' has-comments-sidebar' : ''}`}>
     {!libraryViewerOpen && <aside className="reels-sidebar">
@@ -922,7 +927,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
       </nav>
     </aside>}
 
-    {libraryMode && !libraryViewerOpen && <ReelLibrary
+    {!entryViewer && libraryMode && !libraryViewerOpen && <ReelLibrary
       contentRef={libraryContentRef}
       mode={mode}
       reels={reels}
@@ -1522,7 +1527,7 @@ function ReelCard({
             <span className="reel-author-privacy" title={privacyLabel} aria-label={privacyLabel}><PostPrivacyIcon privacy={privacy} size={13} /></span>
             {canFollow && <><span className="reel-author-separator" aria-hidden="true">·</span><button type="button" className="reel-follow-button" disabled={followBusy} onClick={() => void followAuthor()}>{t('follow')}</button></>}
           </div>
-          {reel.content.trim() && <ReelCaption content={reel.content} mentions={reel.mentions ?? EMPTY_REEL_MENTIONS} onNavigate={onNavigate} />}
+          {reel.content.trim() && <ReelCaption content={reel.content} mentions={reel.mentions ?? EMPTY_REEL_MENTIONS} active={active} onNavigate={onNavigate} />}
           {followError && <span className="reel-follow-error" role="status">{t('followActionError')}</span>}
         </div>
 

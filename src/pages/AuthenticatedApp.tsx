@@ -34,8 +34,9 @@ import { notificationTarget, notificationText } from '../lib/notifications'
 import { takeOverlayContent } from '../lib/overlayContentCache'
 import { gatewayReelToSocialContent, type GatewayReelPost } from '../lib/reelEntry'
 import { unlockSoundEffects } from '../lib/sounds'
+import { ActivityVisibilityProvider } from '../lib/activityVisibility'
 import { FriendsPage } from './FriendsPage'
-import { GatewayHomePage } from './GatewayHomePage'
+import { GatewayHomePage, HOME_REFRESH_EVENT } from './GatewayHomePage'
 import { GroupProfilePage, GroupsPage } from './GroupsPage'
 import type { GroupMediaViewerState } from './GroupProfilePage'
 import { ProfilePage } from './ProfilePage'
@@ -85,13 +86,12 @@ export function AuthenticatedApp() {
   const isSearchRoute = location.pathname === '/search'
   const isGroupsPath = location.pathname.startsWith('/groups')
   const activePrimaryDestination = primaryDestinationForPath(location.pathname)
-  const profileLandingRoute = profileLandingRouteForPath(location.pathname)
+  const secondaryDestinationRoute = activePrimaryDestination ? null : appHref(location)
   const reelEntrySource = isReelsRoute && (location.params.get('source') === 'for-you' || location.params.get('source') === 'profile')
     ? location.params.get('source') as 'for-you' | 'profile'
     : null
   const reelEntryId = isReelsRoute ? location.params.get('reel') : null
   const reelEntryOwnerId = isReelsRoute ? location.params.get('owner') : null
-  const [homeRefreshToken, setHomeRefreshToken] = useState(0)
   const [reelsRefreshToken, setReelsRefreshToken] = useState(0)
   const [groupsRefreshToken, setGroupsRefreshToken] = useState(0)
   const [reelSeed, setReelSeed] = useState<SocialContent | null>(null)
@@ -108,6 +108,7 @@ export function AuthenticatedApp() {
   const [profileLoading, setProfileLoading] = useState(true)
   const [profileError, setProfileError] = useState<string | null>(null)
   const [friends, setFriends] = useState<UserSummary[]>([])
+  const friendsLoadedForUserRef = useRef<string | null>(null)
   const [messengerPanelOpen, setMessengerPanelOpen] = useState(false)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
   const [notificationItems, setNotificationItems] = useState<AppNotification[]>([])
@@ -129,6 +130,7 @@ export function AuthenticatedApp() {
   const destinationScrollPositionsRef = useRef<Partial<Record<PrimaryDestination, number>>>({})
   const destinationViewportRef = useRef<HTMLDivElement>(null)
   const overlayContentSeedRef = useRef<{ viewerId: string; contentId: string; post: GatewayPost } | null>(null)
+  const overlayClosePendingRef = useRef(false)
   const lastFriendsSectionRef = useRef(normalizeFriendSection(isFriendsRoute ? pathSegment(location.pathname, 1) : null))
   const lastReelModeRef = useRef(normalizeReelMode(isReelsRoute ? pathSegment(location.pathname, 1) : null))
 
@@ -152,6 +154,10 @@ export function AuthenticatedApp() {
     }
     navigate(canonicalHref, { replace: true, state })
   }, [browserLocation, navigate, overlayRoute])
+
+  useEffect(() => {
+    overlayClosePendingRef.current = false
+  }, [browserLocation.pathname, browserLocation.search])
 
   useEffect(() => {
     if (overlayRoute) return
@@ -186,13 +192,12 @@ export function AuthenticatedApp() {
   }, [activePrimaryDestination])
 
   useLayoutEffect(() => {
-    if (!profileLandingRoute) return
-    // User/group profiles are detail destinations, not preserved primary tabs.
-    // Always enter them at their hero cover instead of inheriting the source
-    // page's document offset. Reel/photo overlays do not change the route, so
-    // closing those viewers still keeps the profile's current position.
+    if (!secondaryDestinationRoute) return
+    // Secondary destinations do not share the preserved Home/Friends/Reels/
+    // Groups position. Their derived route stays unchanged while a media or
+    // post overlay is open, so closing that overlay still preserves the page.
     setDestinationScrollTop(destinationViewportRef.current, 0)
-  }, [profileLandingRoute])
+  }, [secondaryDestinationRoute])
 
   useEffect(() => {
     if (!activePrimaryDestination) return
@@ -291,7 +296,15 @@ export function AuthenticatedApp() {
 
   useEffect(() => {
     if (!user || (!messengerPanelOpen && location.pathname !== '/messenger' && !isHomeRoute)) return
-    socialApi.getRelationProfiles(user.userId, 0, 100).then((profiles) => setFriends(profiles.map(toSummary))).catch(() => setFriends([]))
+    if (friendsLoadedForUserRef.current === user.userId) return
+    setFriends([])
+    friendsLoadedForUserRef.current = user.userId
+    socialApi.getRelationProfiles(user.userId, 0, 100)
+      .then((profiles) => setFriends(profiles.map(toSummary)))
+      .catch(() => {
+        friendsLoadedForUserRef.current = null
+        setFriends([])
+      })
   }, [isHomeRoute, location.pathname, messengerPanelOpen, user])
 
   useEffect(() => {
@@ -425,14 +438,16 @@ export function AuthenticatedApp() {
   }
 
   function closeOverlay() {
-    if (!overlayRoute) return
+    if (!overlayRoute || overlayClosePendingRef.current) return
+    overlayClosePendingRef.current = true
     setReelSeed(null)
     setPhotoSeed(null)
-    if (overlayBackgroundHref(browserLocation.state) && overlayReturnsWithBack(browserLocation.state)) {
+    const backgroundHref = overlayBackgroundHref(browserLocation.state)
+    if (backgroundHref && overlayReturnsWithBack(browserLocation.state)) {
       window.history.back()
       return
     }
-    navigate(fallbackBackgroundHref(overlayRoute), { replace: true, state: {} })
+    navigate(backgroundHref ?? fallbackBackgroundHref(overlayRoute), { replace: true, state: {} })
   }
 
   function replaceMediaOverlay(contentId: string, mediaId: string) {
@@ -442,20 +457,26 @@ export function AuthenticatedApp() {
   }
 
   function replaceReelOverlayAddress(reelId: string) {
-    if (overlayRoute?.kind !== 'reel') return
-    const nextHref = reelOverlayHref(reelId, overlayRoute.source, overlayRoute.ownerId)
+    if (overlayClosePendingRef.current) return
+    const currentOverlay = parseOverlayRoute(locationFromHref(`${window.location.pathname}${window.location.search}`))
+    if (currentOverlay?.kind !== 'reel') return
+    const nextHref = reelOverlayHref(reelId, currentOverlay.source, currentOverlay.ownerId)
     if (`${window.location.pathname}${window.location.search}` === nextHref) return
     window.history.replaceState(window.history.state, '', nextHref)
   }
 
-  function go(path: string) {
-    if (activePrimaryDestination) destinationScrollPositionsRef.current[activePrimaryDestination] = destinationViewportRef.current?.scrollTop ?? 0
+  function closeNavigationSurfaces() {
     setMenuOpen(false)
     setAppsMenuOpen(false)
     setMessengerPanelOpen(false)
     setNotificationPanelOpen(false)
     setMenuView('root')
     resetQuickSearch()
+  }
+
+  function go(path: string) {
+    if (activePrimaryDestination) destinationScrollPositionsRef.current[activePrimaryDestination] = destinationViewportRef.current?.scrollTop ?? 0
+    closeNavigationSurfaces()
     const requestedLocation = locationFromHref(path)
     const requestedOverlay = parseOverlayRoute(locationFromHref(normalizeLegacyOverlayHref(requestedLocation) ?? path))
     if (requestedOverlay) {
@@ -526,13 +547,21 @@ export function AuthenticatedApp() {
   }
 
   function goHome() {
+    if (overlayRoute) {
+      go('/home')
+      return
+    }
     const refreshCurrentHome = isHomeRoute
     if (refreshCurrentHome) {
       destinationScrollPositionsRef.current.home = 0
       setDestinationScrollTop(destinationViewportRef.current, 0)
+      closeNavigationSurfaces()
+      setReelSeed(null)
+      setPhotoSeed(null)
+      window.dispatchEvent(new Event(HOME_REFRESH_EVENT))
+      return
     }
     go('/home')
-    if (refreshCurrentHome) setHomeRefreshToken((value) => value + 1)
   }
 
   function goReels() {
@@ -658,13 +687,13 @@ export function AuthenticatedApp() {
 
     <div ref={destinationViewportRef} className={`authenticated-destination-scroll${isReelsRoute ? ' is-reels' : location.pathname === '/messenger' ? ' is-messenger' : ''}`} data-testid="destination-scroll-root">
       <div className="authenticated-destination-content">
-    {(activePrimaryDestination === 'home' || mountedDestinations.has('home')) && <Activity name="home-destination" mode={activePrimaryDestination === 'home' ? 'visible' : 'hidden'}><GatewayHomePage profile={currentProfile} refreshToken={homeRefreshToken} onNavigate={go} onOpenReel={openHomeReel} onMessage={openDirectMessage} onNewConversation={() => messengerDockRef.current?.openComposer()} onConversation={(conversation) => messengerDockRef.current?.openConversation(conversation)} /></Activity>}
+    {(activePrimaryDestination === 'home' || mountedDestinations.has('home')) && <ActivityVisibilityProvider active={activePrimaryDestination === 'home'}><Activity name="home-destination" mode={activePrimaryDestination === 'home' ? 'visible' : 'hidden'}><GatewayHomePage profile={currentProfile} friends={friends} onNavigate={go} onOpenReel={openHomeReel} onMessage={openDirectMessage} onNewConversation={() => messengerDockRef.current?.openComposer()} onConversation={(conversation) => messengerDockRef.current?.openConversation(conversation)} /></Activity></ActivityVisibilityProvider>}
     {location.pathname === '/search' && <SearchPage query={location.params.get('q') ?? ''} tab={searchTab} userId={user.userId} onNavigate={go} onMessage={openDirectMessage} />}
-    {(activePrimaryDestination === 'friends' || mountedDestinations.has('friends')) && <Activity name="friends-destination" mode={activePrimaryDestination === 'friends' ? 'visible' : 'hidden'}><FriendsPage userId={user.userId} section={lastFriendsSectionRef.current} onNavigate={go} onOpenReel={openProfileReel} onOpenPhoto={openProfilePhoto} onMessage={openDirectMessage} /></Activity>}
+    {(activePrimaryDestination === 'friends' || mountedDestinations.has('friends')) && <ActivityVisibilityProvider active={activePrimaryDestination === 'friends'}><Activity name="friends-destination" mode={activePrimaryDestination === 'friends' ? 'visible' : 'hidden'}><FriendsPage userId={user.userId} section={lastFriendsSectionRef.current} onNavigate={go} onOpenReel={openProfileReel} onOpenPhoto={openProfilePhoto} onMessage={openDirectMessage} /></Activity></ActivityVisibilityProvider>}
     {(activePrimaryDestination === 'reels' || mountedDestinations.has('reels')) && REEL_MODES.map((reelMode) => {
       if (!mountedReelModes.has(reelMode) && !(activePrimaryDestination === 'reels' && currentReelMode === reelMode)) return null
-      const reelModeActive = activePrimaryDestination === 'reels' && currentReelMode === reelMode
-      return <Activity key={reelMode} name={`reels-${reelMode}-destination`} mode={reelModeActive ? 'visible' : 'hidden'}><ReelsPage
+      const reelModeActive = activePrimaryDestination === 'reels' && currentReelMode === reelMode && overlayRoute?.kind !== 'reel'
+      return <ActivityVisibilityProvider key={reelMode} active={reelModeActive}><Activity name={`reels-${reelMode}-destination`} mode={reelModeActive ? 'visible' : 'hidden'}><ReelsPage
         key={`reels-${reelMode}-${reelsRefreshToken}`}
         userId={user.userId}
         mode={reelMode}
@@ -676,9 +705,9 @@ export function AuthenticatedApp() {
         onOpenReelOverlay={openSocialReel}
         onEntryClose={() => reelEntrySource === 'profile' && reelEntryOwnerId ? go(`/profile/${reelEntryOwnerId}?tab=reels`) : go('/home')}
         onNavigate={go}
-      /></Activity>
+      /></Activity></ActivityVisibilityProvider>
     })}
-    {(activePrimaryDestination === 'groups' || mountedDestinations.has('groups')) && <Activity name="groups-destination" mode={activePrimaryDestination === 'groups' ? 'visible' : 'hidden'}><GroupsPage key={`groups-${groupsRefreshToken}`} userId={user.userId} profile={currentProfile} onNavigate={go} /></Activity>}
+    {(activePrimaryDestination === 'groups' || mountedDestinations.has('groups')) && <ActivityVisibilityProvider active={activePrimaryDestination === 'groups'}><Activity name="groups-destination" mode={activePrimaryDestination === 'groups' ? 'visible' : 'hidden'}><GroupsPage key={`groups-${groupsRefreshToken}`} userId={user.userId} profile={currentProfile} onNavigate={go} /></Activity></ActivityVisibilityProvider>}
     {groupId && <GroupProfilePage groupId={groupId} userId={user.userId} onBack={() => go('/groups')} onNavigate={go} onOpenReel={openHomeReel} onOpenPhoto={openGroupPhoto} />}
     {groupRouteId && groupMemberProfileId && <UserInGroupProfilePage groupId={groupRouteId} profileId={groupMemberProfileId} viewerId={user.userId} onBack={() => go(`/groups/${groupRouteId}`)} onNavigate={go} />}
     {profileId && <ProfilePage profile={viewedProfile} loading={profileLoading} error={profileError} canEdit={profileId === user.userId} viewerId={user.userId} initialTab={location.params.get('tab') === 'reels' ? 'reels' : undefined} onEdit={() => go('/settings/profile')} onNavigate={go} onOpenReel={openProfileReel} onOpenPhoto={openProfilePhoto} onMessage={openDirectMessage} />}
@@ -908,13 +937,6 @@ function primaryDestinationForPath(pathname: string): PrimaryDestination | null 
   if (pathname.startsWith('/friends')) return 'friends'
   if (pathname.startsWith('/reels')) return 'reels'
   if (pathname === '/groups') return 'groups'
-  return null
-}
-
-function profileLandingRouteForPath(pathname: string) {
-  const segments = pathname.split('/').filter(Boolean)
-  if (segments.length === 2 && segments[0] === 'profile') return `/profile/${segments[1]}`
-  if (segments.length === 2 && segments[0] === 'groups') return `/groups/${segments[1]}`
   return null
 }
 

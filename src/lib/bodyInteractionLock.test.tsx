@@ -12,6 +12,7 @@ function Lock({ active = true, className }: { active?: boolean; className: strin
 describe('body interaction lock', () => {
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
     document.body.removeAttribute('class')
     document.body.removeAttribute('style')
     document.documentElement.removeAttribute('style')
@@ -41,5 +42,51 @@ describe('body interaction lock', () => {
 
     rerender(<div><ModalInteractionGuard /></div>)
     await waitFor(() => expect(document.body).not.toHaveClass('modal-layer-open', 'modal-interaction-locked'))
+  })
+
+  it('ignores a backdrop inside an ancestor that is already hidden', async () => {
+    const leakedWheel = vi.fn()
+    render(<div onWheel={leakedWheel}>
+      <ModalInteractionGuard />
+      <div style={{ display: 'none' }} data-testid="activity-shell"><div className="modal-backdrop" data-testid="activity-backdrop"><section className="modal" /></div></div>
+      <div data-testid="page" />
+    </div>)
+
+    expect(document.body).not.toHaveClass('modal-layer-open', 'modal-interaction-locked')
+    fireEvent.wheel(document.querySelector('[data-testid="page"]')!)
+    expect(leakedWheel).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not install non-passive document scroll guards until a modal is visible', async () => {
+    const addListener = vi.spyOn(document, 'addEventListener')
+    const { rerender } = render(<ModalInteractionGuard />)
+    const guardedEvents = () => addListener.mock.calls.filter(([type]) => type === 'wheel' || type === 'touchmove')
+
+    expect(guardedEvents()).toHaveLength(0)
+    rerender(<><ModalInteractionGuard /><div className="modal-backdrop"><section className="modal" /></div></>)
+    await waitFor(() => expect(guardedEvents()).toHaveLength(2))
+  })
+
+  it('releases the lock when a preserved backdrop ancestor becomes hidden', async () => {
+    const { rerender } = render(<>
+      <ModalInteractionGuard />
+      <div data-testid="activity-shell"><div className="modal-backdrop" data-testid="activity-backdrop"><section className="modal" /></div></div>
+    </>)
+
+    await waitFor(() => expect(document.body).toHaveClass('modal-layer-open', 'modal-interaction-locked'))
+
+    rerender(<>
+      <ModalInteractionGuard />
+      <div data-testid="activity-shell" style={{ display: 'none' }}><div className="modal-backdrop" data-testid="activity-backdrop"><section className="modal" /></div></div>
+    </>)
+
+    await waitFor(() => expect(document.body).not.toHaveClass('modal-layer-open', 'modal-interaction-locked'))
+
+    rerender(<>
+      <ModalInteractionGuard />
+      <div data-testid="activity-shell"><div className="modal-backdrop" data-testid="activity-backdrop"><section className="modal" /></div></div>
+    </>)
+
+    await waitFor(() => expect(document.body).toHaveClass('modal-layer-open', 'modal-interaction-locked'))
   })
 })

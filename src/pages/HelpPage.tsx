@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { INPUT_LIMITS } from '../lib/inputLimits';
 import { navigate } from '../lib/router';
 import { HELP_CATEGORIES } from './data/helpData';
@@ -38,6 +38,7 @@ const logo = '/brand/fakebook-minimal-cropped.png';
 
 const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [submittedQuery, setSubmittedQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeArticle, setActiveArticle] = useState<HelpArticle | null>(null);
   const [isVi, setIsVi] = useState(true);
@@ -52,6 +53,18 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     { title: 'Pages', desc: 'Learn how to create, use, follow and manage a Page.', icon: <FaFileAlt /> }
   ];
 
+  const searchResults = useMemo(() => {
+    const normalized = submittedQuery.toLocaleLowerCase();
+    if (!normalized) return [];
+    return (HELP_CATEGORIES as HelpCategory[]).flatMap((category) => {
+      const categoryTitle = isVi ? category.titleVi : category.titleEn;
+      const categoryMatches = categoryTitle.toLocaleLowerCase().includes(normalized);
+      return category.articles
+        .filter((article) => categoryMatches || (isVi ? article.titleVi : article.titleEn).toLocaleLowerCase().includes(normalized))
+        .map((article) => ({ article, category }));
+    }).slice(0, 24);
+  }, [isVi, submittedQuery]);
+
   const handleCategoryClick = (cat: HelpCategory) => {
     setActiveCategory(activeCategory === cat.id ? null : cat.id);
   };
@@ -65,6 +78,16 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     setActiveArticle(null);
   };
 
+  const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const normalized = searchQuery.trim();
+    setSubmittedQuery(normalized);
+    if (normalized) {
+      setActiveArticle(null);
+      setActiveCategory(null);
+    }
+  };
+
   return (
     <div className="help-page-wrapper">
       {/* Header */}
@@ -76,7 +99,7 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         
         {/* Only show search in header if in article view */}
         {activeArticle && (
-          <div className="help-header-search">
+          <form className="help-header-search" onSubmit={submitSearch} noValidate>
             <FaSearch className="search-icon" />
             <input 
               type="text" 
@@ -85,7 +108,7 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
-          </div>
+          </form>
         )}
 
         <div className="help-header-right">
@@ -137,24 +160,34 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
               <div className="help-landing-hero">
                 <FaFileAlt className="help-hero-icon" style={{color: '#1877f2'}} />
                 <h1>Hey, how can I help?</h1>
-                <div className="help-hero-search">
+                <form className="help-hero-search" onSubmit={submitSearch} noValidate>
                   <input 
                     type="text" 
                     maxLength={INPUT_LIMITS.search}
                     placeholder="Ask a question or describe your issue..." 
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => { setSearchQuery(e.target.value); if (!e.target.value) setSubmittedQuery(''); }}
                   />
-                  <button className="search-submit-btn">
+                  <button type="submit" className="search-submit-btn" aria-label="Search help articles">
                     <FaArrowLeft style={{transform: 'rotate(90deg)'}} />
                   </button>
-                </div>
+                </form>
                 <p className="help-hero-terms">
                   By using this service, you agree to Group 36's terms.
                 </p>
               </div>
 
               <div className="help-popular-topics">
+                {submittedQuery && <section aria-live="polite">
+                  <h2>{isVi ? 'Kết quả tìm kiếm' : 'Search results'}</h2>
+                  {searchResults.length > 0 ? <div className="help-topics-grid">
+                    {searchResults.map(({ article, category }) => <button type="button" className="help-topic-card" key={`${category.id}-${article.id}`} onClick={() => handleArticleClick(article, category)}>
+                      <div className="topic-icon-placeholder">{category.icon}</div>
+                      <h3>{isVi ? article.titleVi : article.titleEn}</h3>
+                      <p>{isVi ? category.titleVi : category.titleEn}</p>
+                    </button>)}
+                  </div> : <p>{isVi ? 'Không tìm thấy bài viết phù hợp.' : 'No matching help articles found.'}</p>}
+                </section>}
                 <h2>Popular topics</h2>
                 
                 <div className="help-banner-blue">

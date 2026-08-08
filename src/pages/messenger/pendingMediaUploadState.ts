@@ -7,6 +7,7 @@ export interface PendingMediaUploadPreview {
 }
 
 let pendingUploadSequence = 0
+const releasedPendingUploadPreviews = new WeakSet<PendingMediaUploadPreview>()
 
 function mediaTypeForFile(file: File): MediaType {
   if (file.type.startsWith('image/')) return 'image'
@@ -40,6 +41,8 @@ export function createPendingMediaUploadPreviews(files: File[]): PendingMediaUpl
 export function releasePendingMediaUploadPreviews(previews: PendingMediaUploadPreview[]) {
   if (typeof URL.revokeObjectURL !== 'function') return
   for (const preview of previews) {
+    if (releasedPendingUploadPreviews.has(preview)) continue
+    releasedPendingUploadPreviews.add(preview)
     if (preview.attachment.url.startsWith('blob:')) URL.revokeObjectURL(preview.attachment.url)
   }
 }

@@ -1,10 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api, visibleRecommendationPosts } from '../api/client'
 import type { GatewayPost, GatewayStory, GatewayTaggedUser, SharedStory, StoryBucket, VisitedGroup } from '../api/gatewayTypes'
 import { messengerApi, type MessengerPresenceDto } from '../api/messenger'
 import { searchApi } from '../api/search'
-import { socialApi, type ContentEngagement, type SocialProfile } from '../api/social'
+import { socialApi, type ContentEngagement } from '../api/social'
 import type { MediaUpload, MessengerConversationDto, UserProfile, UserSummary } from '../api/types'
 import { Avatar } from '../components/Avatar'
 import { BodyPortal } from '../components/BodyPortal'
@@ -48,6 +48,7 @@ import { contentOverlayHref, locationFromHref, mediaOverlayHref, parseOverlayRou
 import { stageOverlayContent } from '../lib/overlayContentCache'
 
 const FEED_PAGE_SIZE = 12
+export const HOME_REFRESH_EVENT = 'fakebook:home-refresh'
 const MAX_POST_STANDARD_MEDIA_BYTES = 25 * 1024 * 1024
 const MAX_POST_VIDEO_BYTES = 500 * 1024 * 1024
 const loadTagPeoplePicker = () => import('../components/TagPeoplePicker')
@@ -75,8 +76,9 @@ function removeStoryFromBucket(bucket: StoryBucket, storyId: string): StoryBucke
   return stories.length > 0 ? { ...bucket, latestCreate: stories[0].create, stories } : null
 }
 
-export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId = null, onDetailClose, onNavigate, onOpenReel, onMessage, onNewConversation, onConversation }: {
+export function GatewayHomePage({ profile = null, friends: providedFriends, refreshToken = 0, detailPostId = null, onDetailClose, onNavigate, onOpenReel, onMessage, onNewConversation, onConversation }: {
   profile?: UserProfile | null
+  friends?: UserSummary[]
   refreshToken?: number
   detailPostId?: string | null
   onDetailClose?: () => void
@@ -101,7 +103,8 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
   const [groups, setGroups] = useState<VisitedGroup[]>([])
   const [groupsLoading, setGroupsLoading] = useState(true)
   const [groupsError, setGroupsError] = useState<string | null>(null)
-  const [friends, setFriends] = useState<SocialProfile[]>([])
+  const [loadedFriends, setLoadedFriends] = useState<UserSummary[]>([])
+  const friends = providedFriends ?? loadedFriends
   const [contacts, setContacts] = useState<UserSummary[]>([])
   // Keep the conversation that produced each contact.  A direct conversation can
   // remain valid after the friendship relationship changes, so opening a contact
@@ -120,12 +123,30 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
   const [detailPhotoViewer, setDetailPhotoViewer] = useState<{ contentId: string; mediaId: string; mediaUrl: string; initialPost?: GatewayPost; initialPlaybackTime?: number } | null>(null)
   const contactSearchSequence = useRef(0)
   const locallyCreatedPostIds = useRef(new Set<string>())
-  const feedMoreRequestRef = useRef(false)
+  const feedRequestSequenceRef = useRef(0)
+  const feedGenerationRef = useRef(0)
+  const activeFeedResetRequestRef = useRef<number | null>(null)
+  const feedMoreRequestRef = useRef<number | null>(null)
   const feedSentinelRef = useRef<HTMLDivElement>(null)
   const leftRailRef = useRef<HTMLElement>(null)
   const rightRailRef = useRef<HTMLElement>(null)
-  const initialLoadKeyRef = useRef<string | null>(null)
+  const initialUserIdRef = useRef<string | null>(null)
+  const handledRefreshTokenRef = useRef(0)
   const groupsRequestRef = useRef(0)
+  const externalHandlersRef = useRef({ onNavigate, onOpenReel, onMessage })
+  externalHandlersRef.current = { onNavigate, onOpenReel, onMessage }
+  const navigateFromFeed = useCallback((path: string) => externalHandlersRef.current.onNavigate?.(path), [])
+  const openReelFromFeed = useCallback((reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => {
+    const handlers = externalHandlersRef.current
+    if (handlers.onOpenReel) handlers.onOpenReel(reel)
+    else handlers.onNavigate?.(reelOverlayHref(reel.id))
+  }, [])
+  const messageFromFeed = useCallback((profileId: string) => {
+    const result = externalHandlersRef.current.onMessage?.(profileId)
+    return result ?? Promise.resolve()
+  }, [])
+  const stableFeedNavigate = onNavigate ? navigateFromFeed : undefined
+  const stableFeedMessage = onMessage ? messageFromFeed : undefined
 
   useEffect(() => {
     const preloadInteractionChunks = () => {
@@ -143,14 +164,26 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
 
   const loadFeed = useCallback(async (reset = false) => {
     if (!user) return
-    if (!reset && feedMoreRequestRef.current) return
-    if (!reset) feedMoreRequestRef.current = true
-    if (reset) setFeedLoading(true)
-    else setFeedMoreBusy(true)
+    if (!reset && (feedMoreRequestRef.current !== null || activeFeedResetRequestRef.current !== null)) return
+    const requestId = ++feedRequestSequenceRef.current
+    const generation = reset ? feedGenerationRef.current + 1 : feedGenerationRef.current
+    if (reset) {
+      feedGenerationRef.current = generation
+      activeFeedResetRequestRef.current = requestId
+      feedMoreRequestRef.current = null
+      setFeedLoading(true)
+      setFeedMoreBusy(false)
+    } else {
+      feedMoreRequestRef.current = requestId
+      setFeedMoreBusy(true)
+    }
+    const requestIsCurrent = () => generation === feedGenerationRef.current
+      && (reset ? activeFeedResetRequestRef.current === requestId : feedMoreRequestRef.current === requestId)
     setFeedError(null)
     try {
       const offset = reset ? 0 : feedOffset
       const items = await api.recommendedFeed(user.userId, offset, FEED_PAGE_SIZE)
+      if (!requestIsCurrent()) return
       const nextPosts = visibleRecommendationPosts(items)
       setPosts((current) => {
         const localPosts = reset ? current.filter((post) => locallyCreatedPostIds.current.has(post.id)) : current
@@ -160,11 +193,15 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
       setFeedOffset(offset + items.length)
       setFeedHasMore(items.length === FEED_PAGE_SIZE)
     } catch {
-      setFeedError(t('feedLoadError'))
+      if (requestIsCurrent()) setFeedError(t('feedLoadError'))
     } finally {
-      setFeedLoading(false)
-      setFeedMoreBusy(false)
-      if (!reset) feedMoreRequestRef.current = false
+      if (reset && activeFeedResetRequestRef.current === requestId) {
+        activeFeedResetRequestRef.current = null
+        if (generation === feedGenerationRef.current) setFeedLoading(false)
+      } else if (!reset && feedMoreRequestRef.current === requestId) {
+        feedMoreRequestRef.current = null
+        if (generation === feedGenerationRef.current) setFeedMoreBusy(false)
+      }
     }
   }, [feedOffset, t, user])
 
@@ -291,31 +328,48 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
   }, [user])
 
   const loadFriends = useCallback(async () => {
-    if (!user) return
-    try { setFriends(await socialApi.getRelationProfiles(user.userId, 0, 100)) } catch { setFriends([]) }
-  }, [user])
+    if (!user || providedFriends !== undefined) return
+    try { setLoadedFriends(await socialApi.getRelationProfiles(user.userId, 0, 100)) } catch { setLoadedFriends([]) }
+  }, [providedFriends, user])
 
   useEffect(() => {
-    const loadKey = user?.userId ? `${user.userId}:${refreshToken}` : null
-    if (!loadKey || initialLoadKeyRef.current === loadKey) return
-    initialLoadKeyRef.current = loadKey
-    if (refreshToken > 0) {
-      document.documentElement.scrollTop = 0
-      document.body.scrollTop = 0
-      if (leftRailRef.current) leftRailRef.current.scrollTop = 0
-      if (rightRailRef.current) rightRailRef.current.scrollTop = 0
-      setContactMode('contacts')
-      setContactQuery('')
-    }
+    const userId = user?.userId ?? null
+    if (!userId || initialUserIdRef.current === userId) return
+    initialUserIdRef.current = userId
+    handledRefreshTokenRef.current = refreshToken
     void loadFeed(true)
     void loadStories()
     void loadGroups()
     void loadContacts()
     void loadGroupConversations()
     void loadFriends()
-    // Initial load is tied to the authenticated identity; clicking active Home increments refreshToken.
+    // Initial data is tied only to the authenticated identity. An active-Home
+    // refresh is intentionally handled below so it does not refetch every rail.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshToken, user?.userId])
+  }, [user?.userId])
+
+  const refreshHomeFeed = useCallback(() => {
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+    if (leftRailRef.current) leftRailRef.current.scrollTop = 0
+    if (rightRailRef.current) rightRailRef.current.scrollTop = 0
+    void loadFeed(true)
+    // Keep Stories, shortcuts, contacts, conversations, and friends mounted.
+    // Re-fetching all six sources on a navigation click caused a large render
+    // burst and made the Home button feel blocked.
+  }, [loadFeed])
+
+  useEffect(() => {
+    const refresh = () => refreshHomeFeed()
+    window.addEventListener(HOME_REFRESH_EVENT, refresh)
+    return () => window.removeEventListener(HOME_REFRESH_EVENT, refresh)
+  }, [refreshHomeFeed])
+
+  useEffect(() => {
+    if (refreshToken <= 0 || handledRefreshTokenRef.current === refreshToken) return
+    handledRefreshTokenRef.current = refreshToken
+    refreshHomeFeed()
+  }, [refreshHomeFeed, refreshToken])
 
   useEffect(() => {
     const upsertConversation = (event: Event) => {
@@ -526,10 +580,10 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
             <button type="button" className="btn-soft sm" onClick={() => void loadFeed(true)} disabled={feedLoading}>{t('refresh')}</button>
           </div>
           {feedError && <div className="card state-card"><p className="form-error">{feedError}</p><button type="button" className="btn-primary" onClick={() => void loadFeed(true)}>{t('tryAgain')}</button></div>}
-          {feedLoading ? <HomeFeedSkeleton label={t('loadingMore')} /> : !feedError && posts.length === 0 ? (
+          {feedLoading && posts.length === 0 ? <HomeFeedSkeleton label={t('loadingMore')} /> : !feedError && posts.length === 0 ? (
             <div className="card state-card"><h2>{t('noRecommendedPosts')}</h2><p>{t('noRecommendedPostsDesc')}</p></div>
           ) : (
-          posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={user.userId} onNavigate={onNavigate} onOpenReel={(reel) => onOpenReel ? onOpenReel(reel) : onNavigate?.(reelOverlayHref(reel.id))} onMessage={onMessage} onStoryCreated={applyCreatedStory} />)
+            posts.map((post) => <GatewayPostCard key={post.id} post={post} locale={locale} viewerId={user.userId} onNavigate={stableFeedNavigate} onOpenReel={openReelFromFeed} onMessage={stableFeedMessage} onStoryCreated={applyCreatedStory} />)
           )}
             {!feedLoading && !feedError && posts.length > 0 && (
               <div ref={feedSentinelRef} className="feed-more feed-auto-loader" aria-live="polite">
@@ -1245,7 +1299,7 @@ function TaggedUsersInline({ users, onNavigate }: { users: GatewayTaggedUser[]; 
   </span>
 }
 
-export function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel, onMessage, onStoryCreated, authorPath, groupContextId, viewerCanModerateGroupPosts = false }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string; groupContextId?: string; viewerCanModerateGroupPosts?: boolean }) {
+export const GatewayPostCard = memo(function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel, onMessage, onStoryCreated, authorPath, groupContextId, viewerCanModerateGroupPosts = false }: { post: GatewayPost; locale: string; viewerId?: string; onNavigate?: (path: string) => void; onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string; groupContextId?: string; viewerCanModerateGroupPosts?: boolean }) {
   const { t } = useI18n()
   const [current, setCurrent] = useState(post)
   const [deleting, setDeleting] = useState(false)
@@ -1400,7 +1454,7 @@ export function GatewayPostCard({ post, locale, viewerId, onNavigate, onOpenReel
     {viewerId && sharedDetailId && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><ContentDetailOverlay viewerId={viewerId} contentId={sharedDetailId} onClose={() => setSharedDetailId(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} onOpenImage={(detailPost, media, _index, initialPlaybackTime) => setPhotoViewer({ contentId: detailPost.id, mediaId: media.id, mediaUrl: media.url, initialPost: detailPost, initialPlaybackTime })} onOpenReel={openReelViewer} /></Suspense>}
     {viewerId && photoViewer && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><PostPhotoViewer viewerId={viewerId} contentId={photoViewer.contentId} initialMediaId={photoViewer.mediaId} initialMediaUrl={photoViewer.mediaUrl} initialPlaybackTime={photoViewer.initialPlaybackTime} initialPost={photoViewer.initialPost} onClose={() => setPhotoViewer(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={onStoryCreated} /></Suspense>}
   </>
-}
+})
 
 function DeletePostModal({ postId, onClose, onDeleted }: { postId: string; onClose: () => void; onDeleted: () => void }) {
   const { t } = useI18n()

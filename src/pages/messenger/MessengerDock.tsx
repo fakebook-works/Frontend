@@ -18,7 +18,7 @@ import { clipboardImageFiles } from '../../lib/clipboardMedia'
 import { playIncomingMessageSound } from '../../lib/sounds'
 import { isDirectImageUrl, remoteImageFileFromUrl } from '../../lib/urlMedia'
 import { MESSENGER_ATTACHMENT_ACCEPT } from './attachmentPolicy'
-import { conversationAvatar, conversationName, encodeMessengerLike, formatPresence, formatTime, groupPresenceSummary, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, shouldShowAvatar, shouldShowTimestamp } from './helpers'
+import { conversationAvatar, conversationName, encodeMessengerLike, formatPresence, formatTime, groupPresenceSummary, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, rememberRealtimeEventId, shouldShowAvatar, shouldShowTimestamp } from './helpers'
 import type { MessageVisualBreaks } from './helpers'
 import { EmojiButton } from './EmojiButton'
 import { HoldLikeButton } from './HoldLikeButton'
@@ -211,7 +211,10 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const [minimizedIds, setMinimizedIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [sendingId, setSendingId] = useState<string | null>(null)
+  // Sending is independent per conversation. A global lock made a send in chat B
+  // silently return while chat A was still uploading or sending.
+  const [sendingConversationIds, setSendingConversationIds] = useState<Set<string>>(() => new Set())
+  const sendingConversationIdsRef = useRef(new Set<string>())
   const [uploadingId, setUploadingId] = useState<string | null>(null)
   const [recordingId, setRecordingId] = useState<string | null>(null)
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0)
@@ -246,7 +249,10 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const [bubblePreviewAnchor, setBubblePreviewAnchor] = useState<BubblePreviewAnchor | null>(null)
   const translateRef = useRef(t)
   translateRef.current = t
-  const seenEventIds = useRef(new Set<string>())
+  const onPanelCloseRef = useRef(onPanelClose)
+  onPanelCloseRef.current = onPanelClose
+  const seenInboxEventIds = useRef(new Set<string>())
+  const seenConversationEventIds = useRef(new Set<string>())
   const conversationsRef = useRef<MessengerConversationDto[]>([])
   // Read through a ref so the inbox stream does not tear down and reconnect every time a
   // chat window is opened, closed or minimised.
@@ -273,6 +279,10 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     () => visibleConversationLimit > 0 ? expandedOpenIds.slice(-visibleConversationLimit) : [],
     [expandedOpenIds, visibleConversationLimit],
   )
+  const messageByIdByConversation = useMemo(() => new Map(fullOpenIds.map((conversationId) => [
+    conversationId,
+    new Map((messages[conversationId] ?? []).map((message) => [message.id, message])),
+  ])), [fullOpenIds, messages])
   const fullOpenIdKey = fullOpenIds.join(',')
   fullOpenIdsRef.current = fullOpenIds
 
@@ -320,6 +330,33 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       .map((person) => person.id)
   }))].slice(0, 250), [conversations, me.id, openIds])
   const presenceUserIdKey = presenceUserIds.join(',')
+
+  const releaseConversationPendingUploadPreviews = useCallback((conversationId: string) => {
+    const previews = pendingUploadPreviewsRef.current[conversationId] ?? []
+    releasePendingMediaUploadPreviews(previews)
+    const nextPreviewMap = { ...pendingUploadPreviewsRef.current }
+    delete nextPreviewMap[conversationId]
+    pendingUploadPreviewsRef.current = nextPreviewMap
+
+    setPendingUploadPreviews((current) => {
+      if (!(conversationId in current)) return current
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+  }, [])
+
+  const beginSendingConversation = useCallback((conversationId: string) => {
+    if (sendingConversationIdsRef.current.has(conversationId)) return false
+    sendingConversationIdsRef.current.add(conversationId)
+    setSendingConversationIds(new Set(sendingConversationIdsRef.current))
+    return true
+  }, [])
+
+  const endSendingConversation = useCallback((conversationId: string) => {
+    if (!sendingConversationIdsRef.current.delete(conversationId)) return
+    setSendingConversationIds(new Set(sendingConversationIdsRef.current))
+  }, [])
 
   useEffect(() => {
     conversationsRef.current = conversations
@@ -653,12 +690,12 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       if (messengerPopoverRef.current?.contains(target)) return
       if (target instanceof Element && target.closest('.shell-messenger-button')) return
       setPanelMenuOpen(false)
-      onPanelClose()
+      onPanelCloseRef.current()
     }
     const closeEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (panelMenuOpen) setPanelMenuOpen(false)
-      else onPanelClose()
+      else onPanelCloseRef.current()
     }
     document.addEventListener('mousedown', closeOutside)
     document.addEventListener('keydown', closeEscape)
@@ -666,17 +703,17 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       document.removeEventListener('mousedown', closeOutside)
       document.removeEventListener('keydown', closeEscape)
     }
-  }, [onPanelClose, panelMenuOpen, panelOpen])
+  }, [panelMenuOpen, panelOpen])
 
   useEffect(() => {
     // Rendered as null while hidden, and MessengerPage is mounted on that route with its
     // own streams. Holding these open would spend connections nothing can display.
     if (hidden) return
     return messengerApi.subscribeInbox((event) => {
-      if (seenEventIds.current.has(event.eventId)) return
-      seenEventIds.current.add(event.eventId)
+      if (!rememberRealtimeEventId(seenInboxEventIds.current, event.eventId)) return
       if (event.kind === 'CONVERSATION_DELETED' && event.conversationId) {
         const deletedId = event.conversationId
+        releaseConversationPendingUploadPreviews(deletedId)
         setManagedGroupId((current) => current === deletedId ? null : current)
         setConversations((current) => current.filter((conversation) => conversation.id !== deletedId))
         conversationsRef.current = conversationsRef.current.filter((conversation) => conversation.id !== deletedId)
@@ -730,7 +767,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
             next.delete(conversation.id)
             return next
           })
-          onPanelClose()
+          onPanelCloseRef.current()
           const hasLoadedHistory = messagesRef.current[conversation.id] !== undefined
           const loadMessages = event.messageId && hasLoadedHistory
             ? messengerApi.message(event.messageId, me.id).then((incoming) => {
@@ -761,7 +798,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         }
       })()
     }, () => setError(t('messengerUnavailableDesc')))
-  }, [clearIncomingTyping, hidden, loadConversations, markConversationAttention, me.id, onPanelClose, t])
+  }, [clearIncomingTyping, hidden, loadConversations, markConversationAttention, me.id, releaseConversationPendingUploadPreviews, t])
 
   useEffect(() => {
     if (hidden) return
@@ -771,8 +808,8 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     return messengerApi.subscribeConversations(watched, (event) => {
       const conversationId = event.conversationId
       if (!conversationId || !watched.includes(conversationId)) return
-      if (seenEventIds.current.has(event.eventId)) return
-      seenEventIds.current.add(event.eventId)
+      if (!rememberRealtimeEventId(seenConversationEventIds.current, event.eventId)) return
+      if (event.kind === 'CONVERSATION_DELETED') return
       if (event.kind === 'TYPING_CHANGED') {
         applyTypingEvent(event)
         return
@@ -821,14 +858,14 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       next.delete(conversation.id)
       return next
     })
-    onPanelClose()
+    onPanelCloseRef.current()
     if (!messages[conversation.id]) {
       void messengerApi.messages(conversation.id, me.id).then((items) => {
         setMessages((current) => ({ ...current, [conversation.id]: items }))
         setError(null)
       }).catch(() => setError(t('messengerUnavailableDesc')))
     }
-  }, [markConversationRead, me.id, messages, onPanelClose, t])
+  }, [markConversationRead, me.id, messages, t])
 
   const openDirect = useCallback(async (profileId: string) => {
     const existingConversation = conversationsRef.current.find((conversation) => conversation.type === 'DIRECT' && conversation.participants.some((participant) => participant.id === profileId && !participant.leftAt))
@@ -886,62 +923,67 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     attachments: MediaUpload[],
     localPreviews: PendingMediaUploadPreview[] = [],
   ) {
-    if ((!body && attachments.length === 0 && localPreviews.length === 0) || sendingId) return
-    setSendingId(conversation.id)
-    let resolvedAttachments = attachments
-    if (localPreviews.length > 0) {
-      setUploadingId(conversation.id)
-      try {
-        const uploaded = await api.uploadMediaFiles(localPreviews.map((preview) => preview.file))
-        resolvedAttachments = [...attachments, ...uploaded].slice(0, 10)
-        setPendingUploadPreviews((current) => ({ ...current, [conversation.id]: [] }))
-        releasePendingMediaUploadPreviews(localPreviews)
-      } catch {
-        setError(t('messengerUnavailableDesc'))
-        setSendingId(null)
-        return
-      } finally {
-        setUploadingId((currentId) => currentId === conversation.id ? null : currentId)
-      }
-    }
-    const replyToMessageId = replyToByConversationId[conversation.id] ?? null
-    setComposeToolsConversationId((current) => current === conversation.id ? null : current)
-    stopTyping(conversation.id)
-    const optimistic: MessengerMessageDto = {
-      id: `local-${crypto.randomUUID()}`,
-      conversationId: conversation.id,
-      sender: me,
-      body,
-      replyToMessageId,
-      reactions: [],
-      deleted: false,
-      createdAt: new Date().toISOString(),
-      status: 'sending',
-      attachments: resolvedAttachments,
-    }
-    setDrafts((current) => ({ ...current, [conversation.id]: '' }))
-    setPendingAttachments((current) => ({ ...current, [conversation.id]: [] }))
-    setReplyToByConversationId((current) => ({ ...current, [conversation.id]: null }))
-    setMessages((current) => ({ ...current, [conversation.id]: [...(current[conversation.id] ?? []), optimistic] }))
+    if (!body && attachments.length === 0 && localPreviews.length === 0) return
+    if (!beginSendingConversation(conversation.id)) return
     try {
-      const sent = await messengerApi.sendMessage(conversation.id, me, { body, attachments: resolvedAttachments, replyToMessageId })
-      setMessages((current) => ({
-        ...current,
-        [conversation.id]: (current[conversation.id] ?? []).map((item) => item.id === optimistic.id ? sent : item),
-      }))
-      setConversations((current) => current.map((item) => item.id === conversation.id
-        ? { ...item, lastMessage: sent, updatedAt: sent.createdAt, unreadCount: 0 }
-        : item))
-      setError(null)
-      void api.finalizePendingMedia(resolvedAttachments).catch(() => setError(t('messengerUnavailableDesc')))
-    } catch {
-      setMessages((current) => ({ ...current, [conversation.id]: (current[conversation.id] ?? []).filter((item) => item.id !== optimistic.id) }))
-      setDrafts((current) => ({ ...current, [conversation.id]: messengerLikeLevel(body) ? '' : body }))
-      setPendingAttachments((current) => ({ ...current, [conversation.id]: resolvedAttachments }))
-      setReplyToByConversationId((current) => ({ ...current, [conversation.id]: replyToMessageId }))
-      setError(t('messengerUnavailableDesc'))
+      let resolvedAttachments = attachments
+      if (localPreviews.length > 0) {
+        setUploadingId(conversation.id)
+        try {
+          const uploaded = await api.uploadMediaFiles(localPreviews.map((preview) => preview.file))
+          resolvedAttachments = [...attachments, ...uploaded].slice(0, 10)
+          setPendingUploadPreviews((current) => {
+            const next = { ...current, [conversation.id]: [] }
+            pendingUploadPreviewsRef.current = next
+            return next
+          })
+          releasePendingMediaUploadPreviews(localPreviews)
+        } catch {
+          setError(t('messengerUnavailableDesc'))
+          return
+        } finally {
+          setUploadingId((currentId) => currentId === conversation.id ? null : currentId)
+        }
+      }
+      const replyToMessageId = replyToByConversationId[conversation.id] ?? null
+      setComposeToolsConversationId((current) => current === conversation.id ? null : current)
+      stopTyping(conversation.id)
+      const optimistic: MessengerMessageDto = {
+        id: `local-${crypto.randomUUID()}`,
+        conversationId: conversation.id,
+        sender: me,
+        body,
+        replyToMessageId,
+        reactions: [],
+        deleted: false,
+        createdAt: new Date().toISOString(),
+        status: 'sending',
+        attachments: resolvedAttachments,
+      }
+      setDrafts((current) => ({ ...current, [conversation.id]: '' }))
+      setPendingAttachments((current) => ({ ...current, [conversation.id]: [] }))
+      setReplyToByConversationId((current) => ({ ...current, [conversation.id]: null }))
+      setMessages((current) => ({ ...current, [conversation.id]: [...(current[conversation.id] ?? []), optimistic] }))
+      try {
+        const sent = await messengerApi.sendMessage(conversation.id, me, { body, attachments: resolvedAttachments, replyToMessageId })
+        setMessages((current) => ({
+          ...current,
+          [conversation.id]: (current[conversation.id] ?? []).map((item) => item.id === optimistic.id ? sent : item),
+        }))
+        setConversations((current) => current.map((item) => item.id === conversation.id
+          ? { ...item, lastMessage: sent, updatedAt: sent.createdAt, unreadCount: 0 }
+          : item))
+        setError(null)
+        void api.finalizePendingMedia(resolvedAttachments).catch(() => setError(t('messengerUnavailableDesc')))
+      } catch {
+        setMessages((current) => ({ ...current, [conversation.id]: (current[conversation.id] ?? []).filter((item) => item.id !== optimistic.id) }))
+        setDrafts((current) => ({ ...current, [conversation.id]: messengerLikeLevel(body) ? '' : body }))
+        setPendingAttachments((current) => ({ ...current, [conversation.id]: resolvedAttachments }))
+        setReplyToByConversationId((current) => ({ ...current, [conversation.id]: replyToMessageId }))
+        setError(t('messengerUnavailableDesc'))
+      }
     } finally {
-      setSendingId(null)
+      endSendingConversation(conversation.id)
     }
   }
 
@@ -1053,7 +1095,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   async function send(event: FormEvent, conversation: MessengerConversationDto) {
     event.preventDefault()
     const editingMessage = editingMessageId
-      ? (messages[conversation.id] ?? []).find((message) => message.id === editingMessageId)
+      ? messageByIdByConversation.get(conversation.id)?.get(editingMessageId)
       : undefined
     if (editingMessage) {
       await editDockMessage(event, editingMessage)
@@ -1082,10 +1124,14 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   function removePendingUploadPreview(conversationId: string, previewId: string) {
     const preview = (pendingUploadPreviews[conversationId] ?? []).find((item) => item.id === previewId)
     if (preview) releasePendingMediaUploadPreviews([preview])
-    setPendingUploadPreviews((current) => ({
-      ...current,
-      [conversationId]: (current[conversationId] ?? []).filter((item) => item.id !== previewId),
-    }))
+    setPendingUploadPreviews((current) => {
+      const next = {
+        ...current,
+        [conversationId]: (current[conversationId] ?? []).filter((item) => item.id !== previewId),
+      }
+      pendingUploadPreviewsRef.current = next
+      return next
+    })
   }
 
   function stopVoiceRecording(discard = false) {
@@ -1164,6 +1210,11 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
               durationMs: uploaded.durationMs ?? Math.min(VOICE_RECORDING_LIMIT_MS, Date.now() - recording.startedAt),
             }
             setUploadingId(null)
+            if (sendingConversationIdsRef.current.has(conversation.id)) {
+              await api.cancelPendingMedia(voice).catch(() => undefined)
+              setError(t('messageActionError'))
+              return
+            }
             await sendPayload(conversation, '', [voice])
           } catch {
             setError(t('messengerUnavailableDesc'))
@@ -1232,6 +1283,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   }
 
   function removeConversationLocally(conversationId: string) {
+    releaseConversationPendingUploadPreviews(conversationId)
     if (activeVoiceRecording.current?.conversationId === conversationId) stopVoiceRecording(true)
     stopTyping(conversationId)
     setManagedGroupId((current) => current === conversationId ? null : current)
@@ -1353,14 +1405,15 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         ? friendshipByUserId[other.id] ?? (friendIds.has(other.id) ? true : undefined)
         : undefined
       const conversationMessages = messages[conversation.id] ?? []
+      const messageById = messageByIdByConversation.get(conversation.id)
       const latestOwnPendingMessage = [...conversationMessages].reverse().find((message) => !message.deleted && message.sender.id === me.id && (message.status === 'sent' || message.status === 'delivered'))
       const latestOwnReadMessage = [...conversationMessages].reverse().find((message) => !message.deleted && message.sender.id === me.id && message.status === 'read')
       const attachments = pendingAttachments[conversation.id] ?? []
       const uploadPreviews = pendingUploadPreviews[conversation.id] ?? []
       const draft = drafts[conversation.id] ?? ''
-      const replyTarget = conversationMessages.find((message) => message.id === replyToByConversationId[conversation.id]) ?? null
+      const replyTarget = messageById?.get(replyToByConversationId[conversation.id] ?? '') ?? null
       const editingMessage = editingMessageId
-        ? conversationMessages.find((message) => message.id === editingMessageId) ?? null
+        ? messageById?.get(editingMessageId) ?? null
         : null
       const composeValue = editingMessage ? editDraft : draft
       const composeHasText = composeValue.length > 0
@@ -1423,7 +1476,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
               const groupPosition = messageGroupPosition(conversationMessages, index, visualBreaks)
               const likeLevel = messengerLikeLevel(message.body)
               const repliedMessage = message.replyToMessageId
-                ? conversationMessages.find((candidate) => candidate.id === message.replyToMessageId)
+                ? messageById?.get(message.replyToMessageId)
                 : null
               const hasReactions = Boolean(message.reactions?.length)
               const actionable = !message.deleted && !message.id.startsWith('local-')
@@ -1505,15 +1558,15 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
                   ? <div className="mini-compose-more-wrap">
                       <button type="button" className="mini-compose-btn mini-compose-more-btn" aria-label={t('more')} aria-expanded={composeToolsOpen} onClick={() => setComposeToolsConversationId((current) => current === conversation.id ? null : conversation.id)}><Icon name="plus" size={20} /></button>
                       {composeToolsOpen && <div className="mini-compose-tools-menu" role="group" aria-label={t('more')}>
-                        <button type="button" className="mini-compose-btn voice" aria-label={t('recordVoice')} disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingId === conversation.id || recordingId !== null} onClick={() => { setComposeToolsConversationId(null); void toggleVoiceRecording(conversation) }}><Icon name="mic" size={21} /></button>
-                        <label className={`mini-compose-btn${editingMessage ? ' disabled' : ''}`} aria-label={t('addAttachment')}><Icon name="photo" size={21} /><input className="messenger-file-input" type="file" multiple accept={MESSENGER_ATTACHMENT_ACCEPT} disabled={Boolean(editingMessage) || uploadingId === conversation.id} onChange={(event) => { setComposeToolsConversationId(null); void attachFiles(conversation.id, event.currentTarget.files); event.currentTarget.value = '' }} /></label>
-                        <StickerButton disabled={Boolean(editingMessage) || sendingId === conversation.id} onPick={(sticker) => { setComposeToolsConversationId(null); void sendPayload(conversation, sticker, []) }} />
+                        <button type="button" className="mini-compose-btn voice" aria-label={t('recordVoice')} disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingConversationIds.has(conversation.id) || recordingId !== null} onClick={() => { setComposeToolsConversationId(null); void toggleVoiceRecording(conversation) }}><Icon name="mic" size={21} /></button>
+                        <label className={`mini-compose-btn${editingMessage ? ' disabled' : ''}`} aria-label={t('addAttachment')}><Icon name="photo" size={21} /><input className="messenger-file-input" type="file" multiple accept={MESSENGER_ATTACHMENT_ACCEPT} disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingConversationIds.has(conversation.id)} onChange={(event) => { setComposeToolsConversationId(null); void attachFiles(conversation.id, event.currentTarget.files); event.currentTarget.value = '' }} /></label>
+                        <StickerButton disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingConversationIds.has(conversation.id)} onPick={(sticker) => { setComposeToolsConversationId(null); void sendPayload(conversation, sticker, []) }} />
                       </div>}
                     </div>
                   : <>
-                      <button type="button" className="mini-compose-btn voice" aria-label={t('recordVoice')} disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingId === conversation.id || recordingId !== null} onClick={() => void toggleVoiceRecording(conversation)}><Icon name="mic" size={21} /></button>
-                      <label className={`mini-compose-btn${editingMessage ? ' disabled' : ''}`} aria-label={t('addAttachment')}><Icon name="photo" size={21} /><input className="messenger-file-input" type="file" multiple accept={MESSENGER_ATTACHMENT_ACCEPT} disabled={Boolean(editingMessage) || uploadingId === conversation.id} onChange={(event) => { void attachFiles(conversation.id, event.currentTarget.files); event.currentTarget.value = '' }} /></label>
-                      <StickerButton disabled={Boolean(editingMessage) || sendingId === conversation.id} onPick={(sticker) => void sendPayload(conversation, sticker, [])} />
+                      <button type="button" className="mini-compose-btn voice" aria-label={t('recordVoice')} disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingConversationIds.has(conversation.id) || recordingId !== null} onClick={() => void toggleVoiceRecording(conversation)}><Icon name="mic" size={21} /></button>
+                      <label className={`mini-compose-btn${editingMessage ? ' disabled' : ''}`} aria-label={t('addAttachment')}><Icon name="photo" size={21} /><input className="messenger-file-input" type="file" multiple accept={MESSENGER_ATTACHMENT_ACCEPT} disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingConversationIds.has(conversation.id)} onChange={(event) => { void attachFiles(conversation.id, event.currentTarget.files); event.currentTarget.value = '' }} /></label>
+                      <StickerButton disabled={Boolean(editingMessage) || uploadingId === conversation.id || sendingConversationIds.has(conversation.id)} onPick={(sticker) => void sendPayload(conversation, sticker, [])} />
                     </>}
               </div>
               <div className="mini-compose-body">
@@ -1544,7 +1597,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
                   void remoteImageFileFromUrl(pasted).then((file) => attachFiles(conversation.id, [file])).catch(() => updateDraft(conversation.id, `${draft}${draft ? ' ' : ''}${pasted}`))
                 }} placeholder="Aa" /><EmojiButton onPick={(emoji) => editingMessage ? setEditDraft(`${editDraft}${emoji}`) : updateDraft(conversation.id, `${draft}${emoji}`)} /></label>
               </div>
-              {editingMessage || draft.trim() || attachments.length > 0 || uploadPreviews.length > 0 ? <button type="submit" className="mini-compose-btn send ready" aria-label={t('sendMessage')} disabled={editBusy || sendingId === conversation.id || uploadingId === conversation.id || (Boolean(editingMessage) && !editDraft.trim())}><Icon name="send" size={22} /></button> : <HoldLikeButton label={t('like')} disabled={sendingId === conversation.id} onSend={(level) => void sendPayload(conversation, encodeMessengerLike(level), [])} />}
+              {editingMessage || draft.trim() || attachments.length > 0 || uploadPreviews.length > 0 ? <button type="submit" className="mini-compose-btn send ready" aria-label={t('sendMessage')} disabled={editBusy || sendingConversationIds.has(conversation.id) || uploadingId === conversation.id || (Boolean(editingMessage) && !editDraft.trim())}><Icon name="send" size={22} /></button> : <HoldLikeButton label={t('like')} disabled={sendingConversationIds.has(conversation.id)} onSend={(level) => void sendPayload(conversation, encodeMessengerLike(level), [])} />}
             </form>
           ))}
         </>

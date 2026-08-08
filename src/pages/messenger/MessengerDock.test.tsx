@@ -965,4 +965,110 @@ describe('MessengerDock overflow windows', () => {
     expect(uploadMocks.uploadMediaFiles).not.toHaveBeenCalled()
     expect(await within(chat).findByRole('img', { name: 'clipboard.png' })).toBeInTheDocument()
   })
+
+  it('keeps the inbox stream stable when the parent replaces its panel-close callback', async () => {
+    const firstClose = vi.fn()
+    const latestClose = vi.fn()
+    const sharedProps = {
+      me,
+      friends: [] as UserSummary[],
+      panelOpen: true,
+      onOpenAll: () => undefined,
+      onOpenProfile: () => undefined,
+    }
+    const { rerender } = render(<MessengerDock {...sharedProps} onPanelClose={firstClose} />)
+    await waitFor(() => expect(messengerMocks.subscribeInbox).toHaveBeenCalledTimes(1))
+
+    rerender(<MessengerDock {...sharedProps} onPanelClose={latestClose} />)
+    expect(messengerMocks.subscribeInbox).toHaveBeenCalledTimes(1)
+
+    fireEvent.mouseDown(document.body)
+    expect(firstClose).not.toHaveBeenCalled()
+    expect(latestClose).toHaveBeenCalledOnce()
+  })
+
+  it('processes a shared outbox event on both inbox and conversation streams', async () => {
+    const incomingMessage: MessengerMessageDto = {
+      id: 'shared-stream-message', conversationId: 'conversation-2', sequence: '11', sender: friend('2'), body: 'Shared stream event',
+      createdAt: '2026-07-18T00:00:00Z', status: 'delivered', attachments: [], reactions: [], deleted: false,
+    }
+    const incomingConversation = { ...directConversation('2'), unreadCount: 1, lastMessage: incomingMessage }
+    messengerMocks.conversations.mockResolvedValue([incomingConversation])
+    messengerMocks.messages.mockResolvedValue([incomingMessage])
+    messengerMocks.message.mockResolvedValue(incomingMessage)
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    await waitFor(() => expect(conversationListeners.get('conversation-2')).toBeDefined())
+    const conversationsBeforeEvent = messengerMocks.conversations.mock.calls.length
+
+    const event = {
+      eventId: 'shared-stream-event', kind: 'MESSAGE_ADDED', conversationId: 'conversation-2',
+      messageId: incomingMessage.id, userId: '2', sequence: incomingMessage.sequence ?? null,
+      occurredAt: incomingMessage.createdAt, expiresAt: null,
+    }
+    await act(async () => {
+      conversationListeners.get('conversation-2')?.(event)
+      inboxListener?.(event)
+    })
+
+    await waitFor(() => expect(soundMocks.playIncomingMessageSound).toHaveBeenCalledOnce())
+    await waitFor(() => expect(messengerMocks.conversations.mock.calls.length).toBeGreaterThan(conversationsBeforeEvent))
+    expect(messengerMocks.message).toHaveBeenCalledWith(incomingMessage.id, me.id)
+    expect(await within(chat).findByText('Shared stream event')).toBeInTheDocument()
+  })
+
+  it('allows sends in different chats while keeping each chat locked independently', async () => {
+    const resolvers = new Map<string, () => void>()
+    messengerMocks.sendMessage.mockImplementation((conversationId: string, _viewer: UserSummary, payload: { body: string }) => (
+      new Promise<MessengerMessageDto>((resolve) => {
+        resolvers.set(conversationId, () => resolve({
+          id: `sent-${conversationId}`, conversationId, sequence: '1', sender: me, body: payload.body,
+          createdAt: '2026-07-18T00:00:01Z', status: 'sent', attachments: [], reactions: [], deleted: false,
+        }))
+      })
+    ))
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chatTwo = await screen.findByRole('region', { name: 'Friend 2' })
+    fireEvent.click(screen.getByRole('button', { name: 'open-3' }))
+    const chatThree = await screen.findByRole('region', { name: 'Friend 3' })
+
+    fireEvent.change(within(chatTwo).getByPlaceholderText('Aa'), { target: { value: 'Message two' } })
+    fireEvent.change(within(chatThree).getByPlaceholderText('Aa'), { target: { value: 'Message three' } })
+    fireEvent.click(within(chatTwo).getByRole('button', { name: 'sendMessage' }))
+    await waitFor(() => expect(messengerMocks.sendMessage).toHaveBeenCalledTimes(1))
+
+    expect(within(chatThree).getByRole('button', { name: 'sendMessage' })).toBeEnabled()
+    fireEvent.click(within(chatThree).getByRole('button', { name: 'sendMessage' }))
+    await waitFor(() => expect(messengerMocks.sendMessage).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      resolvers.get('conversation-3')?.()
+      resolvers.get('conversation-2')?.()
+    })
+  })
+
+  it('releases a pending preview URL when realtime deletion removes its conversation', async () => {
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    const attachmentControl = within(chat).getByLabelText('addAttachment')
+    const input = attachmentControl instanceof HTMLInputElement
+      ? attachmentControl
+      : attachmentControl.querySelector<HTMLInputElement>('input')!
+
+    fireEvent.change(input, { target: { files: [new File(['image'], 'delete-me.png', { type: 'image/png' })] } })
+    expect(await within(chat).findByRole('img', { name: 'delete-me.png' })).toHaveAttribute('src', 'blob:delete-me.png')
+
+    act(() => {
+      inboxListener?.({
+        eventId: 'conversation-deleted-2', kind: 'CONVERSATION_DELETED', conversationId: 'conversation-2',
+        messageId: null, userId: null, sequence: null, occurredAt: '2026-08-08T00:00:00Z', expiresAt: null,
+      })
+    })
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Friend 2' })).not.toBeInTheDocument())
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:delete-me.png')
+  })
 })

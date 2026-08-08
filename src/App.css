@@ -3185,6 +3185,12 @@ select {
 .composer-controls .file-control { color: #45bd62; }
 .feed-heading { display: none; }
 .gateway-post { margin-top: 16px; overflow: hidden; }
+.feed-section > .gateway-post,
+.search-post-result > .gateway-post,
+.saved-feed-column > .gateway-post {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 680px;
+}
 .gateway-post > header { padding: 12px 12px 8px; }
 .gateway-post header strong { display: inline-flex; align-items: center; gap: 4px; }
 .gateway-post-content { padding: 4px 16px 12px; font-size: 1rem; line-height: 1.45; }
@@ -3311,7 +3317,15 @@ select {
 
 @media (min-width: 981px) {
   .group-member-profile.profile-columns-scroll-active { padding-bottom: var(--self-profile-content-gap, 14px); }
+  .group-member-profile.profile-columns-scroll-active::after {
+    content: '';
+    display: block;
+    height: var(--profile-column-scroll-span, 0px);
+    pointer-events: none;
+  }
   .group-member-profile.profile-columns-scroll-active .profile-destination-grid {
+    position: sticky;
+    top: 0;
     height: calc(100vh - var(--topbar-h) - var(--self-profile-content-gap, 14px));
     height: calc(100dvh - var(--topbar-h) - var(--self-profile-content-gap, 14px));
     min-height: 0;
@@ -3323,8 +3337,8 @@ select {
     min-height: 0;
     height: 100%;
     overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
+    overflow-y: hidden;
+    overscroll-behavior-y: auto;
     scrollbar-width: none;
   }
   .group-member-profile.profile-columns-scroll-active .profile-destination-grid > .profile-intro::-webkit-scrollbar,
@@ -3852,7 +3866,13 @@ select {
 
 @media (min-width: 981px) {
   .self-profile-page { --self-profile-section-title-size: 1.2rem; --self-profile-section-action-height: 32px; --self-profile-tab-indicator-height: 2.75px; --self-profile-tab-label-size: .9rem; }
-  .self-profile-page.profile-columns-scroll-active { padding-bottom: 0; }
+  .self-profile-page.profile-columns-scroll-active { padding-bottom: var(--self-profile-content-gap); }
+  .self-profile-page.profile-columns-scroll-active::after {
+    content: '';
+    display: block;
+    height: var(--profile-column-scroll-span, 0px);
+    pointer-events: none;
+  }
   .self-profile-cover-card { --self-profile-cover-height: clamp(325px, calc((100vw - 32px) * .33), 415px); --self-profile-ambient-lift: 20px; --self-profile-ambient-bottom-gap: 112px; }
   .self-profile-cover-ambient { right: 0; left: 0; filter: none; }
   .self-profile-header-shell { --self-profile-control-height: 32px; --self-profile-header-edge: 32px; width: min(1406px, calc(100% - 32px)); max-width: 1406px; }
@@ -3881,9 +3901,9 @@ select {
 
   .self-profile-destination-grid { width: min(1342px, calc(100% - 96px)); gap: var(--self-profile-content-gap); }
   .self-profile-page > .self-profile-destination-grid.tab-posts { margin-top: 0; }
-  .self-profile-destination-grid.tab-posts { height: calc(100vh - var(--topbar-h)); height: calc(100dvh - var(--topbar-h)); min-height: 0; grid-template-columns: minmax(0, var(--self-profile-left-column-width, calc(100% - var(--home-center-width, 620px) - var(--self-profile-content-gap) - 6px))) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-items: stretch; overflow: hidden; }
+  .self-profile-destination-grid.tab-posts { position: sticky; top: 0; height: calc(100vh - var(--topbar-h)); height: calc(100dvh - var(--topbar-h)); min-height: 0; grid-template-columns: minmax(0, var(--self-profile-left-column-width, calc(100% - var(--home-center-width, 620px) - var(--self-profile-content-gap) - 6px))) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-items: stretch; overflow: hidden; }
   .self-profile-destination-grid.tab-posts > .self-profile-left-column,
-  .self-profile-destination-grid.tab-posts > .profile-post-list { align-self: stretch; min-height: 0; height: 100%; align-content: start; grid-auto-rows: max-content; overflow-x: hidden; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: contain; scroll-behavior: auto; padding-top: var(--self-profile-content-gap); padding-bottom: var(--self-profile-content-gap); will-change: scroll-position; scrollbar-width: none; }
+  .self-profile-destination-grid.tab-posts > .profile-post-list { align-self: stretch; min-height: 0; height: 100%; align-content: start; grid-auto-rows: max-content; overflow-x: hidden; overflow-y: hidden; overflow-anchor: none; overscroll-behavior-y: auto; scroll-behavior: auto; padding-top: var(--self-profile-content-gap); padding-bottom: var(--self-profile-content-gap); scrollbar-width: none; }
   .self-profile-destination-grid.tab-posts > .self-profile-left-column::-webkit-scrollbar,
   .self-profile-destination-grid.tab-posts > .profile-post-list::-webkit-scrollbar { display: none; }
   .self-profile-destination-grid.tab-posts > .profile-post-list { width: 100%; max-width: none; justify-self: end; }
@@ -7441,32 +7461,37 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 @media (min-width: 861px) {
   .friends-profile-pane .embedded-profile-page .self-profile-header-shell,
   .friends-profile-pane .embedded-profile-page .self-profile-destination-grid {
-    position: relative;
-    left: 50%;
     max-width: none;
-    margin-inline: 0;
-    transform: translateX(-50%);
+    margin-inline: auto;
   }
-  .friends-profile-pane .embedded-profile-page .self-profile-header-shell { width: min(940px, calc(100vw - 24px)); }
-  .friends-profile-pane .embedded-profile-page .self-profile-destination-grid { width: min(908px, calc(100vw - 56px)); }
+  .friends-profile-pane .embedded-profile-page .self-profile-header-shell { width: min(940px, calc(100% - 24px)); }
+  .friends-profile-pane .embedded-profile-page .self-profile-destination-grid { width: min(908px, calc(100% - 56px)); }
 }
 
 @media (min-width: 981px) {
-  .friends-profile-pane .embedded-profile-page .self-profile-header-shell { width: min(1406px, calc(100vw - 32px)); }
-  .friends-profile-pane .embedded-profile-page .self-profile-destination-grid { width: min(1342px, calc(100vw - 96px)); }
+  .friends-profile-pane .embedded-profile-page .self-profile-header-shell { width: min(1406px, calc(100% - 32px)); }
+  .friends-profile-pane .embedded-profile-page .self-profile-destination-grid { width: min(1342px, calc(100% - 96px)); }
+  .friends-profile-pane .embedded-profile-page .self-profile-destination-grid.tab-posts {
+    position: sticky;
+    top: 0;
+  }
   .friends-profile-pane .embedded-profile-page .self-profile-header-shell > .profile-cover {
-    left: 50%;
-    width: min(1406px, calc(100vw - 32px));
+    width: min(1406px, 100%);
     max-width: none;
-    margin-inline: 0;
-    transform: translateX(-50%);
+    margin-inline: auto;
+  }
+}
+
+@media (min-width: 981px) and (max-width: 1279px) {
+  .friends-profile-pane .embedded-profile-page .self-profile-destination-grid.tab-posts {
+    grid-template-columns: minmax(180px, 2fr) minmax(340px, 3fr);
   }
 }
 
 @media (min-width: 1500px) {
-  .friends-profile-pane .embedded-profile-page .self-profile-header-shell { width: min(1534px, calc(100vw - 368px)); }
-  .friends-profile-pane .embedded-profile-page .self-profile-destination-grid { width: min(1470px, calc(100vw - 432px)); }
-  .friends-profile-pane .embedded-profile-page .self-profile-header-shell > .profile-cover { width: min(1520px, calc(100vw - 400px)); }
+  .friends-profile-pane .embedded-profile-page .self-profile-header-shell { width: min(1534px, calc(100% - 48px)); }
+  .friends-profile-pane .embedded-profile-page .self-profile-destination-grid { width: min(1470px, calc(100% - 112px)); }
+  .friends-profile-pane .embedded-profile-page .self-profile-header-shell > .profile-cover { width: min(1520px, 100%); }
 }
 
 .friend-profile-popover {
@@ -8013,19 +8038,21 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 .content-thread-modal {
   width: min(630px, calc(100vw - 28px));
   max-width: min(630px, calc(100vw - 28px));
-  height: min(760px, calc(100dvh - 56px));
-  max-height: min(760px, calc(100dvh - 56px));
+  height: min(680px, calc(100dvh - 56px));
+  max-height: min(680px, calc(100dvh - 56px));
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   border-radius: 12px;
 }
 .modal-backdrop.content-modal-backdrop {
   --content-detail-vertical-gap: 10px;
+  --content-detail-scrim: rgb(0 0 0 / 42%);
   padding-top: calc(var(--fb-safe-top, 0px) + var(--content-detail-vertical-gap));
   padding-bottom: calc(var(--fb-safe-bottom, 0px) + var(--content-detail-vertical-gap));
+  background: var(--content-detail-scrim);
 }
 .content-modal-backdrop > .content-thread-modal:not(.photo-detail-discussion) {
-  height: min(760px, calc(100dvh - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - var(--content-detail-vertical-gap) - var(--content-detail-vertical-gap)));
-  max-height: min(760px, calc(100dvh - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - var(--content-detail-vertical-gap) - var(--content-detail-vertical-gap)));
+  height: min(680px, calc(100dvh - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - var(--content-detail-vertical-gap) - var(--content-detail-vertical-gap)));
+  max-height: min(680px, calc(100dvh - var(--fb-safe-top, 0px) - var(--fb-safe-bottom, 0px) - var(--content-detail-vertical-gap) - var(--content-detail-vertical-gap)));
 }
 .content-thread-head {
   min-height: 54px;
@@ -8665,22 +8692,21 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
    the preserved page. */
 body.content-detail-open:not(.story-viewer-open) .app-shell-topbar,
 .app-shell-topbar.is-content-detail {
-  z-index: 1900;
+  position: absolute;
+  z-index: auto;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   pointer-events: none;
 }
 body.content-detail-open:not(.story-viewer-open) .app-shell-topbar::before,
 .app-shell-topbar.is-content-detail::before {
-  content: '';
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  background: var(--overlay);
-  pointer-events: auto;
+  display: none;
 }
 body.content-detail-open:not(.story-viewer-open) .app-shell-nav,
 .app-shell-topbar.is-content-detail .app-shell-nav {
   position: relative;
-  z-index: 0;
+  z-index: auto;
+  grid-column: 2;
   pointer-events: none;
   user-select: none;
 }
@@ -8690,8 +8716,22 @@ body.content-detail-open .shell-brand-search,
 .app-shell-topbar.is-content-detail .shell-brand-search,
 body.content-detail-open .app-shell-actions,
 .app-shell-topbar.is-content-detail .app-shell-actions {
-  position: relative;
-  z-index: 2;
+  z-index: 1900;
+}
+body.content-detail-open .shell-brand-search-anchor,
+.app-shell-topbar.is-content-detail .shell-brand-search-anchor {
+  position: fixed;
+  z-index: 1900;
+  top: 0;
+  left: 16px;
+  height: var(--topbar-h);
+}
+body.content-detail-open .app-shell-actions,
+.app-shell-topbar.is-content-detail .app-shell-actions {
+  position: fixed;
+  top: 0;
+  right: 16px;
+  height: var(--topbar-h);
 }
 body.content-detail-open .shell-brand-search,
 .app-shell-topbar.is-content-detail .shell-brand-search,
@@ -8708,8 +8748,6 @@ body.content-detail-open .content-detail-shell-left-controls,
 .app-shell-topbar.is-content-detail .content-detail-shell-left-controls { display: flex; }
 body.content-detail-open .shell-brand-search-anchor,
 .app-shell-topbar.is-content-detail .shell-brand-search-anchor {
-  position: relative;
-  z-index: 2;
   gap: 8px;
 }
 body.content-detail-open .account-dropdown,
@@ -9079,9 +9117,9 @@ body.reels-page-scroll {
   
 }
 
-/* Home desktop: the feed uses page scroll while both rails stick immediately.
-   Rail wheel-scroll containment is done via overscroll-behavior-y in CSS
-   (the old non-passive JS wheel listener was removed to fix scroll jank). */
+/* Home desktop: the feed uses the destination scrollbar while both rails stay
+   independently scrollable. Edge wheel/touch input can chain back to the page
+   instead of being trapped by a rail that already reached its boundary. */
 @media (min-width: 861px) {
   body.home-page-scroll .gateway-left-rail,
   body.home-page-scroll .gateway-right-rail {
@@ -9090,7 +9128,7 @@ body.reels-page-scroll {
     align-self: start;
     overflow-x: hidden;
     overflow-y: auto;
-    overscroll-behavior-y: contain;
+    overscroll-behavior-y: auto;
     /* Hide the scrollbar track — content is still scrollable */
     scrollbar-width: none;
   }
@@ -9141,7 +9179,7 @@ body.reels-page-scroll {
   height: calc(100dvh - var(--topbar-h));
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior-y: contain;
+  overscroll-behavior-y: auto;
   /* Hide scrollbar track */
   scrollbar-width: none;
   padding: 0 8px 28px;
@@ -10535,6 +10573,13 @@ body.reels-library-viewer-open.mini-chat-bubble-rail-open .reels-page.is-library
 }
 
 @media (min-width: 861px) {
-  body.home-page-scroll .authenticated-destination-scroll .gateway-left-rail { top: 10px; }
+  body.home-page-scroll .authenticated-destination-scroll .gateway-left-rail {
+    /* 10px + the rail's 8px internal padding matches the right rail's
+       6px + 4px module padding. The negative margin removes the duplicate
+       internal offset; translate compensates the desktop scrollbar gutter. */
+    top: 10px;
+    margin-top: -8px;
+    transform: translateX(-8px);
+  }
   body.home-page-scroll .authenticated-destination-scroll .gateway-right-rail { top: 6px; }
 }

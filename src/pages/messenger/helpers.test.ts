@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MessengerMessageDto, UserSummary } from '../../api/types'
-import { encodeMessengerLike, formatPresence, formatTime, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, messengerMessagePreview, shouldShowAvatar, shouldShowTimestamp, type MessageVisualBreaks } from './helpers'
+import { encodeMessengerLike, formatPresence, formatTime, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, messengerMessagePreview, rememberRealtimeEventId, shouldShowAvatar, shouldShowTimestamp, type MessageVisualBreaks } from './helpers'
 
 const alice: UserSummary = { id: '1', username: 'alice', displayName: 'Alice', avatarUrl: null }
 const bob: UserSummary = { id: '2', username: 'bob', displayName: 'Bob', avatarUrl: null }
@@ -94,6 +94,22 @@ describe('presence formatting', () => {
     const now = Date.UTC(2026, 6, 18, 12, 0)
     expect(formatPresence({ userId: '2', isOnline: true, expiresAt: null, updatedAt: new Date(now).toISOString() }, t, now)).toBe('activeNow')
     expect(formatPresence({ userId: '2', isOnline: false, expiresAt: null, updatedAt: new Date(now - 35 * 60_000).toISOString() }, t, now)).toBe('activeMinutesAgo:35')
+  })
+})
+
+describe('realtime event deduplication', () => {
+  it('keeps a bounded LRU window while rejecting duplicate event ids', () => {
+    const seen = new Set<string>()
+
+    expect(rememberRealtimeEventId(seen, 'event-1', 3)).toBe(true)
+    expect(rememberRealtimeEventId(seen, 'event-2', 3)).toBe(true)
+    expect(rememberRealtimeEventId(seen, 'event-3', 3)).toBe(true)
+    expect(rememberRealtimeEventId(seen, 'event-1', 3)).toBe(false)
+    expect(rememberRealtimeEventId(seen, 'event-4', 3)).toBe(true)
+
+    expect([...seen]).toEqual(['event-3', 'event-1', 'event-4'])
+    expect(rememberRealtimeEventId(seen, 'event-2', 3)).toBe(true)
+    expect(seen.size).toBe(3)
   })
 })
 

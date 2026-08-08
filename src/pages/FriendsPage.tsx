@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { socialApi, type SocialContent, type SocialProfile } from '../api/social'
 import type { UserSummary } from '../api/types'
 import { AnchoredMenuPortal } from '../components/AnchoredMenuPortal'
@@ -53,6 +53,16 @@ export function FriendsPage({
   const loadedRequestRef = useRef<string | null>(null)
   const selectedProfileRequestRef = useRef(0)
   const selectedProfileCacheRef = useRef(new Map<string, SocialProfile>())
+  const pageRef = useRef<HTMLElement>(null)
+  const scrollContextRef = useRef(`${section}:`)
+
+  useLayoutEffect(() => {
+    const nextContext = `${section}:${selectedProfileId ?? ''}`
+    if (scrollContextRef.current === nextContext) return
+    scrollContextRef.current = nextContext
+    const viewport = pageRef.current?.closest<HTMLElement>('.authenticated-destination-scroll')
+    if (viewport) viewport.scrollTop = 0
+  }, [section, selectedProfileId])
 
   useEffect(() => {
     const requestKey = `${userId}:${section}`
@@ -219,7 +229,7 @@ export function FriendsPage({
         : section === 'friends'
           ? { title: t('allFriendsEmpty'), description: t('allFriendsEmptyDesc') }
           : { title: t('blockedPeopleEmpty'), description: t('blockedPeopleEmptyDesc') }
-  return <main className={`friends-page-layout${directoryMode ? ' friend-directory-mode' : ''}`}>
+  return <main ref={pageRef} className={`friends-page-layout${directoryMode ? ' friend-directory-mode' : ''}`}>
     {directoryMode ? <FriendDirectorySidebar
       title={sections.find((item) => item.id === section)?.label ?? t('friends')}
       people={directoryPeople}

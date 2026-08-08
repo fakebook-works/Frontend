@@ -1334,8 +1334,11 @@ describe('ProfilePage messaging', () => {
     expect(onNavigate).toHaveBeenCalledWith('/content/text-june')
   })
 
-  it('scrolls the embedded profile page first, then both columns while clamping the shorter one', async () => {
-    vi.stubGlobal('innerWidth', 900)
+  it('maps the outer profile scrollbar to both columns and clamps the shorter one', async () => {
+    vi.stubGlobal('innerWidth', 1024)
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { top: this.classList.contains('self-profile-destination-grid') ? 800 : 0 } as DOMRect
+    })
     const { container } = render(<div className="authenticated-destination-scroll"><ProfilePage
       profile={{
         id: 'me', username: 'owner', email: 'owner@example.com', displayName: 'Owner Name', avatarUrl: null,
@@ -1368,36 +1371,26 @@ describe('ProfilePage messaging', () => {
       clientHeight: { configurable: true, value: 500 },
       scrollHeight: { configurable: true, value: 2000 },
     })
-    infoColumn.scrollTop = 400
-    postColumn.scrollTop = 300
-
-    expect(fireEvent.wheel(grid, { deltaY: 250 })).toBe(true)
-    expect(destinationViewport.scrollTop).toBe(0)
-    expect(infoColumn.scrollTop).toBe(400)
-    expect(postColumn.scrollTop).toBe(300)
     act(() => {
-      vi.stubGlobal('innerWidth', 1024)
       window.dispatchEvent(new Event('resize'))
     })
+    await waitFor(() => expect(container.querySelector<HTMLElement>('.self-profile-page')?.style.getPropertyValue('--profile-column-scroll-span')).toBe('1500px'))
 
-    fireEvent.wheel(grid, { deltaY: 250 })
-    await waitFor(() => {
-      expect(destinationViewport.scrollTop).toBeCloseTo(250, 1)
-      expect(infoColumn.scrollTop).toBe(400)
-      expect(postColumn.scrollTop).toBe(300)
-    })
+    destinationViewport.scrollTop = 250
+    fireEvent.scroll(destinationViewport)
+    expect(infoColumn.scrollTop).toBe(0)
+    expect(postColumn.scrollTop).toBe(0)
 
-    destinationViewport.scrollTop = 800
-    fireEvent.wheel(grid, { deltaY: 250 })
-    await waitFor(() => {
-      expect(infoColumn.scrollTop).toBe(500)
-      expect(postColumn.scrollTop).toBeCloseTo(550, 1)
-    })
+    destinationViewport.scrollTop = 1050
+    fireEvent.scroll(destinationViewport)
+    expect(infoColumn.scrollTop).toBe(250)
+    expect(postColumn.scrollTop).toBe(250)
 
-    fireEvent.wheel(grid, { deltaY: 250 })
-    await waitFor(() => {
-      expect(infoColumn.scrollTop).toBe(500)
-      expect(postColumn.scrollTop).toBeCloseTo(800, 1)
-    })
+    destinationViewport.scrollTop = 1500
+    fireEvent.scroll(destinationViewport)
+    expect(infoColumn.scrollTop).toBe(500)
+    expect(postColumn.scrollTop).toBe(700)
+    expect(fireEvent.wheel(grid, { deltaY: 250 })).toBe(true)
+    rectSpy.mockRestore()
   })
 })

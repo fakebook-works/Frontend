@@ -187,8 +187,12 @@ export function MessageThread({
   const otherParticipant = conversation.participants.find((p) => p.id !== me.id)
   const latestOwnPendingMessage = [...messages].reverse().find((message) => !message.deleted && message.sender.id === me.id && (message.status === 'sent' || message.status === 'delivered'))
   const latestOwnReadMessage = [...messages].reverse().find((message) => !message.deleted && message.sender.id === me.id && message.status === 'read')
+  const messageById = useMemo(
+    () => new Map(messages.map((message) => [message.id, message])),
+    [messages],
+  )
   const editingMessage = editingMessageId
-    ? messages.find((message) => message.id === editingMessageId) ?? null
+    ? messageById.get(editingMessageId) ?? null
     : null
   const visualBreaks = useMemo<MessageVisualBreaks>(() => ({
     beforeMessageIds: new Set(messages
@@ -314,7 +318,7 @@ export function MessageThread({
           const groupPosition = messageGroupPosition(messages, idx, visualBreaks)
           const likeLevel = messengerLikeLevel(message.body)
           const repliedMessage = message.replyToMessageId
-            ? messages.find((candidate) => candidate.id === message.replyToMessageId)
+            ? messageById.get(message.replyToMessageId)
             : null
           const hasReactions = Boolean(message.reactions?.length)
           const actionable = !message.deleted && !message.id.startsWith('local-')

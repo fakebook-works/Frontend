@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GatewayPost } from '../api/gatewayTypes'
 import { notifyGroupLeft } from '../lib/groupMembershipEvents'
-import { GatewayHomePage, GatewayPostCard, PostComposer } from './GatewayHomePage'
+import { GatewayHomePage, GatewayPostCard, HOME_REFRESH_EVENT, PostComposer } from './GatewayHomePage'
 
 const apiMocks = vi.hoisted(() => ({
   recommendedFeed: vi.fn(),
@@ -222,8 +222,8 @@ describe('GatewayHomePage', () => {
     expect(screen.queryByText('Stale left group')).not.toBeInTheDocument()
   })
 
-  it('reloads Home data and resets its scroll regions when refreshToken changes', async () => {
-    const { container, rerender } = render(<GatewayHomePage refreshToken={0} />)
+  it('refreshes only the feed and resets its scroll regions on the active-Home event', async () => {
+    const { container } = render(<GatewayHomePage />)
     await screen.findByText('noRecommendedPosts')
     const leftRail = container.querySelector<HTMLElement>('.gateway-left-rail')!
     const rightRail = container.querySelector<HTMLElement>('.gateway-right-rail')!
@@ -232,15 +232,64 @@ describe('GatewayHomePage', () => {
     leftRail.scrollTop = 80
     rightRail.scrollTop = 90
 
-    rerender(<GatewayHomePage refreshToken={1} />)
+    window.dispatchEvent(new Event(HOME_REFRESH_EVENT))
 
     await waitFor(() => expect(apiMocks.recommendedFeed).toHaveBeenCalledTimes(2))
-    expect(apiMocks.homeStories).toHaveBeenCalledTimes(2)
-    expect(apiMocks.visitedGroups).toHaveBeenCalledTimes(2)
+    expect(apiMocks.homeStories).toHaveBeenCalledTimes(1)
+    expect(apiMocks.visitedGroups).toHaveBeenCalledTimes(1)
+    expect(messengerMocks.conversations).toHaveBeenCalledTimes(1)
     expect(document.documentElement.scrollTop).toBe(0)
     expect(document.body.scrollTop).toBe(0)
     expect(leftRail.scrollTop).toBe(0)
     expect(rightRail.scrollTop).toBe(0)
+  })
+
+  it('ignores a stale next-page response after an active-Home reset starts', async () => {
+    let intersect: (() => void) | null = null
+    class IntersectionObserverMock {
+      readonly root = null
+      readonly rootMargin = '520px 0px'
+      readonly thresholds = [0.01]
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = () => callback([{ isIntersecting: true, intersectionRatio: 1 } as unknown as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() { return [] }
+    }
+    vi.stubGlobal('IntersectionObserver', IntersectionObserverMock)
+    const makePost = (id: string, content: string): GatewayPost => ({
+      __typename: 'FeedPostDetail', id, type: 1, content, privacy: 0,
+      create: '2026-07-20T08:00:00Z', author: { id: '2', name: 'Feed Author', avatar: '', isVerified: false, canFollow: false },
+      media: [], sharedSource: null,
+    })
+    const firstPage = Array.from({ length: 12 }, (_, index) => ({ postId: `first-${index}`, post: makePost(`first-${index}`, `First ${index}`) }))
+    let resolveAppend!: (items: Array<{ postId: string; post: GatewayPost }>) => void
+    let resolveRefresh!: (items: Array<{ postId: string; post: GatewayPost }>) => void
+    const appendPromise = new Promise<Array<{ postId: string; post: GatewayPost }>>((resolve) => { resolveAppend = resolve })
+    const refreshPromise = new Promise<Array<{ postId: string; post: GatewayPost }>>((resolve) => { resolveRefresh = resolve })
+    let initialPageCalls = 0
+    apiMocks.recommendedFeed.mockImplementation((_viewerId: string, offset: number) => {
+      if (offset === 12) return appendPromise
+      initialPageCalls += 1
+      return initialPageCalls === 1 ? Promise.resolve(firstPage) : refreshPromise
+    })
+
+    const { container } = render(<GatewayHomePage />)
+    await waitFor(() => expect(container.querySelectorAll('.feed-section > article.gateway-post')).toHaveLength(12))
+    await waitFor(() => expect(intersect).not.toBeNull())
+    act(() => intersect?.())
+    await waitFor(() => expect(apiMocks.recommendedFeed).toHaveBeenCalledWith('9007199254740993123', 12, 12))
+
+    act(() => window.dispatchEvent(new Event(HOME_REFRESH_EVENT)))
+    await waitFor(() => expect(initialPageCalls).toBe(2))
+    await act(async () => { resolveRefresh([{ postId: 'fresh', post: makePost('fresh', 'Fresh post') }]); await Promise.resolve() })
+    await waitFor(() => expect(screen.getByText('Fresh post')).toBeInTheDocument())
+
+    await act(async () => { resolveAppend([{ postId: 'stale', post: makePost('stale', 'Stale append') }]); await Promise.resolve() })
+    expect(screen.queryByText('Stale append')).not.toBeInTheDocument()
+    expect(screen.getByText('Fresh post')).toBeInTheDocument()
   })
 
   it('does not reload Home data when an Activity restores the preserved tab', async () => {

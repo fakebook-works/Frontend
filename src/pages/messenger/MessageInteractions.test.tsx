@@ -104,6 +104,21 @@ describe('Messenger message interactions', () => {
     expect(screen.queryByRole('tooltip')).toBeNull()
   })
 
+  it('shares one media-viewer listener across all message timestamps', () => {
+    const addListener = vi.spyOn(window, 'addEventListener')
+    const removeListener = vi.spyOn(window, 'removeEventListener')
+    const { unmount } = render(<>
+      <div><MessageHoverTimestamp createdAt={new Date().toISOString()} mine /></div>
+      <div><MessageHoverTimestamp createdAt={new Date().toISOString()} mine={false} /></div>
+    </>)
+
+    expect(addListener.mock.calls.filter(([type]) => type === 'messenger-media-viewer-open')).toHaveLength(1)
+    unmount()
+    expect(removeListener.mock.calls.filter(([type]) => type === 'messenger-media-viewer-open')).toHaveLength(1)
+    addListener.mockRestore()
+    removeListener.mockRestore()
+  })
+
   it('renders the active reply composer like the Messenger reference', () => {
     const shiro = { id: '2', username: 'shiro', displayName: 'Shiro', avatarUrl: null }
     const target: MessengerMessageDto = { ...makeMessage(), id: 'target', sender: shiro, body: 'Nothing is impossible' }

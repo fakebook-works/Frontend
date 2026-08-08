@@ -649,6 +649,7 @@
   }
 
   .gateway-home { padding-right: 8px; }
+  .gateway-left-rail { padding-left: 11px; }
 }
 
 /* A real two-row top header. Row one owns brand/search/actions and row two
@@ -797,6 +798,20 @@
   .app-shell-topbar.is-content-detail .app-shell-nav {
     position: relative;
     display: grid;
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  body.content-detail-open .shell-brand-search-anchor,
+  .app-shell-topbar.is-content-detail .shell-brand-search-anchor {
+    top: var(--fb-safe-top);
+    left: max(7px, var(--fb-safe-left));
+    height: var(--fb-shell-primary-row);
+  }
+  body.content-detail-open .app-shell-actions,
+  .app-shell-topbar.is-content-detail .app-shell-actions {
+    top: var(--fb-safe-top);
+    right: max(7px, var(--fb-safe-right));
+    height: var(--fb-shell-primary-row);
   }
   body.content-detail-open > .content-detail-shell-close {
     top: calc(var(--fb-safe-top) + (var(--fb-shell-primary-row) - 36px) / 2);

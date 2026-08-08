@@ -16,8 +16,7 @@ import { NewConversationModal } from './NewConversationModal'
 import { createPendingMediaUploadPreviews, releasePendingMediaUploadPreviews } from './pendingMediaUploadState'
 import type { PendingMediaUploadPreview } from './pendingMediaUploadState'
 import { playIncomingMessageSound } from '../../lib/sounds'
-import { encodeMessengerLike } from './helpers'
-import { groupPresenceSummary } from './helpers'
+import { encodeMessengerLike, groupPresenceSummary, rememberRealtimeEventId } from './helpers'
 import type { MessengerLikeLevel } from './helpers'
 import './MessengerPage.css'
 
@@ -76,12 +75,30 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   const [replyToByConversationId, setReplyToByConversationId] = useState<Record<string, string | null>>({})
   const [forwardingMessage, setForwardingMessage] = useState<MessengerMessageDto | null>(null)
   const [managedGroupId, setManagedGroupId] = useState<string | null>(null)
-  const seenEventIds = useRef(new Set<string>())
+  // Inbox and conversation subscriptions can deliver the same outbox event, but
+  // each stream owns different side effects. De-duplicate them independently.
+  const seenInboxEventIds = useRef(new Set<string>())
+  const seenConversationEventIds = useRef(new Set<string>())
   const outgoingTypingTimers = useRef(new Map<string, number>())
   const outgoingTypingSentAt = useRef(new Map<string, number>())
   const incomingTypingTimers = useRef(new Map<string, number>())
   const lastMarkedReadSequence = useRef(new Map<string, string>())
   const latestIncomingSequence = useRef(new Map<string, string>())
+
+  const releaseConversationPendingUploadPreviews = useCallback((conversationId: string) => {
+    const previews = pendingUploadPreviewsRef.current[conversationId] ?? []
+    releasePendingMediaUploadPreviews(previews)
+    const nextPreviewMap = { ...pendingUploadPreviewsRef.current }
+    delete nextPreviewMap[conversationId]
+    pendingUploadPreviewsRef.current = nextPreviewMap
+
+    setPendingUploadPreviewsByConversation((current) => {
+      if (!(conversationId in current)) return current
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+  }, [])
 
   const stopTyping = useCallback((conversationId: string) => {
     const timer = outgoingTypingTimers.current.get(conversationId)
@@ -180,10 +197,10 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   }, [loadConversations, me.id, selectedId])
 
   useEffect(() => messengerApi.subscribeInbox((event) => {
-    if (seenEventIds.current.has(event.eventId)) return
-    seenEventIds.current.add(event.eventId)
+    if (!rememberRealtimeEventId(seenInboxEventIds.current, event.eventId)) return
     if (event.kind === 'CONVERSATION_DELETED' && event.conversationId) {
       const deletedId = event.conversationId
+      releaseConversationPendingUploadPreviews(deletedId)
       setManagedGroupId((current) => current === deletedId ? null : current)
       setConversations((current) => current.filter((conversation) => conversation.id !== deletedId))
       setSelectedId((current) => current === deletedId ? null : current)
@@ -223,7 +240,7 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
         setApiState('gateway')
       }).catch(() => setApiState('unavailable'))
     }
-  }, () => setApiState('unavailable')), [loadConversations, me.id])
+  }, () => setApiState('unavailable')), [loadConversations, me.id, releaseConversationPendingUploadPreviews])
 
   const selected = conversations.find((conversation) => conversation.id === selectedId) ?? conversations[0] ?? null
   const managedGroup = managedGroupId
@@ -306,8 +323,10 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
     // down and reconnect it constantly.
     return messengerApi.subscribeConversations([shownConversationId], (event) => {
       if (event.conversationId !== shownConversationId) return
-      if (seenEventIds.current.has(event.eventId)) return
-      seenEventIds.current.add(event.eventId)
+      if (!rememberRealtimeEventId(seenConversationEventIds.current, event.eventId)) return
+      // Deletion is owned by the inbox stream; do not refetch a conversation
+      // that that stream has just removed.
+      if (event.kind === 'CONVERSATION_DELETED') return
       if (event.kind === 'TYPING_CHANGED') {
         applyTypingEvent(event)
         return
@@ -347,11 +366,15 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   }, [])
 
   const activeMessages = useMemo(() => selected ? messages[selected.id] ?? [] : [], [messages, selected])
+  const activeMessageById = useMemo(
+    () => new Map(activeMessages.map((message) => [message.id, message])),
+    [activeMessages],
+  )
   const selectedGroupPresence = selected?.type === 'GROUP'
     ? groupPresenceSummary(selected, me.id, presenceByUserId, t)
     : null
   const replyTarget = selected
-    ? activeMessages.find((message) => message.id === replyToByConversationId[selected.id]) ?? null
+    ? activeMessageById.get(replyToByConversationId[selected.id] ?? '') ?? null
     : null
   const totalUnread = conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0)
 
@@ -393,7 +416,11 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
       try {
         const uploaded = await api.uploadMediaFiles(localPreviews.map((preview) => preview.file))
         attachments = [...pendingAttachments, ...uploaded].slice(0, 10)
-        setPendingUploadPreviewsByConversation((current) => ({ ...current, [selected.id]: [] }))
+        setPendingUploadPreviewsByConversation((current) => {
+          const next = { ...current, [selected.id]: [] }
+          pendingUploadPreviewsRef.current = next
+          return next
+        })
         releasePendingMediaUploadPreviews(localPreviews)
       } catch {
         setApiState('unavailable')
@@ -577,6 +604,7 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
     const leavingId = selected.id
     try {
       await messengerApi.leaveConversation(leavingId, me.id)
+      releaseConversationPendingUploadPreviews(leavingId)
       setConversations((current) => current.filter((conversation) => conversation.id !== leavingId))
       setSelectedId(null)
       setMessages((current) => {
@@ -613,6 +641,7 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   }
 
   function removeConversationLocally(conversationId: string) {
+    releaseConversationPendingUploadPreviews(conversationId)
     setManagedGroupId(null)
     setConversations((current) => current.filter((conversation) => conversation.id !== conversationId))
     setSelectedId((current) => current === conversationId ? null : current)
@@ -658,10 +687,14 @@ export function MessengerPage({ me, friends, onOpenProfile, onNavigate, initialC
   function removePendingUploadPreview(conversationId: string, previewId: string) {
     const preview = (pendingUploadPreviewsByConversation[conversationId] ?? []).find((item) => item.id === previewId)
     if (preview) releasePendingMediaUploadPreviews([preview])
-    setPendingUploadPreviewsByConversation((current) => ({
-      ...current,
-      [conversationId]: (current[conversationId] ?? []).filter((item) => item.id !== previewId),
-    }))
+    setPendingUploadPreviewsByConversation((current) => {
+      const next = {
+        ...current,
+        [conversationId]: (current[conversationId] ?? []).filter((item) => item.id !== previewId),
+      }
+      pendingUploadPreviewsRef.current = next
+      return next
+    })
   }
 
   function selectConversation(id: string) {
