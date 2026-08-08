@@ -6269,7 +6269,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 .no-comments-document i::after { top: 24px; }
 .content-thread-modal .comment-compose { background: var(--card); box-shadow: 0 -3px 12px rgb(0 0 0 / 8%); }
 
-.share-post-backdrop { z-index: 1800; }
+.share-post-backdrop { z-index: 1800; background: var(--overlay-strong); }
 .share-post-modal { width: min(464px, calc(100vw - 24px)); max-width: 464px; max-height: min(760px, calc(100dvh - 24px)); overflow: hidden; border-radius: 12px; }
 .share-post-head { flex: 0 0 auto; }
 .share-post-body { min-height: 0; flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 11px 14px 10px; scrollbar-width: thin; scrollbar-color: var(--tertiary) transparent; }
