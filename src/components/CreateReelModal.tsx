@@ -5,6 +5,7 @@ import type { GatewayPost } from '../api/gatewayTypes'
 import type { MediaUpload } from '../api/types'
 import { socialApi } from '../api/social'
 import { useI18n } from '../i18n'
+import { INPUT_LIMITS } from '../lib/inputLimits'
 import { clampReelFocalPoint, MAX_REEL_ASPECT_RATIO, MAX_REEL_BYTES, MIN_REEL_ASPECT_RATIO, ratioFromSlider, sliderFromRatio } from '../lib/reelPresentation'
 import { cropReelVideoFile, ReelCropError } from '../lib/reelCrop'
 import { Avatar } from './Avatar'
@@ -248,8 +249,8 @@ export default function CreateReelModal({ userId, displayName, avatarUrl, isVeri
 
           <label className="reel-caption-field">
             <span>{t('caption')}</span>
-            <textarea rows={5} maxLength={5000} value={content} disabled={busy} placeholder={t('reelCaptionPlaceholder')} onChange={(event) => setContent(event.target.value)} />
-            <small>{content.length}/5000</small>
+            <textarea rows={5} maxLength={INPUT_LIMITS.reelCaption} value={content} disabled={busy} placeholder={t('reelCaptionPlaceholder')} onChange={(event) => setContent(event.target.value)} />
+            <small>{content.length}/{INPUT_LIMITS.reelCaption}</small>
           </label>
 
           <div className="reel-privacy-field" ref={privacyRef}>

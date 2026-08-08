@@ -21,6 +21,14 @@ describe('storyContent', () => {
     expect(encodeStoryContent('Hello', '#ffffff')).toBe(`[[story-bg:${DEFAULT_STORY_BACKGROUND}]]\nHello`)
   })
 
+  it('keeps the 125-character limit on visible text instead of metadata', () => {
+    const text = 'x'.repeat(125)
+    const encoded = encodeStoryContent(text, '#7c3aed')
+
+    expect(encoded).toHaveLength(146)
+    expect(decodeStoryContent(encoded).text).toBe(text)
+  })
+
   it('keeps legacy story content unchanged', () => {
     expect(decodeStoryContent('Legacy story')).toEqual({
       text: 'Legacy story',

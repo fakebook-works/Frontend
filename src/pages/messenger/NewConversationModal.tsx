@@ -3,6 +3,7 @@ import type { UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { useI18n } from '../../i18n'
+import { INPUT_LIMITS } from '../../lib/inputLimits'
 import { useFriendSearch } from '../../lib/useFriendSearch'
 
 interface NewConversationModalProps {
@@ -61,6 +62,7 @@ export function NewConversationModal({ friends, onStart, onCreateGroup, onClose 
           <span>{t('groupChatName')}</span>
           <input
             value={groupTitle}
+            maxLength={INPUT_LIMITS.conversationTitle}
             onChange={(event) => setGroupTitle(event.target.value)}
             placeholder={t('groupChatNamePlaceholder')}
           />
@@ -71,6 +73,7 @@ export function NewConversationModal({ friends, onStart, onCreateGroup, onClose 
           <input
             autoFocus={!groupMode}
             value={search}
+            maxLength={INPUT_LIMITS.search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t('searchFriends')}
           />

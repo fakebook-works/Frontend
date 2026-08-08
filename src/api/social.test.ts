@@ -16,6 +16,17 @@ import { socialApi } from './social'
 describe('SocialGraph Gateway adapter', () => {
   beforeEach(() => gatewayGraphQl.mockReset())
 
+  it('uses the LocalDate scalar for profile birthdates while preserving date-only variables', async () => {
+    gatewayGraphQl.mockResolvedValue({ updateUser: null })
+
+    await socialApi.updateProfile('42', { name: 'Lan', birthdate: '2000-01-02' })
+
+    const [document, variables] = gatewayGraphQl.mock.calls[0] as [string, Record<string, unknown>]
+    expect(document).toContain('$birthdate: LocalDate')
+    expect(document).not.toContain('$birthdate: String')
+    expect(variables).toMatchObject({ name: 'Lan', birthdate: '2000-01-02' })
+  })
+
   it('keeps Snowflake IDs as GraphQL literals and maps profiles to frontend types', async () => {
     gatewayGraphQl.mockResolvedValue({
       profile: {

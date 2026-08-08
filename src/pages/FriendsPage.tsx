@@ -8,6 +8,7 @@ import { Icon } from '../components/Icon'
 import { SidebarSettingsIcon } from '../components/SidebarSettingsIcon'
 import { VerifiedBadge } from '../components/VerifiedBadge'
 import { useI18n } from '../i18n'
+import { INPUT_LIMITS } from '../lib/inputLimits'
 import { ProfilePage } from './ProfilePage'
 import type { ProfileMediaViewerOpenOptions, ProfileMediaViewerState } from './ProfilePage'
 
@@ -340,7 +341,7 @@ function FriendDirectorySidebar({
     </header>
     {section === 'friends' && <div className="groups-search-row friend-directory-search-row">
       <form className={searchFocused ? 'groups-search-shell friend-directory-search-shell is-open' : 'groups-search-shell friend-directory-search-shell'} onSubmit={(event) => event.preventDefault()} onFocus={() => setSearchFocused(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(false) }}>
-        <label className="groups-search friend-directory-search"><svg className="groups-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={t('searchWithinFriends', { count: totalFriends })} aria-label={t('searchWithinFriends', { count: totalFriends })} autoComplete="off" /></label>
+        <label className="groups-search friend-directory-search"><svg className="groups-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><input value={query} maxLength={INPUT_LIMITS.search} onChange={(event) => onQueryChange(event.target.value)} placeholder={t('searchWithinFriends', { count: totalFriends })} aria-label={t('searchWithinFriends', { count: totalFriends })} autoComplete="off" /></label>
       </form>
     </div>}
     {loading ? <div className="friend-directory-state"><span className="spinner" /></div> : <div className="friend-directory-list">

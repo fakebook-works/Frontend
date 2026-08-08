@@ -5,6 +5,7 @@ import { socialApi, type SocialProfile } from '../api/social'
 import { Icon } from '../components/Icon'
 import { languageOptions, useI18n } from '../i18n'
 import { useAuth } from '../lib/auth'
+import { INPUT_LIMITS } from '../lib/inputLimits'
 import { readDefaultPostPrivacy, writeDefaultPostPrivacy } from '../lib/privacy'
 import { useTheme } from '../theme'
 import { AccountSecurityPage } from './AccountSecurityPage'
@@ -41,7 +42,7 @@ export function SettingsPage({ initialSection = 'overview' }: { initialSection?:
         <h1>{t('settingsPrivacy')}</h1>
         <label className="settings-search">
           <Icon name="search" size={18} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('searchSettings')} />
+          <input value={query} maxLength={INPUT_LIMITS.search} onChange={(event) => setQuery(event.target.value)} placeholder={t('searchSettings')} />
         </label>
         <nav aria-label={t('settingsPrivacy')}>
           {visibleSections.map((item) => (
@@ -79,7 +80,7 @@ function SettingsOverview({ query, onQueryChange, onOpen }: { query: string; onQ
   return <div className="settings-overview">
     <section className="settings-overview-search">
       <h2>{t('findSettingsYouNeed')}</h2>
-      <label className="settings-main-search"><Icon name="search" size={22} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={t('searchSettings')} /></label>
+      <label className="settings-main-search"><Icon name="search" size={22} /><input value={query} maxLength={INPUT_LIMITS.search} onChange={(event) => onQueryChange(event.target.value)} placeholder={t('searchSettings')} /></label>
     </section>
     <section className="settings-overview-panel">
       <h2>{t('frequentSettings')}</h2>
@@ -170,10 +171,10 @@ function ProfileSettings() {
         <form className="settings-card profile-settings-form account-identity-settings" onSubmit={save} noValidate>
           <div className="account-identity-intro"><span><Icon name="settings" size={22} /></span><div><strong>{t('accountInformation')}</strong><small>{t('accountInformationHelp')}</small></div></div>
           <div className="settings-form-grid account-identity-grid">
-            <label><span>{t('nameLabel')}</span><input value={displayName} onChange={(e) => setDisplayName(e.target.value)} autoComplete="name" /></label>
-            <label><span>{t('emailAddress')}</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></label>
+            <label><span>{t('nameLabel')}</span><input maxLength={INPUT_LIMITS.displayName} value={displayName} onChange={(e) => setDisplayName(e.target.value)} autoComplete="name" /></label>
+            <label><span>{t('emailAddress')}</span><input type="email" maxLength={INPUT_LIMITS.email} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></label>
             <label><span>{t('accountPrivacy')}</span><select value={privacy} onChange={(e) => setPrivacy(Number(e.target.value))}><option value={0}>{t('accountModeNormal')}</option><option value={1}>{t('accountModeAdvanced')}</option></select><small>{t('accountPrivacyHelp')}</small></label>
-            {email.trim().toLowerCase() !== user?.email.trim().toLowerCase() && <label><span>{t('currentPassword')}</span><input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" /><small>{t('emailChangeVerificationHelp')}</small></label>}
+            {email.trim().toLowerCase() !== user?.email.trim().toLowerCase() && <label><span>{t('currentPassword')}</span><input type="password" maxLength={INPUT_LIMITS.password} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" /><small>{t('emailChangeVerificationHelp')}</small></label>}
           </div>
           {message && <p className={message === t('profileSaved') ? 'form-success' : 'form-error'}>{message}</p>}
           <div className="settings-actions"><button type="submit" className="btn-primary" disabled={saving}>{saving ? t('saving') : t('saveChanges')}</button></div>

@@ -5,6 +5,7 @@ import type { NormalStory } from '../api/gatewayTypes'
 import type { MediaUpload } from '../api/types'
 import { useI18n } from '../i18n'
 import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
+import { INPUT_LIMITS } from '../lib/inputLimits'
 import {
   DEFAULT_STORY_BACKGROUND,
   STORY_BACKGROUND_PRESETS,
@@ -196,7 +197,7 @@ export function StoryCreatorModal({ open, authorId, onClose, onCreated }: StoryC
                 onChange={(event) => setContent(event.target.value)}
                 aria-label={t('storyPrompt')}
                 placeholder={t('storyPrompt')}
-                maxLength={500}
+                maxLength={INPUT_LIMITS.story}
               />
             </div>
           </section>

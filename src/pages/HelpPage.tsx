@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { INPUT_LIMITS } from '../lib/inputLimits';
 import { navigate } from '../lib/router';
 import { HELP_CATEGORIES } from './data/helpData';
 import { 
@@ -79,6 +80,7 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             <FaSearch className="search-icon" />
             <input 
               type="text" 
+              maxLength={INPUT_LIMITS.search}
               placeholder="Search help articles..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -138,6 +140,7 @@ const HelpPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 <div className="help-hero-search">
                   <input 
                     type="text" 
+                    maxLength={INPUT_LIMITS.search}
                     placeholder="Ask a question or describe your issue..." 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}

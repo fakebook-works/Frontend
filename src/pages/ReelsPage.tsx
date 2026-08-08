@@ -80,6 +80,28 @@ function clampReelRatio(value: number) {
   return Math.min(MAX_REEL_RATIO, Math.max(MIN_REEL_RATIO, value))
 }
 
+function finiteReelDuration(video: HTMLVideoElement) {
+  return Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0
+}
+
+function finiteReelTime(video: HTMLVideoElement) {
+  return Number.isFinite(video.currentTime) && video.currentTime >= 0 ? video.currentTime : 0
+}
+
+function reelHasMetadata(video: HTMLVideoElement) {
+  return video.readyState >= HTMLMediaElement.HAVE_METADATA
+}
+
+function reelSourceIsCurrent(video: HTMLVideoElement, expectedSource: string | null) {
+  const loadedSource = video.currentSrc
+  if (!expectedSource || !loadedSource) return true
+  try {
+    return new URL(expectedSource, document.baseURI).href === loadedSource
+  } catch {
+    return expectedSource === loadedSource
+  }
+}
+
 /**
  * JSDOM (and a few embedded webviews) do not implement HTMLElement.scrollTo.
  * Keeping the guard here lets the viewer render in those environments while
@@ -1181,6 +1203,7 @@ function ReelCard({
   const playbackFeedbackSequenceRef = useRef(0)
   const playbackFeedbackTimerRef = useRef<number | null>(null)
   const mediaStateKeyRef = useRef<string | null>(null)
+  const mediaSourceRef = useRef<string | null>(null)
   const uncompressedFrameRef = useRef<{ width: number; height: number; ratio: number } | null>(null)
   const [naturalRatio, setNaturalRatio] = useState<number | null>(null)
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null)
@@ -1223,15 +1246,21 @@ function ReelCard({
     watchRecordedRef.current = false
   }, [reel.id, viewerId])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const video = videoRef.current
+    const source = media?.type === 1 ? media.url : null
+    const previousSource = mediaSourceRef.current
+    const sourceChanged = previousSource !== null && previousSource !== source
+    mediaSourceRef.current = source
+
     if (mediaStateKeyRef.current === mediaStateKey) {
-      const video = videoRef.current
-      if (video) {
-        setDuration(Number.isFinite(video.duration) ? video.duration : 0)
-        setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0)
+      if (video && media?.type === 1 && reelHasMetadata(video)) {
+        setDuration(finiteReelDuration(video))
+        setCurrentTime(finiteReelTime(video))
       }
       return
     }
+
     mediaStateKeyRef.current = mediaStateKey
     setNaturalRatio(null)
     setFrameSize(null)
@@ -1241,7 +1270,30 @@ function ReelCard({
     setCurrentTime(0)
     setPlaybackRate(1)
     setPlaybackFeedback(null)
-  }, [media?.type, media?.url, mediaStateKey])
+
+    if (!video || media?.type !== 1) return
+    if (sourceChanged) {
+      if (!video.paused) video.pause()
+      try {
+        video.load()
+      } catch {
+        // A media shim may not implement load(); changing src still starts
+        // the browser's normal resource selection algorithm.
+      }
+    }
+    // Metadata can be ready synchronously for cached media. Read it here in
+    // addition to the event handlers so the progress bar cannot stay at zero.
+    if (reelSourceIsCurrent(video, mediaSourceRef.current) && reelHasMetadata(video)) {
+      if (selectedRatio == null && video.videoWidth > 0 && video.videoHeight > 0) {
+        setNaturalRatio(clampReelRatio(video.videoWidth / video.videoHeight))
+      }
+      setDuration(finiteReelDuration(video))
+      setCurrentTime(finiteReelTime(video))
+      const detectedAudio = detectVideoHasAudio(video)
+      if (detectedAudio != null) setHasAudio(detectedAudio)
+    }
+
+  }, [media?.type, media?.url, mediaStateKey, selectedRatio])
 
   useEffect(() => () => {
     if (playbackFeedbackTimerRef.current != null) window.clearTimeout(playbackFeedbackTimerRef.current)
@@ -1282,8 +1334,8 @@ function ReelCard({
     const video = videoRef.current
     if (!video) return
     if (active) {
-      setDuration(Number.isFinite(video.duration) ? video.duration : 0)
-      setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0)
+      setDuration(finiteReelDuration(video))
+      setCurrentTime(finiteReelTime(video))
       const playback = video.play()
       if (playback) void playback.catch(() => undefined)
     } else if (!video.paused) video.pause()
@@ -1306,15 +1358,26 @@ function ReelCard({
     if (selectedRatio == null && width > 0 && height > 0) setNaturalRatio(clampReelRatio(width / height))
   }
 
-  function handleVideoReady(video: HTMLVideoElement) {
+  function syncVideoMetadata(video: HTMLVideoElement) {
+    // Duration/currentTime can be exposed by a media shim before readyState is
+    // updated, so only reject events that clearly belong to an older source.
+    if (!reelSourceIsCurrent(video, mediaSourceRef.current)) return false
     updateMediaRatio(video.videoWidth, video.videoHeight)
-    setDuration(Number.isFinite(video.duration) ? video.duration : 0)
-    const detectedAudio = detectVideoHasAudio(video)
-    if (detectedAudio != null) setHasAudio(detectedAudio)
+    setDuration(finiteReelDuration(video))
+    setCurrentTime(finiteReelTime(video))
+    return true
+  }
+
+  function handleVideoReady(video: HTMLVideoElement) {
+    if (!syncVideoMetadata(video)) return
+    if (hasAudio == null) {
+      const detectedAudio = detectVideoHasAudio(video)
+      if (detectedAudio != null) setHasAudio(detectedAudio)
+    }
     video.volume = volume
     video.muted = muted
     video.playbackRate = playbackRate
-    if (active) {
+    if (active && video.paused) {
       const playback = video.play()
       if (playback) void playback.catch(() => undefined)
     }
@@ -1401,18 +1464,27 @@ function ReelCard({
                 onClick={togglePlayback}
                 onPlay={recordWatch}
                 onLoadedMetadata={(event) => handleVideoReady(event.currentTarget)}
+                onLoadedData={(event) => handleVideoReady(event.currentTarget)}
                 onCanPlay={(event) => {
-                  if (hasAudio == null) {
-                    const detectedAudio = detectVideoHasAudio(event.currentTarget)
-                    if (detectedAudio != null) setHasAudio(detectedAudio)
-                  }
+                  // Some cached/webview implementations deliver canplay but
+                  // miss loadedmetadata for a reused element. Running the full
+                  // ready path restores settings and retries rejected play.
+                  handleVideoReady(event.currentTarget)
                 }}
-                onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
+                onDurationChange={(event) => {
+                  const video = event.currentTarget
+                  if (!syncVideoMetadata(video) || hasAudio != null) return
+                  const detectedAudio = detectVideoHasAudio(video)
+                  if (detectedAudio != null) setHasAudio(detectedAudio)
+                }}
                 onTimeUpdate={(event) => {
-                  setCurrentTime(event.currentTarget.currentTime)
+                  const video = event.currentTarget
+                  if (!reelSourceIsCurrent(video, mediaSourceRef.current)) return
+                  setCurrentTime(finiteReelTime(video))
+                  if (duration <= 0) setDuration(finiteReelDuration(video))
                   if (hasAudio == null) {
-                    const detected = detectVideoHasAudio(event.currentTarget)
-                    if (detected != null) setHasAudio(detected)
+                    const detectedAudio = detectVideoHasAudio(video)
+                    if (detectedAudio != null) setHasAudio(detectedAudio)
                   }
                 }}
               />

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { InputHTMLAttributes } from 'react'
+import { INPUT_LIMITS } from '../lib/inputLimits'
 
 type PasswordFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & {
   showLabel: string
@@ -11,7 +12,7 @@ export function PasswordField({ showLabel, hideLabel, className, ...inputProps }
 
   return (
     <div className={`password-field${className ? ` ${className}` : ''}`}>
-      <input {...inputProps} type={visible ? 'text' : 'password'} />
+      <input {...inputProps} maxLength={INPUT_LIMITS.password} type={visible ? 'text' : 'password'} />
       <button
         type="button"
         className="password-toggle"

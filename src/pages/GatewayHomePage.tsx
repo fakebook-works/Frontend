@@ -29,6 +29,7 @@ import { useAuth } from '../lib/auth'
 import { clipboardImageFiles } from '../lib/clipboardMedia'
 import { groupVisitRelativeTime } from '../lib/format'
 import { GROUP_MEMBERSHIP_CHANGED_EVENT, leftGroupIdFromEvent } from '../lib/groupMembershipEvents'
+import { INPUT_LIMITS } from '../lib/inputLimits'
 import {
   POST_BACKGROUND_PRESETS,
   decodePostContent,
@@ -545,7 +546,7 @@ export function GatewayHomePage({ profile = null, refreshToken = 0, detailPostId
       <aside ref={rightRailRef} className="gateway-right-rail" aria-label={t('contacts')}>
         <section className="right-rail-module contacts-module">
           <header><h2>{t('contacts')}</h2><div><button type="button" aria-label={t('newMessage')} onClick={() => { setContactMode('contacts'); setContactQuery(''); onNewConversation?.() }}><Icon name="plus" size={18} /></button><button type="button" className={contactMode === 'contactSearch' ? 'active' : ''} aria-label={t('search')} aria-pressed={contactMode === 'contactSearch'} onClick={() => { setContactMode((mode) => mode === 'contactSearch' ? 'contacts' : 'contactSearch'); setContactQuery('') }}><ContactSearchIcon /></button><button type="button" aria-label={t('more')} onClick={() => onNavigate?.('/messenger')}><Icon name="more" size={17} /></button></div></header>
-          {contactMode === 'contactSearch' && <label className="contact-search-wrap"><ContactSearchIcon /><input className="contact-search" autoFocus value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} placeholder={t('searchContacts')} /></label>}
+          {contactMode === 'contactSearch' && <label className="contact-search-wrap"><ContactSearchIcon /><input className="contact-search" autoFocus maxLength={INPUT_LIMITS.search} value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} placeholder={t('searchContacts')} /></label>}
           {!contactListPending && (visibleContactPeople.length === 0
               ? <p>{contactQuery ? t('noContactsFound') : t('noContactsYet')}</p>
               : <div className="contact-list">{visibleContactPeople.map((person) => {
@@ -1052,7 +1053,7 @@ export function PostComposer({ variant = 'home', userId, displayName, avatarUrl,
             <Avatar name={displayName} src={avatarUrl} size={36} />
             <div><div className="home-post-author-name"><strong>{displayName}<VerifiedBadge verified={isVerified} size={13} /></strong>{taggedSummary && <span className="home-tagged-summary"> {taggedSummary}</span>}</div>{groupMode ? <div className="home-post-privacy-picker group-post-fixed-privacy"><span className="home-post-privacy-control" aria-label={effectivePrivacyLabel}><PostPrivacyIcon privacy={effectivePrivacy} size={14} group /><span>{effectivePrivacyLabel}</span></span></div> : <div className="home-post-privacy-picker" ref={privacyPickerRef}><button type="button" className="home-post-privacy-control" aria-label={t('privacy')} aria-haspopup="listbox" aria-expanded={activePicker === 'privacy'} onClick={() => setActivePicker((current) => current === 'privacy' ? null : 'privacy')}><PostPrivacyIcon privacy={privacy} size={14} /><span>{privacyLabel}</span><PrivacyCaretIcon /></button>{activePicker === 'privacy' && <div className="home-post-privacy-menu" role="listbox" aria-label={t('privacy')}>{privacyOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={privacy === option.value} onClick={() => choosePrivacy(option.value)}><PostPrivacyIcon privacy={option.value} size={18} /><span>{option.label}</span></button>)}</div>}</div>}</div>
           </div>
-          <div className={postEditorClass} data-replicated-value={selectedFiles.length > 0 ? content || composerPlaceholder : undefined} style={selectedBackground ? { background: selectedBackground.background } : undefined}><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} autoFocus value={content} onChange={(event) => changeMentionContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onPaste={(event) => {
+          <div className={postEditorClass} data-replicated-value={selectedFiles.length > 0 ? content || composerPlaceholder : undefined} style={selectedBackground ? { background: selectedBackground.background } : undefined}><MentionDraftOverlay text={content} entities={mentionEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} autoFocus maxLength={INPUT_LIMITS.post} value={content} onChange={(event) => changeMentionContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onPaste={(event) => {
             if (busy) return
             const pastedImages = clipboardImageFiles(event.clipboardData)
             if (pastedImages.length === 0) return

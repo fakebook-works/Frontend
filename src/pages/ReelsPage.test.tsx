@@ -128,6 +128,34 @@ describe('ReelsPage media discussion layout', () => {
     await waitFor(() => expect(container.querySelector<HTMLInputElement>('.reel-progress')?.style.getPropertyValue('--reel-progress')).toBe('30%'))
   })
 
+  it('recovers metadata, media settings, and playback from canplay when loadedmetadata was missed', async () => {
+    const { container } = render(<ReelsPage userId="1" mode="for-you" active onNavigate={vi.fn()} />)
+    await waitFor(() => expect(container.querySelector('.reel-card video')).toBeInTheDocument())
+    const video = container.querySelector<HTMLVideoElement>('.reel-card video')!
+    const play = vi.spyOn(video, 'play').mockResolvedValue()
+    Object.defineProperties(video, {
+      currentSrc: { configurable: true, value: 'https://uploads.example.com/reel.mp4' },
+      duration: { configurable: true, value: 10 },
+      currentTime: { configurable: true, writable: true, value: 2 },
+      readyState: { configurable: true, value: 3 },
+      videoWidth: { configurable: true, value: 1080 },
+      videoHeight: { configurable: true, value: 1920 },
+      mozHasAudio: { configurable: true, value: true },
+    })
+    video.volume = .1
+    video.muted = false
+    video.playbackRate = 1.75
+
+    fireEvent.canPlay(video)
+
+    expect(play).toHaveBeenCalledTimes(1)
+    expect(video.volume).toBe(.8)
+    expect(video.muted).toBe(true)
+    expect(video.playbackRate).toBe(1)
+    expect(container.querySelector<HTMLInputElement>('.reel-progress')).toHaveAttribute('max', '10')
+    expect(container.querySelector<HTMLInputElement>('.reel-progress')?.style.getPropertyValue('--reel-progress')).toBe('20%')
+  })
+
   it('realigns the selected Reel after the preserved destination is hidden mid-transition', async () => {
     const first = await socialMocks.getRecommendedReels()
     socialMocks.getRecommendedReels.mockReset().mockResolvedValue([

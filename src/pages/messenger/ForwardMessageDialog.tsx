@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { MessengerConversationDto, MessengerMessageDto, UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
+import { INPUT_LIMITS } from '../../lib/inputLimits'
 import { conversationAvatar, conversationName, messengerMessagePreview } from './helpers'
 
 interface ForwardMessageDialogProps {
@@ -42,7 +43,7 @@ export function ForwardMessageDialog({ message, conversations, me, onForward, on
     <section className="forward-message-dialog" role="dialog" aria-modal="true" aria-label="Chuyển tiếp tin nhắn">
       <header><span /><h2>Chuyển tiếp tin nhắn</h2><button type="button" aria-label="Đóng" onClick={onClose}><Icon name="close" size={20} /></button></header>
       <div className="forward-message-source"><small>Tin nhắn</small><strong>{preview}</strong></div>
-      <label className="forward-message-search"><Icon name="search" size={18} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm kiếm đoạn chat" /></label>
+      <label className="forward-message-search"><Icon name="search" size={18} /><input autoFocus maxLength={INPUT_LIMITS.search} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm kiếm đoạn chat" /></label>
       {error && <p className="forward-message-error">{error}</p>}
       <div className="forward-message-list">
         {filtered.length === 0 ? <p>Không tìm thấy đoạn chat.</p> : filtered.map((conversation) => {

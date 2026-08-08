@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client'
 import type { AuthSession } from '../api/client'
 import { useAuth } from '../lib/auth'
 import { languageOptions, useI18n } from '../i18n'
+import { INPUT_LIMITS } from '../lib/inputLimits'
 import { useTheme } from '../theme'
 
 function formatDate(value: string | null, fallback: string) {
@@ -156,9 +157,9 @@ export function AccountSecurityPage({ embedded = false, section = 'all' }: { emb
           {section !== 'sessions' && <section className="card security-panel">
             <div className="panel-heading"><div><h2>{t('changePassword')}</h2><p>{t('changePasswordHelp')}</p></div></div>
             <form className="security-form" onSubmit={changePassword}>
-              <label><span>{t('currentPassword')}</span><input type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required /></label>
-              <label><span>{t('newPasswordLabel')}</span><input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required /></label>
-              <label><span>{t('confirmPassword')}</span><input type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required /></label>
+              <label><span>{t('currentPassword')}</span><input type="password" maxLength={INPUT_LIMITS.password} autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required /></label>
+              <label><span>{t('newPasswordLabel')}</span><input type="password" maxLength={INPUT_LIMITS.password} autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required /></label>
+              <label><span>{t('confirmPassword')}</span><input type="password" maxLength={INPUT_LIMITS.password} autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required /></label>
               {passwordMessage && <p className={passwordMessage === t('passwordChanged') ? 'form-success' : 'form-error'}>{passwordMessage}</p>}
               <button type="submit" className="btn-primary block" disabled={passwordBusy}>{passwordBusy ? t('saving') : t('changePassword')}</button>
             </form>

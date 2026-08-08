@@ -9,6 +9,7 @@ import { VerifiedBadge } from '../../components/VerifiedBadge'
 import { LinkPreview } from '../../components/LinkPreview'
 import { clipboardImageFiles } from '../../lib/clipboardMedia'
 import { isDirectImageUrl, remoteImageFileFromUrl } from '../../lib/urlMedia'
+import { INPUT_LIMITS } from '../../lib/inputLimits'
 import { EmojiButton } from './EmojiButton'
 import { MESSENGER_ATTACHMENT_ACCEPT } from './attachmentPolicy'
 import { conversationAvatar, conversationName, formatPresence, formatTime, messageGroupPosition, messengerLikeLevel, shouldShowAvatar, shouldShowTimestamp } from './helpers'
@@ -428,6 +429,7 @@ export function MessageThread({
               void remoteImageFileFromUrl(pasted).then((file) => onAttachFiles([file])).catch(() => onDraftChange(`${draft}${draft ? ' ' : ''}${pasted}`))
             }}
             placeholder="Aa"
+            maxLength={INPUT_LIMITS.messenger}
             autoComplete="off"
           />
           <EmojiButton onPick={(emoji) => editingMessage ? setEditDraft(editDraft + emoji) : onDraftChange(draft + emoji)} />

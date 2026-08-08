@@ -1060,7 +1060,7 @@ export async function updateProfile(userId: string, input: {
 }): Promise<SocialProfile | null> {
   const id = graphQlLongLiteral(userId)
   const data = await gatewayGraphQl<{ updateUser: ProfileGraphQl | null }>(
-    `mutation UpdateProfile($avatar: String, $background: String, $name: String, $bio: String, $gender: Boolean, $birthdate: String, $location: String, $privacy: Int) {
+    `mutation UpdateProfile($avatar: String, $background: String, $name: String, $bio: String, $gender: Boolean, $birthdate: LocalDate, $location: String, $privacy: Int) {
       updateUser(input: { id: ${id}, avatar: $avatar, background: $background, name: $name, bio: $bio, gender: $gender, birthdate: $birthdate, location: $location, privacy: $privacy }) {
         ${PROFILE_FIELDS}
       }

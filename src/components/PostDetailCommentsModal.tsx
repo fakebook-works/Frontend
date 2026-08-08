@@ -11,6 +11,7 @@ import { clipboardImageFiles } from '../lib/clipboardMedia'
 import { applyMentionSelection, deleteMentionAtSelection, parseMentionContent, reconcileMentionEntities, serializeMentionContent, type MentionEntity } from '../lib/mentions'
 import { decodePostContent, getPostBackgroundPreset } from '../lib/postContent'
 import { formatPostTimestamp } from '../lib/postTime'
+import { INPUT_LIMITS } from '../lib/inputLimits'
 import { sharedPostSourceToGatewayReel } from '../lib/reelEntry'
 import { clearPrefetchedCommentPage, loadCommentPage, readCachedCommentPage } from '../lib/commentPagePrefetch'
 import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
@@ -918,7 +919,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
         {composerTarget && <button type="button" className="comment-compose-reply-cancel-zone" aria-label={t('cancel')} title={t('cancel')} onClick={editingComment ? cancelCommentEdit : cancelReply} />}
       </div>
       <div className="comment-compose-box">
-        <div className="mention-compose-field"><MentionDraftOverlay text={composerContent} entities={composerEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} rows={1} value={composerContent} spellCheck={false} aria-label={editingComment ? t('editComment') : undefined} onChange={(event) => changeContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onPaste={(event) => {
+        <div className="mention-compose-field"><MentionDraftOverlay text={composerContent} entities={composerEntities} textareaRef={textareaRef} /><textarea ref={textareaRef} rows={1} maxLength={INPUT_LIMITS.comment} value={composerContent} spellCheck={false} aria-label={editingComment ? t('editComment') : undefined} onChange={(event) => changeContent(event.target.value, event.target.selectionStart ?? event.target.value.length)} onPaste={(event) => {
           if (editingComment) return
           const [pastedImage] = clipboardImageFiles(event.clipboardData)
           if (pastedImage) {

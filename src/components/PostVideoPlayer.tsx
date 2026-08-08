@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useI18n } from '../i18n'
 import { detectVideoHasAudio } from '../lib/videoAudio'
@@ -9,6 +9,18 @@ const AUTOPLAY_START_RATIO = 0.68
 const AUTOPLAY_STOP_RATIO = 0.5
 
 let activePostVideo: HTMLVideoElement | null = null
+
+function finiteVideoDuration(video: HTMLVideoElement) {
+  return Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0
+}
+
+function finiteVideoTime(video: HTMLVideoElement) {
+  return Number.isFinite(video.currentTime) && video.currentTime >= 0 ? video.currentTime : 0
+}
+
+function hasVideoMetadata(video: HTMLVideoElement) {
+  return video.readyState >= HTMLMediaElement.HAVE_METADATA
+}
 
 function claimPostVideo(video: HTMLVideoElement) {
   if (activePostVideo && activePostVideo !== video) activePostVideo.pause()
@@ -70,11 +82,94 @@ export function PostVideoPlayer({ src, controls = true, autoPlay = true, control
   const autoplaySuppressedRef = useRef(false)
   const initialTimeRef = useRef(initialTime)
   const initialTimeAppliedRef = useRef(false)
+  const sourceRef = useRef<string | null>(null)
+  const metadataNotifiedRef = useRef(false)
+  const latestInitialTimeRef = useRef(initialTime)
+  const latestOnLoadedMetadataRef = useRef(onLoadedMetadata)
+  latestInitialTimeRef.current = initialTime
+  latestOnLoadedMetadataRef.current = onLoadedMetadata
 
-  useEffect(() => {
+  const isCurrentSource = useCallback((video: HTMLVideoElement) => {
+    const expectedSource = sourceRef.current
+    const loadedSource = video.currentSrc
+    if (!expectedSource || !loadedSource) return true
+    try {
+      return new URL(expectedSource, document.baseURI).href === loadedSource
+    } catch {
+      return expectedSource === loadedSource
+    }
+  }, [])
+
+  const syncVideoMetadata = useCallback((video: HTMLVideoElement, notifyParent = false) => {
+    // Media events themselves are authoritative even in older webviews that
+    // update readyState late. Only discard an event when it clearly belongs
+    // to the resource that was replaced.
+    if (!isCurrentSource(video)) return
+    const duration = finiteVideoDuration(video)
+    setDuration(duration)
+    setCurrentTime(finiteVideoTime(video))
+    setVideoHeight(video.videoHeight)
+    setVolume(video.volume)
+    setMuted(video.muted)
+
+    if (!initialTimeAppliedRef.current && Number.isFinite(initialTimeRef.current) && initialTimeRef.current > 0 && duration > 0) {
+      const resumeAt = Math.min(initialTimeRef.current, duration)
+      video.currentTime = resumeAt
+      setCurrentTime(resumeAt)
+      initialTimeAppliedRef.current = true
+    }
+
+    // A few embedded/webview implementations can emit canplay before
+    // exposing natural dimensions. Do not consume the one-shot notification
+    // until the dimensions are usable; a later metadata event can then update
+    // the gallery layout normally.
+    if (notifyParent && !metadataNotifiedRef.current && video.videoWidth > 0 && video.videoHeight > 0) {
+      metadataNotifiedRef.current = true
+      latestOnLoadedMetadataRef.current?.(video.videoWidth, video.videoHeight)
+    }
+  }, [isCurrentSource])
+
+  // A feed/gallery often keeps the same React component while replacing its
+  // media URL. Explicitly reset the source-bound state and ask the media
+  // element to start a new resource load. The synchronous readyState check
+  // also covers cached media whose metadata event fired before this effect.
+  useLayoutEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const previousSource = sourceRef.current
+    const sourceChanged = previousSource !== null && previousSource !== src
+    sourceRef.current = src
+    initialTimeRef.current = latestInitialTimeRef.current
+    initialTimeAppliedRef.current = false
+    metadataNotifiedRef.current = false
+    autoplaySuppressedRef.current = false
+    setPlaying(false)
+    setCurrentTime(0)
+    setDuration(0)
     setHasAudio(null)
     setVideoHeight(0)
-  }, [src])
+
+    if (!video.paused) video.pause()
+    releasePostVideo(video)
+    if (sourceChanged) {
+      try {
+        video.load()
+      } catch {
+        // Some test/browser media shims do not implement load(). The normal
+        // src property update still lets the browser perform its load.
+      }
+    }
+    if (hasVideoMetadata(video)) {
+      syncVideoMetadata(video, true)
+      const detectedAudio = detectVideoHasAudio(video)
+      if (detectedAudio != null) setHasAudio(detectedAudio)
+    }
+
+    return () => {
+      if (!video.paused) video.pause()
+      releasePostVideo(video)
+    }
+  }, [isCurrentSource, src, syncVideoMetadata])
 
   useEffect(() => {
     const root = rootRef.current
@@ -183,6 +278,7 @@ export function PostVideoPlayer({ src, controls = true, autoPlay = true, control
   }
 
   function updateAudioAvailability(video: HTMLVideoElement) {
+    if (!isCurrentSource(video)) return
     const detected = detectVideoHasAudio(video)
     if (detected != null) setHasAudio(detected)
   }
@@ -215,42 +311,50 @@ export function PostVideoPlayer({ src, controls = true, autoPlay = true, control
       onClick={controls ? (onOpenDetail ? openDetail : togglePlay) : undefined}
       onLoadedMetadata={(event) => {
         const video = event.currentTarget
-        setDuration(Number.isFinite(video.duration) ? video.duration : 0)
-        setVideoHeight(video.videoHeight)
-        setVolume(video.volume)
-        setMuted(video.muted)
+        syncVideoMetadata(video, true)
         updateAudioAvailability(video)
-        if (!initialTimeAppliedRef.current && Number.isFinite(initialTimeRef.current) && initialTimeRef.current > 0) {
-          const resumeAt = Number.isFinite(video.duration) && video.duration > 0
-            ? Math.min(initialTimeRef.current, video.duration)
-            : initialTimeRef.current
-          video.currentTime = resumeAt
-          setCurrentTime(resumeAt)
-          initialTimeAppliedRef.current = true
-        }
-        onLoadedMetadata?.(video.videoWidth, video.videoHeight)
       }}
-      onLoadedData={(event) => updateAudioAvailability(event.currentTarget)}
-      onCanPlay={(event) => updateAudioAvailability(event.currentTarget)}
-      onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
+      onLoadedData={(event) => {
+        const video = event.currentTarget
+        syncVideoMetadata(video, true)
+        updateAudioAvailability(video)
+      }}
+      onCanPlay={(event) => {
+        const video = event.currentTarget
+        syncVideoMetadata(video, true)
+        updateAudioAvailability(video)
+      }}
+      onDurationChange={(event) => syncVideoMetadata(event.currentTarget, true)}
       onTimeUpdate={(event) => {
-        setCurrentTime(event.currentTarget.currentTime)
-        onPlaybackTimeChange?.(event.currentTarget.currentTime)
+        const video = event.currentTarget
+        if (!isCurrentSource(video)) return
+        if (hasVideoMetadata(video) && (duration <= 0 || !metadataNotifiedRef.current)) {
+          syncVideoMetadata(video, true)
+        }
+        const nextTime = finiteVideoTime(video)
+        setCurrentTime(nextTime)
+        onPlaybackTimeChange?.(nextTime)
         if (hasAudio == null) updateAudioAvailability(event.currentTarget)
       }}
       onPlay={(event) => {
+        const video = event.currentTarget
+        if (!isCurrentSource(video)) return
+        syncVideoMetadata(video, true)
         setPlaying(true)
-        updateAudioAvailability(event.currentTarget)
+        updateAudioAvailability(video)
       }}
       onPause={(event) => {
+        if (!isCurrentSource(event.currentTarget)) return
         setPlaying(false)
         releasePostVideo(event.currentTarget)
       }}
       onEnded={(event) => {
+        if (!isCurrentSource(event.currentTarget)) return
         setPlaying(false)
         releasePostVideo(event.currentTarget)
       }}
       onVolumeChange={(event) => {
+        if (!isCurrentSource(event.currentTarget)) return
         setVolume(event.currentTarget.volume)
         setMuted(event.currentTarget.muted)
       }}

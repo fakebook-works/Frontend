@@ -13,6 +13,7 @@ import { VerifiedBadge } from '../../components/VerifiedBadge'
 import { LinkPreview } from '../../components/LinkPreview'
 import { useI18n } from '../../i18n'
 import { relativeTime } from '../../lib/format'
+import { INPUT_LIMITS } from '../../lib/inputLimits'
 import { clipboardImageFiles } from '../../lib/clipboardMedia'
 import { playIncomingMessageSound } from '../../lib/sounds'
 import { isDirectImageUrl, remoteImageFileFromUrl } from '../../lib/urlMedia'
@@ -176,6 +177,7 @@ function MiniComposerTextarea({ value, onChange, ...props }: TextareaHTMLAttribu
 
   return <textarea
     {...props}
+    maxLength={INPUT_LIMITS.messenger}
     ref={ref}
     rows={1}
     value={value}
@@ -1329,7 +1331,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
           <button type="button" aria-label={t('newMessage')} onClick={() => setShowNewModal(true)}><Icon name="edit" size={19} /></button>
         </div>
       </header>
-      <label className="messenger-popover-search"><Icon name="search" size={20} /><input value={panelQuery} onChange={(event) => setPanelQuery(event.target.value)} placeholder={t('searchMessenger')} /></label>
+      <label className="messenger-popover-search"><Icon name="search" size={20} /><input value={panelQuery} maxLength={INPUT_LIMITS.search} onChange={(event) => setPanelQuery(event.target.value)} placeholder={t('searchMessenger')} /></label>
       <div className="messenger-popover-tabs" role="tablist" aria-label={t('inboxFilters')}>
         <button type="button" className={panelFilter === 'all' ? 'active' : ''} onClick={() => setPanelFilter('all')}>{t('allNotifications')}</button>
         <button type="button" className={panelFilter === 'unread' ? 'active' : ''} onClick={() => setPanelFilter('unread')}>{t('unreadOnly')}</button>

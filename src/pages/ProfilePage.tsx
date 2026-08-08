@@ -20,6 +20,7 @@ import { VerifiedBadge } from '../components/VerifiedBadge'
 import type { PostPhotoViewerMediaEntry } from '../components/PostPhotoViewer'
 import { useI18n } from '../i18n'
 import { cropImageFile } from '../lib/imageCrop'
+import { INPUT_LIMITS } from '../lib/inputLimits'
 import { forgetOwnUnseenStory, reconcileOwnUnseenStories, rememberOwnUnseenStory } from '../lib/ownStoryUnseen'
 import { decodePostContent } from '../lib/postContent'
 import { groupProfilePostsByMonth } from '../lib/profilePostGrid'
@@ -439,7 +440,7 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
     const locationPopoverOpen = locationQueryTouched && location.trim().length >= 3
     const hasLocationOptions = locationPopoverOpen && !locationSuggestionsLoading && !locationSuggestionsError && locationSuggestions.length > 0
     const birthDateErrorId = `${locationListboxId}-birth-date-error`
-    const control = field === 'bio' ? <textarea autoFocus={autoFocus} rows={2} maxLength={500} value={bio} onChange={(event) => setBio(event.target.value)} aria-label={t('bio')} spellCheck={false} data-gramm="false" data-gramm_editor="false" />
+    const control = field === 'bio' ? <textarea autoFocus={autoFocus} rows={2} maxLength={INPUT_LIMITS.profileDescription} value={bio} onChange={(event) => setBio(event.target.value)} aria-label={t('bio')} spellCheck={false} data-gramm="false" data-gramm_editor="false" />
       : field === 'location' ? <div className="profile-about-location-field" onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
           setLocationQueryTouched(false)
@@ -450,7 +451,7 @@ function ProfileAboutPanel({ profile, canEdit }: { profile: SocialProfile; canEd
           autoFocus={autoFocus}
           role="combobox"
           value={location}
-          maxLength={160}
+          maxLength={INPUT_LIMITS.profileLocation}
           onChange={(event) => { setLocation(event.target.value); setLocationQueryTouched(true); setLocationActiveIndex(-1) }}
           onFocus={() => { if (location.trim().length >= 3) setLocationQueryTouched(true) }}
           onKeyDown={handleLocationKeyDown}
@@ -1879,7 +1880,7 @@ function ProfileConnectionsTab({ profile, viewerId, canManage, onNavigate }: { p
   }
 
   return <section className="card self-profile-collection-card self-profile-connections-tab">
-    <header className="self-profile-collection-head self-profile-section-head"><h2>{t('friends')}</h2><div className="self-profile-section-actions"><label className="self-profile-connections-search"><ProfileTabSearchIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label>{canManage && <><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/friends/incoming')}>{t('friendRequests')}</button><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/friends/suggestions')}>{t('profileFindFriends')}</button></>}</div></header>
+    <header className="self-profile-collection-head self-profile-section-head"><h2>{t('friends')}</h2><div className="self-profile-section-actions"><label className="self-profile-connections-search"><ProfileTabSearchIcon /><input value={query} maxLength={INPUT_LIMITS.search} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label>{canManage && <><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/friends/incoming')}>{t('friendRequests')}</button><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/friends/suggestions')}>{t('profileFindFriends')}</button></>}</div></header>
     <nav className="self-profile-collection-tabs" aria-label={t('friends')}>{sections.map((item) => <button type="button" key={item.id} className={section === item.id ? 'active' : ''} onClick={() => setSection(item.id)}>{item.label}</button>)}</nav>
     {loading ? <div className="self-profile-collection-state"><span className="spinner" /></div> : visibleItems.length === 0 ? <div className="self-profile-collection-state muted">{query ? t('noSearchResults') : t('friendListEmpty')}</div> : <div className="self-profile-connections-grid">{visibleItems.map((item) => {
       const person = item.profile
@@ -1904,7 +1905,7 @@ function ProfileGroupsTab({ groups, managedGroups, loading, unavailable, canMana
     : sectionGroups
 
   return <section className="card self-profile-collection-card self-profile-groups-tab">
-    <header className="self-profile-collection-head self-profile-section-head"><h2>{t('groups')}</h2><div className="self-profile-section-actions"><label className="self-profile-connections-search"><ProfileTabSearchIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label>{canManage && <><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/groups')}>{t('profileGroupInvitations')}</button><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/groups')}>{t('profileFindGroups')}</button></>}</div></header>
+    <header className="self-profile-collection-head self-profile-section-head"><h2>{t('groups')}</h2><div className="self-profile-section-actions"><label className="self-profile-connections-search"><ProfileTabSearchIcon /><input value={query} maxLength={INPUT_LIMITS.search} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label>{canManage && <><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/groups')}>{t('profileGroupInvitations')}</button><button type="button" className="self-profile-section-action" onClick={() => onNavigate('/groups')}>{t('profileFindGroups')}</button></>}</div></header>
     <nav className="self-profile-collection-tabs" aria-label={t('groups')}><button type="button" className={section === 'joined' ? 'active' : ''} onClick={() => setSection('joined')}>{t('profileJoinedGroupsTab')}</button><button type="button" className={section === 'managed' ? 'active' : ''} onClick={() => setSection('managed')}>{t('profileManagedGroupsTab')}</button></nav>
     {loading ? <div className="self-profile-collection-state"><span className="spinner" /></div> : visibleGroups.length === 0 ? <div className="self-profile-collection-state muted">{unavailable ? t('groupsLoadError') : normalizedQuery ? t('noSearchResults') : t(section === 'managed' ? 'managedGroupsEmpty' : 'joinedGroupsEmpty')}</div> : <div className="self-profile-connections-grid self-profile-group-results-grid">{visibleGroups.map((group) => <article key={group.id}><button type="button" className="self-profile-connection-person self-profile-group-result" onClick={() => onNavigate(`/groups/${group.id}`)}><Avatar name={group.name} src={group.avatarUrl} size={72} className="group-square-avatar" /><span><strong><span className="self-profile-result-name-text">{group.name}</span></strong><small className="self-profile-group-meta"><span className="self-profile-group-privacy"><PostPrivacyIcon privacy={group.privacy === 0 ? 0 : 1} group={group.privacy !== 0} size={15} />{group.privacy === 0 ? t('groupPublicVisibility') : t('groupPrivateVisibility')}</span><b className="groups-meta-separator" aria-hidden="true">·</b><span>{group.memberCount == null ? t('groupResult') : t('membersCount', { count: group.memberCount })}</span></small></span></button></article>)}</div>}
   </section>

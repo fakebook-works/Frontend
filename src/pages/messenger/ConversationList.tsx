@@ -4,6 +4,7 @@ import type { MessengerConversationDto, UserSummary } from '../../api/types'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
 import { relativeTime } from '../../lib/format'
+import { INPUT_LIMITS } from '../../lib/inputLimits'
 import { conversationAvatar, conversationName, messengerConversationPreview } from './helpers'
 import { useI18n } from '../../i18n'
 
@@ -65,7 +66,7 @@ export function ConversationList({
 
       <label className="messenger-search">
         <Icon name="search" size={16} />
-        <input value={query} onChange={(e) => onQueryChange(e.target.value)} placeholder={t('searchMessenger')} />
+        <input value={query} maxLength={INPUT_LIMITS.search} onChange={(e) => onQueryChange(e.target.value)} placeholder={t('searchMessenger')} />
       </label>
 
       <div className="messenger-tabs" role="tablist" aria-label={t('inboxFilters')}>

@@ -5,6 +5,7 @@ import type { MessengerConversationDto, MessengerParticipantDto, UserSummary } f
 import { AnchoredMenuPortal } from '../../components/AnchoredMenuPortal'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
+import { INPUT_LIMITS } from '../../lib/inputLimits'
 import { useFriendSearch } from '../../lib/useFriendSearch'
 import { useInlineImageCrop } from '../../lib/useInlineImageCrop'
 import './GroupConversationManager.css'
@@ -304,7 +305,7 @@ export function GroupConversationManager({
             <p>Nhấn vào ảnh để chọn ảnh mới. Kéo ảnh để chọn vị trí mong muốn.</p>
             <label className="group-manager-title-field">
               <span>Tên nhóm</span>
-              <input value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} disabled={busy} />
+              <input value={title} maxLength={INPUT_LIMITS.conversationTitle} onChange={(event) => setTitle(event.target.value)} disabled={busy} />
             </label>
           </div>
           {error && <p className="group-manager-error" role="alert">{error}</p>}
@@ -313,7 +314,7 @@ export function GroupConversationManager({
 
         {view === 'members' && <>
           {renderHeader('Thành viên nhóm')}
-          <label className="group-manager-search"><Icon name="search" size={19} /><input value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} placeholder="Tìm thành viên" /></label>
+          <label className="group-manager-search"><Icon name="search" size={19} /><input value={memberQuery} maxLength={INPUT_LIMITS.search} onChange={(event) => setMemberQuery(event.target.value)} placeholder="Tìm thành viên" /></label>
           {error && <p className="group-manager-error" role="alert">{error}</p>}
           <div className="group-manager-member-list">
             {visibleMembers.map((member) => <div className="group-manager-member" key={member.id}>
@@ -338,7 +339,7 @@ export function GroupConversationManager({
           {selectedFriendIds.size > 0 && <div className="group-manager-selected">
             {selectedFriends.map((friend) => <button type="button" key={friend.id} onClick={() => setSelectedFriends((current) => current.filter((item) => item.id !== friend.id))}><Avatar name={friend.displayName} src={friend.avatarUrl} size={30} /><span>{friend.displayName}</span><Icon name="close" size={13} /></button>)}
           </div>}
-          <label className="group-manager-search"><Icon name="search" size={19} /><input value={friendQuery} onChange={(event) => setFriendQuery(event.target.value)} placeholder="Tìm kiếm bạn bè" /></label>
+          <label className="group-manager-search"><Icon name="search" size={19} /><input value={friendQuery} maxLength={INPUT_LIMITS.search} onChange={(event) => setFriendQuery(event.target.value)} placeholder="Tìm kiếm bạn bè" /></label>
           {error && <p className="group-manager-error" role="alert">{error}</p>}
           <div className="group-manager-member-list add-list">
             {addableFriends.map((person) => {
