@@ -47,31 +47,6 @@ const GROUP_QUICK_SEARCH_LIMIT = 8
 const GROUP_SCOPE_SEARCH_LIMIT = 24
 const EMPTY_GROUPS: GroupCollections = { joined: [], managed: [], pending: [], recent: [] }
 
-function groupRequestTimesStorageKey(userId: string) {
-  return `fakebook:group-request-times:${userId}`
-}
-
-function readGroupRequestTimes(userId: string): Record<string, string> {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(groupRequestTimesStorageKey(userId)) || '{}') as Record<string, unknown>
-    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => {
-      const [, value] = entry
-      return typeof value === 'string' && Number.isFinite(new Date(value).getTime())
-    }))
-  } catch {
-    return {}
-  }
-}
-
-function writeGroupRequestTimes(userId: string, times: Record<string, string>) {
-  try {
-    window.localStorage.setItem(groupRequestTimesStorageKey(userId), JSON.stringify(times))
-  } catch {
-    // Request timing is presentational metadata; a restricted storage context
-    // must not prevent membership actions from succeeding.
-  }
-}
-
 export function GroupsPage({ userId, profile, onNavigate }: { userId: string; profile?: SocialProfile | null; onNavigate: (path: string) => void }) {
   const { t, locale } = useI18n()
   const [collections, setCollections] = useState<GroupCollections>(EMPTY_GROUPS)
@@ -190,7 +165,8 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
         lastVisitedAt: group.visitedAt,
       }))
       const withVisit = (group: SocialGroup): GroupListItem => ({ ...group, lastVisitedAt: visitById.get(group.id) })
-      const pending = pendingResult.status === 'fulfilled' ? pendingResult.value.items.map(withVisit) : []
+      const pendingRequests = pendingResult.status === 'fulfilled' ? pendingResult.value.items : []
+      const pending = pendingRequests.map((request) => withVisit(request.group))
       setCollections({
         joined: joinedResult.status === 'fulfilled' ? joinedResult.value.items.map(withVisit) : [],
         managed: managedResult.status === 'fulfilled' ? managedResult.value.items.map(withVisit) : [],
@@ -201,13 +177,9 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
         const group = detailsById.get(notification.objectId)
         return group ? [{ group: withVisit(group), inviter: notification.actor, invitedAt: notification.createdAt }] : []
       }))
-      setPendingRequestedAt(() => {
-        const stored = readGroupRequestTimes(userId)
-        const now = new Date(Date.now()).toISOString()
-        const next = Object.fromEntries(pending.map((group) => [group.id, stored[group.id] || now]))
-        writeGroupRequestTimes(userId, next)
-        return next
-      })
+      setPendingRequestedAt(Object.fromEntries(
+        pendingRequests.map((request) => [request.group.id, request.requestedAt]),
+      ))
       setPartialError(results.some((result) => result.status === 'rejected'))
     } finally {
       setGroupsLoading(false)
@@ -409,7 +381,6 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
         setPendingRequestedAt((current) => {
           const next = { ...current }
           delete next[group.id]
-          writeGroupRequestTimes(userId, next)
           return next
         })
         setSuggestedGroups((current) => current.some((item) => item.group.id === group.id)
@@ -423,9 +394,7 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
           pending: [group, ...current.pending.filter((item) => item.id !== group.id)],
         }))
         setPendingRequestedAt((current) => {
-          const next = { ...current, [group.id]: requestedAt }
-          writeGroupRequestTimes(userId, next)
-          return next
+          return { ...current, [group.id]: requestedAt }
         })
       }
     } catch {
@@ -465,7 +434,6 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
       setPendingRequestedAt((current) => {
         const next = { ...current }
         delete next[group.id]
-        writeGroupRequestTimes(userId, next)
         return next
       })
     } catch {

@@ -560,6 +560,31 @@ describe('SocialGraph Gateway adapter', () => {
     }
   })
 
+  it('loads pending group requests with the server-owned requested timestamp', async () => {
+    gatewayGraphQl.mockResolvedValue({ pendingGroupJoinRequests: {
+      items: [{
+        group: {
+          id: '9007199254740993999', avatar: '/group.jpg', background: '', name: 'Pending group',
+          bio: '', privacy: 1, create: '2026-07-01T00:00:00Z', memberCount: 12, adminCount: 1,
+        },
+        requestedAt: '2026-07-15T09:30:00Z',
+      }],
+      endCursor: null,
+      hasNextPage: false,
+    } })
+
+    const page = await socialApi.getPendingGroupJoins('9007199254740993123', 50)
+
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('pendingGroupJoinRequests')
+    expect(gatewayGraphQl.mock.calls[0][0]).not.toContain('pendingGroupJoins(')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('items { group {')
+    expect(gatewayGraphQl.mock.calls[0][0]).toContain('requestedAt')
+    expect(page.items[0]).toMatchObject({
+      group: { id: '9007199254740993999', name: 'Pending group' },
+      requestedAt: '2026-07-15T09:30:00Z',
+    })
+  })
+
   it('loads the privacy-filtered group photo and video gallery through Gateway GraphQL', async () => {
     gatewayGraphQl.mockResolvedValue({ groupMedia: {
       items: [

@@ -162,6 +162,17 @@ interface GroupMembershipPage {
   hasNextPage: boolean
 }
 
+export interface PendingGroupJoin {
+  group: SocialGroup
+  requestedAt: string
+}
+
+interface PendingGroupJoinPage {
+  items: PendingGroupJoin[]
+  endCursor: string | null
+  hasNextPage: boolean
+}
+
 const PROFILE_FIELDS = `
   id avatar background name bio gender birthdate location privacy create verify
   isVerified friendCount followerCount followingCount
@@ -794,15 +805,25 @@ export function getProfileAdminGroups(userId: string, limit = 50, cursor: string
   return getProfileGroupMembershipPage(userId, 'profileAdminGroups', limit, cursor)
 }
 
-export async function getPendingGroupJoins(userId: string, limit = 50, cursor: string | null = null): Promise<GroupMembershipPage> {
+export async function getPendingGroupJoins(userId: string, limit = 50, cursor: string | null = null): Promise<PendingGroupJoinPage> {
   const id = graphQlLongLiteral(userId)
-  const data = await gatewayGraphQl<{ pendingGroupJoins: { items: Array<Record<string, unknown>>; endCursor: string | null; hasNextPage: boolean } }>(
-    `query PendingGroupJoins($limit: Int!, $cursor: String) {
-      pendingGroupJoins(userId: ${id}, limit: $limit, cursor: $cursor) { items { ${GROUP_FIELDS} } endCursor hasNextPage }
+  const data = await gatewayGraphQl<{ pendingGroupJoinRequests: { items: Array<{ group: Record<string, unknown>; requestedAt: string }>; endCursor: string | null; hasNextPage: boolean } }>(
+    `query PendingGroupJoinRequests($limit: Int!, $cursor: String) {
+      pendingGroupJoinRequests(userId: ${id}, limit: $limit, cursor: $cursor) {
+        items { group { ${GROUP_FIELDS} } requestedAt }
+        endCursor
+        hasNextPage
+      }
     }`,
     { limit, cursor },
   )
-  return { ...data.pendingGroupJoins, items: data.pendingGroupJoins.items.map(groupFromGraphQl) }
+  return {
+    ...data.pendingGroupJoinRequests,
+    items: data.pendingGroupJoinRequests.items.map((item) => ({
+      group: groupFromGraphQl(item.group),
+      requestedAt: String(item.requestedAt),
+    })),
+  }
 }
 
 export async function getGroupMembershipState(userId: string, groupId: string): Promise<GroupMembershipState> {

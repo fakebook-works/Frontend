@@ -87,7 +87,6 @@ const privateSuggestion = {
 
 describe('GroupsPage', () => {
   beforeEach(() => {
-    window.localStorage.clear()
     apiMocks.visitedGroups.mockReset().mockResolvedValue({ items: [], endCursor: null, hasNextPage: false })
     apiMocks.recommendedFeed.mockReset().mockResolvedValue([
       { postId: 'feed-1', post: {
@@ -290,7 +289,11 @@ describe('GroupsPage', () => {
   })
 
   it('restores pending requests in Discover after reload without treating them as joined groups', async () => {
-    socialMocks.getPendingGroupJoins.mockResolvedValue({ items: [privateGroup], endCursor: null, hasNextPage: false })
+    socialMocks.getPendingGroupJoins.mockResolvedValue({
+      items: [{ group: privateGroup, requestedAt: '2026-07-20T08:00:00Z' }],
+      endCursor: null,
+      hasNextPage: false,
+    })
     socialMocks.getGroupSuggestions.mockResolvedValue([publicSuggestion])
     const { container } = render(<GroupsPage userId="100" onNavigate={vi.fn()} />)
 
@@ -388,7 +391,11 @@ describe('GroupsPage', () => {
       items: [{ id: 'n-1', creatorId: inviter.id, receiverId: '100', actionType: 'GROUP_INVITE', objectId: invitedGroup.id, createdAt: new Date(now - 45 * 60_000).toISOString(), isRead: false, actor: inviter }],
       unreadCount: 1, endCursor: null, hasNextPage: false,
     })
-    socialMocks.getPendingGroupJoins.mockResolvedValue({ items: [requestedGroup], endCursor: null, hasNextPage: false })
+    socialMocks.getPendingGroupJoins.mockResolvedValue({
+      items: [{ group: requestedGroup, requestedAt: new Date(now - 3 * 24 * 60 * 60_000).toISOString() }],
+      endCursor: null,
+      hasNextPage: false,
+    })
     socialMocks.getGroups.mockImplementation(async (ids: string[]) => ids.includes(invitedGroup.id) ? [invitedGroup] : [])
 
     try {
