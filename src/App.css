@@ -6288,6 +6288,25 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 .share-post-preview .shared-source-body .shared-source-content { padding: 4px 10px 11px; font-size: .94rem; }
 .share-post-preview .post-media-gallery { max-height: 310px; }
 .share-post-preview .post-media-gallery.layout-single .post-media-slot { min-height: 180px; max-height: 310px; }
+.share-post-preview .post-video-controls {
+  min-height: 46px;
+  align-items: center;
+  gap: 5px;
+  padding: 14px 8px 7px;
+}
+.share-post-preview .post-video-control-button {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
+}
+.share-post-preview .post-video-control-button.play { margin-right: 0; }
+.share-post-preview .post-video-controls > time {
+  min-width: 58px;
+  height: 24px;
+  font-size: .7rem;
+}
+.share-post-preview .post-video-progress { min-width: 38px; height: 24px; }
+.share-post-preview .post-video-settings-menu { right: -34px; }
 .share-post-preview-unavailable { display: flex; align-items: center; gap: 8px; color: var(--secondary); font-size: .86rem; }
 .share-post-emoji-button { position: absolute; right: 2px; bottom: 7px; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; color: var(--secondary); background: transparent; }
 .share-post-emoji-button:hover { color: var(--text); background: var(--hover); }
