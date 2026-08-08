@@ -425,7 +425,10 @@ describe('GroupProfilePage', () => {
     expect(socialMocks.getGroupFriendMembers).toHaveBeenCalledWith('61', 12)
   })
 
-  it('scrolls both discussion columns and clamps the shorter group column', async () => {
+  it('maps the outer group-profile scrollbar to both discussion columns and clamps the shorter one', async () => {
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { top: this.classList.contains('group-profile-content-grid') ? 800 : 0 } as DOMRect
+    })
     const { container } = render(<div className="authenticated-destination-scroll"><GroupProfilePage groupId="61" userId="71" onBack={vi.fn()} onNavigate={vi.fn()} /></div>)
     await screen.findByTestId('group-composer')
 
@@ -445,21 +448,20 @@ describe('GroupProfilePage', () => {
       clientHeight: { configurable: true, value: 500 },
       scrollHeight: { configurable: true, value: 1000 },
     })
-    destinationViewport.scrollTop = 800
-    postColumn.scrollTop = 300
-    infoColumn.scrollTop = 400
+    act(() => window.dispatchEvent(new Event('resize')))
+    await waitFor(() => expect(container.querySelector<HTMLElement>('.group-profile-page')?.style.getPropertyValue('--profile-column-scroll-span')).toBe('1500px'))
 
-    fireEvent.wheel(grid, { deltaY: 250 })
-    await waitFor(() => {
-      expect(postColumn.scrollTop).toBeCloseTo(550, 1)
-      expect(infoColumn.scrollTop).toBe(500)
-    })
+    destinationViewport.scrollTop = 1050
+    fireEvent.scroll(destinationViewport)
+    expect(postColumn.scrollTop).toBe(250)
+    expect(infoColumn.scrollTop).toBe(250)
 
-    fireEvent.wheel(grid, { deltaY: 250 })
-    await waitFor(() => {
-      expect(postColumn.scrollTop).toBeCloseTo(800, 1)
-      expect(infoColumn.scrollTop).toBe(500)
-    })
+    destinationViewport.scrollTop = 1500
+    fireEvent.scroll(destinationViewport)
+    expect(postColumn.scrollTop).toBe(700)
+    expect(infoColumn.scrollTop).toBe(500)
+    expect(fireEvent.wheel(grid, { deltaY: 250 })).toBe(true)
+    rectSpy.mockRestore()
   })
 
   it('keeps a public-group join pending until an administrator approves it', async () => {

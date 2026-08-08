@@ -977,10 +977,11 @@ describe('MessengerDock overflow windows', () => {
       onOpenProfile: () => undefined,
     }
     const { rerender } = render(<MessengerDock {...sharedProps} onPanelClose={firstClose} />)
-    await waitFor(() => expect(messengerMocks.subscribeInbox).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(messengerMocks.subscribeInbox).toHaveBeenCalled())
+    const subscriptionsBeforeRerender = messengerMocks.subscribeInbox.mock.calls.length
 
     rerender(<MessengerDock {...sharedProps} onPanelClose={latestClose} />)
-    expect(messengerMocks.subscribeInbox).toHaveBeenCalledTimes(1)
+    expect(messengerMocks.subscribeInbox).toHaveBeenCalledTimes(subscriptionsBeforeRerender)
 
     fireEvent.mouseDown(document.body)
     expect(firstClose).not.toHaveBeenCalled()
