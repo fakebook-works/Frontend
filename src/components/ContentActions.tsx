@@ -6,6 +6,7 @@ import { socialApi, type ContentEngagement, type SocialGroup } from '../api/soci
 import type { GatewayMedia, GatewayPost, SharedPostSource, SharedStory } from '../api/gatewayTypes'
 import type { MessengerConversationDto, UserSummary } from '../api/types'
 import { Avatar } from './Avatar'
+import { BodyPortal } from './BodyPortal'
 import { ContentDetailShellClose } from './ContentDetailShellClose'
 import { Icon } from './Icon'
 import { GroupMembersIcon } from './GroupMembersIcon'
@@ -646,7 +647,7 @@ export function ShareModal({ viewerId, sourceId, canReshare, allowStory = true, 
     })
   }
 
-  return <div className="modal-backdrop content-modal-backdrop" role="presentation" onClick={() => !busy && onClose()}>
+  return <BodyPortal><div className="modal-backdrop share-post-backdrop" role="presentation" onClick={() => !busy && onClose()}>
     <section className="modal share-post-modal" role="dialog" aria-modal="true" aria-label={t('sharePost')} onClick={(event) => event.stopPropagation()}>
       <header className="modal-head home-post-modal-head share-post-head"><h2>{destinationGroup ? t('shareToGroup') : t('sharePost')}</h2><button type="button" className="icon-circle" aria-label={t('close')} onClick={onClose}><Icon name="close" /></button></header>
       <div className="share-post-body">
@@ -664,5 +665,5 @@ export function ShareModal({ viewerId, sourceId, canReshare, allowStory = true, 
       </div>
       <footer className="share-post-footer"><div className="share-post-quick-actions"><button type="button" className={messengerOpen ? 'messenger active' : 'messenger'} aria-label={t('sendInMessenger')} title={t('sendInMessenger')} aria-expanded={messengerOpen} disabled={busy != null} onClick={() => { setMessengerOpen((open) => !open); setGroupOpen(false) }}><Icon name="messenger" size={20} /></button>{canShareToStory && <button type="button" className="story" aria-label={t('shareToStory')} title={t('shareToStory')} disabled={busy != null} onClick={() => void share('story')}><Icon name="bookOpen" size={21} /></button>}<button type="button" className="copy" aria-label={t('copyLink')} title={t('copyLink')} disabled={busy != null} onClick={() => void copyLink()}><Icon name="link" size={20} /></button>{canReshare && <button type="button" className={groupOpen || destinationGroup ? 'group active' : 'group'} aria-label={t('shareToGroup')} title={t('shareToGroup')} disabled={busy != null} onClick={() => { setDestinationGroup(null); setGroupOpen((open) => !open); setMessengerOpen(false) }}><GroupMembersIcon size={21} /></button>}</div>{canReshare && <button type="button" className="btn-primary share-now-button" disabled={busy != null} onClick={() => void share('feed')}>{busy === 'feed' ? t('sharing') : destinationGroup ? t('shareToGroup') : t('shareNow')}</button>}</footer>
     </section>
-  </div>
+  </div></BodyPortal>
 }

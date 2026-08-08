@@ -796,6 +796,17 @@ describe('ContentActions refreshed overlays', () => {
     await waitFor(() => expect(socialMocks.sharePost).toHaveBeenCalledWith('1', '90', '', 0, 'group-8'))
   })
 
+  it('renders the Newsfeed share dialog in the document-level modal layer', async () => {
+    const { container } = render(<ContentActions viewerId="1" contentId="90" post={post} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'shareAction' }))
+    const dialog = await screen.findByRole('dialog', { name: 'sharePost' })
+
+    expect(dialog.parentElement).toHaveClass('modal-backdrop', 'share-post-backdrop')
+    expect(dialog.parentElement?.parentElement).toBe(document.body)
+    expect(container).not.toContainElement(dialog)
+  })
+
   it('renders a full unavailable post and disabled discussion shell for an inaccessible deep link', async () => {
     apiMocks.postDetail.mockResolvedValue(null)
     render(<ContentDetailOverlay viewerId="1" contentId="missing-post" onClose={vi.fn()} />)
