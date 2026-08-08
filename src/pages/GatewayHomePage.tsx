@@ -76,7 +76,7 @@ function removeStoryFromBucket(bucket: StoryBucket, storyId: string): StoryBucke
   return stories.length > 0 ? { ...bucket, latestCreate: stories[0].create, stories } : null
 }
 
-export function GatewayHomePage({ profile = null, friends: providedFriends, refreshToken = 0, detailPostId = null, onDetailClose, onNavigate, onOpenReel, onMessage, onNewConversation, onConversation }: {
+export const GatewayHomePage = memo(function GatewayHomePage({ profile = null, friends: providedFriends, refreshToken = 0, detailPostId = null, onDetailClose, onNavigate, onOpenReel, onMessage, onNewConversation, onConversation }: {
   profile?: UserProfile | null
   friends?: UserSummary[]
   refreshToken?: number
@@ -644,7 +644,7 @@ export function GatewayHomePage({ profile = null, friends: providedFriends, refr
     /></Suspense>}
     {user && detailPhotoViewer && <Suspense fallback={<div className="modal-backdrop content-modal-backdrop shared-detail-loading" role="presentation"><span className="spinner" /></div>}><PostPhotoViewer viewerId={user.userId} contentId={detailPhotoViewer.contentId} initialMediaId={detailPhotoViewer.mediaId} initialMediaUrl={detailPhotoViewer.mediaUrl} initialPlaybackTime={detailPhotoViewer.initialPlaybackTime} initialPost={detailPhotoViewer.initialPost} onClose={() => setDetailPhotoViewer(null)} onNavigate={onNavigate} onMessage={onMessage} onStoryCreated={applyCreatedStory} /></Suspense>}
   </>
-}
+})
 
 function ContactSearchIcon() {
   return <svg className="contact-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.3" /><path d="m14.95 14.95 4.75 4.75" /></svg>

@@ -1,4 +1,4 @@
-import { Activity, lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Activity, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { notificationApi, type AppNotification } from '../api/notifications'
 import type { GatewayMedia, GatewayPost } from '../api/gatewayTypes'
@@ -126,6 +126,16 @@ export function AuthenticatedApp() {
   const searchInputRef = useRef<HTMLInputElement>(null)
   const quickCloseTimerRef = useRef<number | null>(null)
   const messengerDockRef = useRef<MessengerDockHandle>(null)
+  const navigationHandlerRef = useRef<(path: string) => void>(() => undefined)
+  const homeReelHandlerRef = useRef<(reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void>(() => undefined)
+  const directMessageHandlerRef = useRef<(profileId: string) => Promise<void>>(() => Promise.resolve())
+  const newConversationHandlerRef = useRef<() => void>(() => undefined)
+  const conversationHandlerRef = useRef<(conversation: MessengerConversationDto) => void>(() => undefined)
+  const stableNavigation = useCallback((path: string) => navigationHandlerRef.current(path), [])
+  const stableHomeReel = useCallback((reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => homeReelHandlerRef.current(reel), [])
+  const stableDirectMessage = useCallback((profileId: string) => directMessageHandlerRef.current(profileId), [])
+  const stableNewConversation = useCallback(() => newConversationHandlerRef.current(), [])
+  const stableConversation = useCallback((conversation: MessengerConversationDto) => conversationHandlerRef.current(conversation), [])
   const seenNotificationIds = useRef(new Set<string>())
   const destinationScrollPositionsRef = useRef<Partial<Record<PrimaryDestination, number>>>({})
   const destinationViewportRef = useRef<HTMLDivElement>(null)
@@ -632,6 +642,12 @@ export function AuthenticatedApp() {
     go(item.kind === 'user' ? `/profile/${item.id}` : `/groups/${item.id}`)
   }
 
+  navigationHandlerRef.current = go
+  homeReelHandlerRef.current = openHomeReel
+  directMessageHandlerRef.current = openDirectMessage
+  newConversationHandlerRef.current = () => { messengerDockRef.current?.openComposer() }
+  conversationHandlerRef.current = (conversation) => { messengerDockRef.current?.openConversation(conversation) }
+
   return <div className={isGroupsRoute ? 'authenticated-app groups-route' : isFriendsRoute ? 'authenticated-app friends-route' : isSearchRoute ? 'authenticated-app search-results-route' : 'authenticated-app'}>
     <header className={overlayRoute?.kind === 'content' ? 'app-shell-topbar is-content-detail' : overlayRoute ? 'app-shell-topbar is-media-overlay' : 'app-shell-topbar'}>
       <div className="shell-brand-search-anchor">
@@ -687,7 +703,7 @@ export function AuthenticatedApp() {
 
     <div ref={destinationViewportRef} className={`authenticated-destination-scroll${isReelsRoute ? ' is-reels' : location.pathname === '/messenger' ? ' is-messenger' : ''}`} data-testid="destination-scroll-root">
       <div className="authenticated-destination-content">
-    {(activePrimaryDestination === 'home' || mountedDestinations.has('home')) && <ActivityVisibilityProvider active={activePrimaryDestination === 'home'}><Activity name="home-destination" mode={activePrimaryDestination === 'home' ? 'visible' : 'hidden'}><GatewayHomePage profile={currentProfile} friends={friends} onNavigate={go} onOpenReel={openHomeReel} onMessage={openDirectMessage} onNewConversation={() => messengerDockRef.current?.openComposer()} onConversation={(conversation) => messengerDockRef.current?.openConversation(conversation)} /></Activity></ActivityVisibilityProvider>}
+    {(activePrimaryDestination === 'home' || mountedDestinations.has('home')) && <ActivityVisibilityProvider active={activePrimaryDestination === 'home'}><Activity name="home-destination" mode={activePrimaryDestination === 'home' ? 'visible' : 'hidden'}><GatewayHomePage profile={currentProfile} friends={friends} onNavigate={stableNavigation} onOpenReel={stableHomeReel} onMessage={stableDirectMessage} onNewConversation={stableNewConversation} onConversation={stableConversation} /></Activity></ActivityVisibilityProvider>}
     {location.pathname === '/search' && <SearchPage query={location.params.get('q') ?? ''} tab={searchTab} userId={user.userId} onNavigate={go} onMessage={openDirectMessage} />}
     {(activePrimaryDestination === 'friends' || mountedDestinations.has('friends')) && <ActivityVisibilityProvider active={activePrimaryDestination === 'friends'}><Activity name="friends-destination" mode={activePrimaryDestination === 'friends' ? 'visible' : 'hidden'}><FriendsPage userId={user.userId} section={lastFriendsSectionRef.current} onNavigate={go} onOpenReel={openProfileReel} onOpenPhoto={openProfilePhoto} onMessage={openDirectMessage} /></Activity></ActivityVisibilityProvider>}
     {(activePrimaryDestination === 'reels' || mountedDestinations.has('reels')) && REEL_MODES.map((reelMode) => {
