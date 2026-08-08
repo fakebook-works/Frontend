@@ -443,6 +443,24 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
     }
   }
 
+  async function acceptGroupInvitation(group: SocialGroup) {
+    setMembershipActionGroupId(group.id)
+    setGroupsError(null)
+    try {
+      if (!await socialApi.requestJoinGroup(userId, group.id)) throw new Error('Join rejected')
+      const requestedAt = new Date(Date.now()).toISOString()
+      setCollections((current) => ({
+        ...current,
+        pending: [group, ...current.pending.filter((item) => item.id !== group.id)],
+      }))
+      setPendingRequestedAt((current) => ({ ...current, [group.id]: requestedAt }))
+    } catch {
+      setGroupsError(t('joinGroupError'))
+    } finally {
+      setMembershipActionGroupId(null)
+    }
+  }
+
   if (creating) {
     return <CreateGroupExperience userId={userId} profile={profile} onClose={() => setCreating(false)} onCreated={(group) => {
       setCreating(false)
@@ -501,7 +519,7 @@ export function GroupsPage({ userId, profile, onNavigate }: { userId: string; pr
         <section className="groups-directory-section" data-section="invited">
           <header className="groups-section-heading groups-directory-heading groups-hub-title-row"><h1 className="groups-hub-heading-text">{t('groupInvitationsCount', { count: visibleInvitations.length })}</h1></header>
           {groupsLoading ? <GroupsContentSkeleton cards /> : visibleInvitations.length > 0
-            ? <GroupMembershipGrid groups={visibleInvitations.map((item) => item.group)} locale={locale} onNavigate={onNavigate} directory events={invitationEvents} onActionError={setGroupsError} />
+            ? <GroupMembershipGrid groups={visibleInvitations.map((item) => item.group)} locale={locale} onNavigate={onNavigate} directory events={invitationEvents} busyId={membershipActionGroupId} onAcceptInvitation={(group) => void acceptGroupInvitation(group)} onActionError={setGroupsError} />
             : <GroupEmptyState title={t('groupInvitationsEmpty')} detail={t('groupInvitationsEmptyDesc')} />}
         </section>
       </div> : section === 'requested' ? <div className="groups-your-directory groups-event-directory">
@@ -582,7 +600,7 @@ function GroupSidebarNavIcon({ kind }: { kind: 'feed' | 'discover' | 'your' | 'i
   return <Icon name={kind === 'invited' ? 'gift' : 'clock'} size={22} className={`group-sidebar-nav-glyph group-sidebar-${kind}-glyph`} />
 }
 
-function GroupMembershipGrid({ groups, locale, onNavigate, directory = false, events, busyId = null, onLeave, onCancelRequest, onActionError }: {
+function GroupMembershipGrid({ groups, locale, onNavigate, directory = false, events, busyId = null, onLeave, onAcceptInvitation, onCancelRequest, onActionError }: {
   groups: SocialGroup[]
   locale: string
   onNavigate: (path: string) => void
@@ -590,6 +608,7 @@ function GroupMembershipGrid({ groups, locale, onNavigate, directory = false, ev
   events?: Record<string, GroupDirectoryEvent>
   busyId?: string | null
   onLeave?: (group: SocialGroup) => void
+  onAcceptInvitation?: (group: SocialGroup) => void
   onCancelRequest?: (group: SocialGroup) => void
   onActionError?: (message: string) => void
 }) {
@@ -618,6 +637,16 @@ function GroupMembershipGrid({ groups, locale, onNavigate, directory = false, ev
     const event = events?.[group.id]
     const eventTime = event ? relativeTime(event.occurredAt, locale) : ''
     const menuOpen = menuGroupId === group.id
+    const primaryLabel = event?.kind === 'invited' && onAcceptInvitation
+      ? t('acceptGroupInvitation')
+      : event?.kind === 'requested' && onCancelRequest
+        ? t('cancel')
+        : t('viewGroup')
+    const runPrimaryAction = () => {
+      if (event?.kind === 'invited' && onAcceptInvitation) onAcceptInvitation(group)
+      else if (event?.kind === 'requested' && onCancelRequest) onCancelRequest(group)
+      else onNavigate(`/groups/${group.id}`)
+    }
     const moreMenu = <div className="groups-more-menu-host"><button type="button" className="groups-more-button" aria-label={t('more')} aria-haspopup="menu" aria-expanded={menuOpen} disabled={busyId === group.id} onClick={(clickEvent) => {
       const open = !menuOpen
       setMenuGroupId(open ? group.id : null)
@@ -642,7 +671,7 @@ function GroupMembershipGrid({ groups, locale, onNavigate, directory = false, ev
             {event?.kind === 'invited' ? <span className="groups-directory-event groups-directory-invitation-event"><Avatar name={event.actor?.displayName || t('fakebookUser')} src={event.actor?.avatarUrl} size={22} /><small>{t('groupInvitedByAgo', { name: event.actor?.displayName || t('fakebookUser'), time: eventTime || t('groupRecentlyActive') })}</small></span> : event?.kind === 'requested' ? <small className="groups-directory-muted-copy groups-directory-request-event">{t('groupRequestedAgo', { time: eventTime || t('groupRecentlyActive') })}</small> : <><small className="groups-directory-muted-copy">{t('groupLastVisitedLabel')}</small><small className="groups-directory-muted-copy">{time || t('groupActivityUnavailable')}</small></>}
           </span>
         </button>
-        <div className="groups-directory-group-actions"><button type="button" className="groups-view-button" onClick={() => onNavigate(`/groups/${group.id}`)}>{t('viewGroup')}</button>{moreMenu}</div>
+        <div className="groups-directory-group-actions"><button type="button" className="groups-view-button" disabled={busyId === group.id} onClick={runPrimaryAction}>{busyId === group.id ? t('working') : primaryLabel}</button>{moreMenu}</div>
       </article>
     }
     return <article className="groups-membership-card" key={group.id}>

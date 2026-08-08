@@ -406,15 +406,17 @@ describe('GroupsPage', () => {
       expect(screen.getByText('groupInvitedByAgo')).toBeInTheDocument()
       expect(container.querySelector('.groups-directory-invitation-event .avatar')).toHaveStyle({ width: '22px', height: '22px' })
       expect(screen.queryByText('groupLastVisitedLabel')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'acceptGroupInvitation' }))
+      await waitFor(() => expect(socialMocks.requestJoinGroup).toHaveBeenCalledWith('100', invitedGroup.id))
+      expect(screen.queryByText(invitedGroup.name)).not.toBeInTheDocument()
 
       fireEvent.click(screen.getByRole('button', { name: 'groupRequestedNav' }))
       expect(await screen.findByText(requestedGroup.name)).toBeInTheDocument()
-      expect(screen.getByText('groupRequestedAgo')).toBeInTheDocument()
+      expect(screen.getAllByText('groupRequestedAgo')).toHaveLength(2)
       expect(screen.queryByText('groupLastVisitedLabel')).not.toBeInTheDocument()
 
       const requestedCard = screen.getByText(requestedGroup.name).closest('.groups-membership-card-directory') as HTMLElement
-      fireEvent.click(within(requestedCard).getByRole('button', { name: 'more' }))
-      fireEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: /cancelJoinRequest/ }))
+      fireEvent.click(within(requestedCard).getByRole('button', { name: 'cancel' }))
       await waitFor(() => expect(socialMocks.cancelJoinGroupRequest).toHaveBeenCalledWith('100', requestedGroup.id))
       expect(screen.queryByText(requestedGroup.name)).not.toBeInTheDocument()
     } finally {
