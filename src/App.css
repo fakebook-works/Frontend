@@ -10576,10 +10576,11 @@ body.reels-library-viewer-open.mini-chat-bubble-rail-open .reels-page.is-library
   body.home-page-scroll .authenticated-destination-scroll .gateway-left-rail {
     /* 10px + the rail's 8px internal padding matches the right rail's
        6px + 4px module padding. The negative margin removes the duplicate
-       internal offset; keep the shortcut axis aligned with the shell logo. */
+       internal offset; keep both separator edges equally inset from the
+       viewport. */
     top: 10px;
     margin-top: -8px;
-    transform: translateX(-4px);
+    transform: translateX(0);
   }
   body.home-page-scroll .authenticated-destination-scroll .gateway-right-rail { top: 6px; }
 }
