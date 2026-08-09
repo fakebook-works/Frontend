@@ -7434,7 +7434,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
   grid-template-columns: 36px minmax(0, 1fr);
   justify-content: initial !important;
   gap: 8px !important;
-  padding: 0 8px 0 max(15px, calc((100vw - 1560px) / 2 + 15px)) !important;
+  padding: 0 8px 0 15px !important;
 }
 .friend-directory-header h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .friend-directory-back {
@@ -7451,7 +7451,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 .friend-directory-back:hover { background: var(--hover); }
 .groups-search-row.friend-directory-search-row {
   flex: 0 0 var(--topbar-h);
-  padding-left: max(15px, calc((100vw - 1560px) / 2 + 15px));
+  padding-left: 7px;
 }
 .friend-directory-search-shell { position: static; }
 .friend-directory-state { min-height: 180px; display: grid; place-items: center; }
