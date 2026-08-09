@@ -289,6 +289,17 @@ describe('AuthenticatedApp routing and navigation', () => {
     expect(window.location.pathname).toBe('/home')
   })
 
+  it('closes a detailed post overlay with Escape', async () => {
+    render(<AuthenticatedApp />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-home-post' }))
+    expect(await screen.findByTestId('content-overlay')).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByTestId('content-overlay')).not.toBeInTheDocument())
+    expect(window.location.pathname).toBe('/')
+  })
+
   it('treats repeated Reel close requests as one history operation', () => {
     render(<AuthenticatedApp />)
     fireEvent.click(screen.getByRole('button', { name: 'open-home-reel' }))

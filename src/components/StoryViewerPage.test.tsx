@@ -362,6 +362,15 @@ describe('StoryViewerPage', () => {
     shellTarget.remove()
   })
 
+  it('closes the viewer with Escape when no story subpanel is open', () => {
+    const onClose = vi.fn()
+    renderViewer([textBucket(ownerId, 'Owner')], ownerId, { onClose })
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('uses the compact no-viewers state and hides a zero owner like count', async () => {
     const ownerBucket = textBucket(ownerId, 'Owner')
     socialMocks.getContentEngagement.mockResolvedValue({

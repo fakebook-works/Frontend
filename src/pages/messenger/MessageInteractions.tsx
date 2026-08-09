@@ -9,6 +9,7 @@ import { MessengerMediaImage } from './MediaGallery'
 import './MessageInteractions.css'
 
 const QUICK_REACTIONS = ['🌺', '👀', '😱', '😢', '🙀', '👌'] as const
+const EXTENDED_REACTIONS = ['❤️', '👍', '😂', '😮', '😡', '🎉', '🔥', '💯', '🙏', '👏', '✨', '😎'] as const
 
 const hoverTimestampHideListeners = new Set<() => void>()
 
@@ -114,6 +115,7 @@ export function MessageActionRail({
   onForward,
 }: MessageActionRailProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [showMoreReactions, setShowMoreReactions] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [pending, setPending] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -122,7 +124,7 @@ export function MessageActionRail({
   const pickerLayerRef = useRef<HTMLDivElement>(null)
   const menuLayerRef = useRef<HTMLDivElement>(null)
   const selectedReaction = message.reactions?.find((reaction) => reaction.userId === viewerId)?.emoji ?? null
-  const pickerPosition = useFloatingPosition(pickerOpen, reactionButtonRef, pickerLayerRef, mine ? 'end' : 'start', pickerOpen)
+  const pickerPosition = useFloatingPosition(pickerOpen, reactionButtonRef, pickerLayerRef, mine ? 'end' : 'start', showMoreReactions)
   const menuPosition = useFloatingPosition(moreOpen, moreButtonRef, menuLayerRef, mine ? 'start' : 'end', mine)
 
   useEffect(() => {
@@ -131,6 +133,7 @@ export function MessageActionRail({
       const target = event.target as Node
       if (!rootRef.current?.contains(target) && !pickerLayerRef.current?.contains(target) && !menuLayerRef.current?.contains(target)) {
         setPickerOpen(false)
+        setShowMoreReactions(false)
         setMoreOpen(false)
       }
     }
@@ -154,6 +157,7 @@ export function MessageActionRail({
     try {
       await onReact(selectedReaction === emoji ? null : emoji)
       setPickerOpen(false)
+      setShowMoreReactions(false)
     } finally {
       setPending(false)
     }
@@ -173,13 +177,14 @@ export function MessageActionRail({
   return <div ref={rootRef} className={`message-action-rail ${mine ? 'mine' : 'received'}${compact ? ' compact' : ''}${pickerOpen || moreOpen ? ' open' : ''}`}>
     <button ref={moreButtonRef} type="button" className="message-action-button more" aria-label="Tùy chọn khác" title="Tùy chọn khác" disabled={pending} onClick={() => { setMoreOpen((value) => !value); setPickerOpen(false) }}><MoreIcon /></button>
     <button type="button" className="message-action-button reply" aria-label="Trả lời" title="Trả lời" disabled={pending} onClick={onReply}><ReplyIcon /></button>
-    <button ref={reactionButtonRef} type="button" className={`message-action-button react${pickerOpen ? ' active' : ''}`} aria-label="Bày tỏ cảm xúc" title="Bày tỏ cảm xúc" disabled={pending} onClick={() => { setPickerOpen((value) => !value); setMoreOpen(false) }}><ReactionIcon /></button>
+    <button ref={reactionButtonRef} type="button" className={`message-action-button react${pickerOpen ? ' active' : ''}`} aria-label="Bày tỏ cảm xúc" title="Bày tỏ cảm xúc" disabled={pending} onClick={() => { setPickerOpen((value) => !value); setShowMoreReactions(false); setMoreOpen(false) }}><ReactionIcon /></button>
 
-    {pickerOpen && createPortal(<div ref={pickerLayerRef} className="message-reaction-picker floating" style={pickerPosition} role="menu" aria-label="Chọn cảm xúc">
+    {pickerOpen && createPortal(<div ref={pickerLayerRef} className={`message-reaction-picker floating${showMoreReactions ? ' expanded' : ''}`} style={pickerPosition} role="menu" aria-label="Chọn cảm xúc">
       <div className="message-reaction-row">
         {QUICK_REACTIONS.map((emoji) => <button key={emoji} type="button" role="menuitemradio" aria-checked={selectedReaction === emoji} className={selectedReaction === emoji ? 'selected' : ''} disabled={pending} onClick={() => void chooseReaction(emoji)}>{emoji}</button>)}
-        <button type="button" className="reaction-more" aria-label="Thêm cảm xúc" onClick={() => undefined}><span className="reaction-plus-glyph" aria-hidden="true" /></button>
+        <button type="button" className="reaction-more" aria-label="Thêm cảm xúc" aria-expanded={showMoreReactions} onClick={() => setShowMoreReactions((value) => !value)}><span className="reaction-plus-glyph" aria-hidden="true" /></button>
       </div>
+      {showMoreReactions && <div className="message-reaction-more-row" aria-label="Cảm xúc khác">{EXTENDED_REACTIONS.map((emoji) => <button key={emoji} type="button" role="menuitemradio" aria-checked={selectedReaction === emoji} className={selectedReaction === emoji ? 'selected' : ''} disabled={pending} onClick={() => void chooseReaction(emoji)}>{emoji}</button>)}</div>}
     </div>, document.body)}
 
     {moreOpen && createPortal(<div ref={menuLayerRef} className="message-more-menu floating" style={menuPosition} role="menu" aria-label="Tùy chọn tin nhắn">
@@ -322,7 +327,7 @@ export function MessageReplyPreview({ message, missing = false, composer = false
     ? <MessengerMediaImage attachment={firstAttachment} alt="" />
     : sourceKind === 'file'
       ? <span><em>{attachmentKind === 'audio' ? 'Tin nhắn thoại' : attachmentKind === 'video' ? 'Video đính kèm' : 'File đính kèm'}</em><PaperclipIcon /></span>
-      : <span>{missing ? 'Tin nhắn không còn tồn tại' : preview}</span>
+      : <span className="message-reply-text">{missing ? 'Tin nhắn không còn tồn tại' : preview}</span>
 
   return <div className={`message-reply-preview sent ${sourceKind}${attachmentKind === 'audio' ? ' voice' : ''}${compact ? ' compact' : ''}`}>
     <small className="message-reply-context"><ReplyContextIcon />{actorName} đã trả lời {targetName}</small>

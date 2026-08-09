@@ -328,6 +328,17 @@ describe('MessengerDock overflow windows', () => {
     expect(document.body).not.toHaveClass('mini-chat-bubble-rail-open')
   })
 
+  it('closes a focused Home chat preview with Escape', async () => {
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: 'open-2' }))
+    const chat = await screen.findByRole('region', { name: 'Friend 2' })
+    within(chat).getByRole('button', { name: 'minimize' }).focus()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Friend 2' })).not.toBeInTheDocument())
+  })
+
   it('keeps the real online presence indicator on a minimized chat avatar', async () => {
     messengerMocks.presence.mockResolvedValue([{
       userId: '2',

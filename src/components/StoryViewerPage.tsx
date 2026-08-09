@@ -188,6 +188,24 @@ export function StoryViewerPage({
         : 'other'
   const effectivePaused = paused || panelOpen || menuOpen
 
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      if (menuOpen) {
+        setMenuOpen(false)
+        return
+      }
+      if (panelOpen) {
+        setPanelOpen(false)
+        return
+      }
+      onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [menuOpen, onClose, panelOpen])
+
   const loadSharedPostDetail = useCallback((sourceId: string) => {
     if (sharedPostDetailCacheRef.current.has(sourceId) || sharedPostDetailRequestsRef.current.has(sourceId)) return
     sharedPostDetailRequestsRef.current.add(sourceId)

@@ -155,6 +155,7 @@ export function PostContent({
       {collapsible && (
         <>
           {!expanded && <span aria-hidden="true">… </span>}
+          {expanded && ' '}
           <button
             type="button"
             className="post-content-toggle"

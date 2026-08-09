@@ -59,6 +59,18 @@ describe('Messenger message interactions', () => {
     await waitFor(() => expect(onReact).toHaveBeenCalledWith(null))
   })
 
+  it('expands the additional reaction picker from the plus control', async () => {
+    const onReact = vi.fn().mockResolvedValue(undefined)
+    render(<MessageActionRail message={makeMessage()} viewerId="1" mine onReact={onReact} onReply={() => undefined} onRecall={() => undefined} onForward={() => undefined} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bày tỏ cảm xúc' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm cảm xúc' }))
+
+    expect(screen.getByRole('button', { name: 'Thêm cảm xúc' })).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '🎉' }))
+    await waitFor(() => expect(onReact).toHaveBeenCalledWith('🎉'))
+  })
+
   it('shows recall and forward for an own message but never exposes unsupported pin', () => {
     render(<MessageActionRail message={makeMessage()} viewerId="1" mine onReact={() => undefined} onReply={() => undefined} onRecall={() => undefined} onForward={() => undefined} />)
 
@@ -169,5 +181,12 @@ describe('Messenger message interactions', () => {
     rerender(<MessageReplyPreview message={{ ...target, body: '', attachments: [{ url: '/voice.webm', type: 'audio', contentType: 'audio/webm', size: 1, name: 'voice.webm' }] }} viewerId="1" replyingSender={me} />)
     expect(container.querySelector('.message-reply-preview')).toHaveClass('voice')
     expect(screen.getByText('Tin nhắn thoại')).toBeTruthy()
+  })
+
+  it('marks a long text reply as an ellipsis-truncated preview', () => {
+    const longTarget = { ...makeMessage(), body: 'This reply preview is intentionally much longer than the available chat bubble width.' }
+    const { container } = render(<MessageReplyPreview message={longTarget} viewerId="1" replyingSender={makeMessage().sender} />)
+
+    expect(container.querySelector('.message-reply-text')).toBeInTheDocument()
   })
 })

@@ -577,7 +577,7 @@ function PasswordResetModal({ initialEmail, onClose }: { initialEmail: string; o
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={() => !busy && onClose()}>
-      <div className="modal auth-flow-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      <div className="modal auth-flow-modal password-reset-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <header className="modal-head"><h2>{t('resetPassword')}</h2><button type="button" className="icon-circle subtle" onClick={onClose} aria-label={t('close')}>✕</button></header>
         <div className="modal-body">
           {step === 'request' && <form className="security-form" onSubmit={requestCode}><p>{t('resetPasswordIntro')}</p><label><span>{t('emailAddress')}</span><input type="email" maxLength={INPUT_LIMITS.email} autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>{message && <p className="form-error">{message}</p>}<button type="submit" className="btn-primary block" disabled={busy || !email.trim()}>{busy ? t('sending') : t('sendResetCode')}</button></form>}

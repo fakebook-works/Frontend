@@ -102,9 +102,10 @@ describe('PostContent truncation measurement', () => {
 
     fireEvent.click(expand)
     expect(document.querySelector('p')).toHaveTextContent(content)
-    expect(screen.getByRole('button', { name: 'seeLess' })).toBeInTheDocument()
+    const collapse = screen.getByRole('button', { name: 'seeLess' })
+    expect(collapse.previousSibling?.textContent).toBe(' ')
 
-    fireEvent.click(screen.getByRole('button', { name: 'seeLess' }))
+    fireEvent.click(collapse)
     expect(document.querySelector('p')).not.toHaveTextContent(content)
     expect(screen.getByRole('button', { name: 'seeMore' })).toBeInTheDocument()
   })

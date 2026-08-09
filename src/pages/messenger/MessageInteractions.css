@@ -97,6 +97,7 @@
 }
 
 .message-reaction-row { height: 40px; display: flex; align-items: center; justify-content: center; gap: 1px; }
+.message-reaction-more-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; max-width: 250px; padding-top: 4px; border-top: 1px solid rgb(255 255 255 / 10%); }
 .message-reaction-row button {
   width: 39px;
   height: 39px;
@@ -339,6 +340,12 @@
   white-space: pre-wrap;
   font-size: .9375rem;
   line-height: 1.35;
+}
+.message-reply-source > .message-reply-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .message-reply-preview.file .message-reply-source > span { min-width: 136px; justify-content: space-between; }
 .message-reply-preview.voice .message-reply-source > span { min-width: 0; justify-content: flex-start; gap: 5px; }

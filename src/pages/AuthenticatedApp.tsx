@@ -141,6 +141,7 @@ export function AuthenticatedApp() {
   const destinationViewportRef = useRef<HTMLDivElement>(null)
   const overlayContentSeedRef = useRef<{ viewerId: string; contentId: string; post: GatewayPost } | null>(null)
   const overlayClosePendingRef = useRef(false)
+  const closeOverlayRef = useRef<() => void>(() => undefined)
   const lastFriendsSectionRef = useRef(normalizeFriendSection(isFriendsRoute ? pathSegment(location.pathname, 1) : null))
   const lastReelModeRef = useRef(normalizeReelMode(isReelsRoute ? pathSegment(location.pathname, 1) : null))
 
@@ -168,6 +169,17 @@ export function AuthenticatedApp() {
   useEffect(() => {
     overlayClosePendingRef.current = false
   }, [browserLocation.pathname, browserLocation.search])
+
+  useEffect(() => {
+    if (overlayRoute?.kind !== 'content') return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      event.preventDefault()
+      closeOverlayRef.current()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [overlayRoute?.kind])
 
   useEffect(() => {
     if (overlayRoute) return
@@ -459,6 +471,7 @@ export function AuthenticatedApp() {
     }
     navigate(backgroundHref ?? fallbackBackgroundHref(overlayRoute), { replace: true, state: {} })
   }
+  closeOverlayRef.current = closeOverlay
 
   function replaceMediaOverlay(contentId: string, mediaId: string) {
     if (overlayRoute?.kind !== 'media') return

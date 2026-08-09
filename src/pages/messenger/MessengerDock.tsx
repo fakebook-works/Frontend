@@ -252,6 +252,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
   const [composeToolsConversationId, setComposeToolsConversationId] = useState<string | null>(null)
   const [expandedEditHistoryIds, setExpandedEditHistoryIds] = useState<Set<string>>(() => new Set())
   const [bubblePreviewAnchor, setBubblePreviewAnchor] = useState<BubblePreviewAnchor | null>(null)
+  const closeChatRef = useRef<(conversationId: string) => void>(() => undefined)
   const translateRef = useRef(t)
   translateRef.current = t
   const onPanelCloseRef = useRef(onPanelClose)
@@ -1288,6 +1289,21 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
     })
     setBubblePreviewAnchor((current) => current?.conversationId === conversationId ? null : current)
   }
+  closeChatRef.current = closeChat
+
+  useEffect(() => {
+    const closeFocusedPreviewOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      if (document.querySelector('.message-reaction-picker, .message-more-menu')) return
+      const focusedWindow = document.activeElement?.closest<HTMLElement>('.mini-chat-window[data-conversation-id]')
+      const conversationId = focusedWindow?.dataset.conversationId
+      if (!conversationId) return
+      event.preventDefault()
+      closeChatRef.current(conversationId)
+    }
+    document.addEventListener('keydown', closeFocusedPreviewOnEscape)
+    return () => document.removeEventListener('keydown', closeFocusedPreviewOnEscape)
+  }, [])
 
   function showBubblePreview(conversationId: string, element: HTMLElement) {
     const rect = element.getBoundingClientRect()
@@ -1484,7 +1500,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         if (target instanceof Element && target.closest('[data-chat-read-ignore="true"]')) return
         markConversationRead(conversation.id)
       }
-      return <section className={`mini-chat-window${needsAttention ? ' has-attention' : ''}`} key={conversation.id} aria-label={name} onPointerDownCapture={(event) => readFromChatInteraction(event.target)} onClickCapture={(event) => readFromChatInteraction(event.target)}>
+      return <section className={`mini-chat-window${needsAttention ? ' has-attention' : ''}`} key={conversation.id} data-conversation-id={conversation.id} aria-label={name} onPointerDownCapture={(event) => readFromChatInteraction(event.target)} onClickCapture={(event) => readFromChatInteraction(event.target)}>
         <header className="mini-chat-head">
           <button type="button" className="mini-chat-id" onClick={() => {
             if (conversation.type === 'GROUP') setManagedGroupId(conversation.id)
