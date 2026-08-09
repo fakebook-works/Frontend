@@ -9221,7 +9221,7 @@ body.authenticated-shell-scroll {
 }
 
 html.home-page-scroll,
-body.home-page-scroll { background: var(--bg); }
+body.home-page-scroll { background: var(--browser-chrome-surface); }
 
 html.profile-page-scroll,
 body.profile-page-scroll {
@@ -10041,7 +10041,7 @@ html.reels-page-scroll,
 body.reels-page-scroll {
   height: 100%;
   overflow: hidden;
-  background: #000;
+  background: var(--browser-chrome-surface);
 }
 
 .reels-page {

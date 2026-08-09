@@ -9,6 +9,17 @@ const THEME_COLORS: Record<Theme, string> = {
   dark: '#242526',
 }
 
+function updateThemeMeta(name: 'color-scheme' | 'theme-color', content: string) {
+  const current = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)
+  if (!current) return
+  current.content = content
+
+  // Safari can retain the old toolbar tint when only the content attribute is
+  // mutated in a single-page app. Replacing the same, unique metadata node
+  // prompts WebKit to reevaluate the surrounding browser UI without a reload.
+  if (name === 'theme-color') current.replaceWith(current.cloneNode(true))
+}
+
 function getInitialTheme(): Theme {
   if (typeof window === 'undefined') return 'light'
 
@@ -36,11 +47,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     document.documentElement.style.colorScheme = theme
-    document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]')?.setAttribute('content', theme)
-    document.querySelector<HTMLMetaElement>('#theme-color, meta[name="theme-color"]')?.setAttribute(
-      'content',
-      THEME_COLORS[theme],
-    )
+    updateThemeMeta('color-scheme', theme)
+    updateThemeMeta('theme-color', THEME_COLORS[theme])
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme)
     } catch {
