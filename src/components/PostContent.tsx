@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import type { MentionDisplayUser } from '../lib/mentions'
 import { buildMentionTruncationMap } from '../lib/mentionTruncation'
 import { MentionContent } from './MentionContent'
@@ -26,8 +26,7 @@ export function PostContent({
   const [collapsible, setCollapsible] = useState(false)
   const [collapsedContent, setCollapsedContent] = useState(content)
 
-  // Reset when content changes (e.g. post edited)
-  useEffect(() => {
+  useLayoutEffect(() => {
     setExpanded(false)
     setCollapsedContent(content)
     setCollapsible(false)
@@ -71,7 +70,10 @@ export function PostContent({
 
     const measure = (force = false, allowOffscreen = false) => {
       if (!allowOffscreen && !targetNearViewport()) return
-      const width = root.getBoundingClientRect().width || root.clientWidth
+      const outerWidth = root.getBoundingClientRect().width || root.clientWidth
+      const computed = window.getComputedStyle(root)
+      const horizontalPadding = (Number.parseFloat(computed.paddingLeft) || 0) + (Number.parseFloat(computed.paddingRight) || 0)
+      const width = Math.max(0, outerWidth - horizontalPadding)
 
       if (!force && Math.abs(width - lastMeasuredWidth) < .5) return
       lastMeasuredWidth = width
@@ -85,7 +87,6 @@ export function PostContent({
         return
       }
 
-      const computed = window.getComputedStyle(root)
       const lineHeight =
         Number.parseFloat(computed.lineHeight) ||
         (Number.parseFloat(computed.fontSize) || 16) * 1.52

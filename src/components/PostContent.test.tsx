@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PostContent } from './PostContent'
 
@@ -91,5 +91,21 @@ describe('PostContent truncation measurement', () => {
     const { container } = render(<article className="gateway-post"><PostContent content="Visible post" mentions={[]} /></article>)
 
     expect(container.querySelector('article > p')).toHaveTextContent('Visible post')
+  })
+
+  it('expands and collapses long post content from the inline toggle', async () => {
+    const content = 'Long post content '.repeat(40)
+    render(<PostContent content={content} mentions={[]} />)
+
+    const expand = await screen.findByRole('button', { name: 'seeMore' })
+    expect(document.querySelector('p')).not.toHaveTextContent(content)
+
+    fireEvent.click(expand)
+    expect(document.querySelector('p')).toHaveTextContent(content)
+    expect(screen.getByRole('button', { name: 'seeLess' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'seeLess' }))
+    expect(document.querySelector('p')).not.toHaveTextContent(content)
+    expect(screen.getByRole('button', { name: 'seeMore' })).toBeInTheDocument()
   })
 })
