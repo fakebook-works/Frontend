@@ -624,7 +624,8 @@ select {
   justify-items: center;
   padding: 4px 0 20px;
 }
-.feed-auto-loader { min-height: 42px; place-items: center; }
+.feed-auto-loader { width: 100%; min-height: 42px; place-items: center; }
+.feed-auto-loader > .home-feed-skeleton { width: 100%; justify-self: stretch; }
 
 /* ---------------- Premium / Payment ---------------- */
 .premium-page {
@@ -4518,9 +4519,11 @@ select option {
 .discovery-sidebar nav button.active > span { --discovery-nav-icon-bg: var(--blue); --friend-people-cutout: var(--discovery-nav-icon-bg); --group-members-icon-cutout: var(--discovery-nav-icon-bg); color: #fff; background: var(--blue); }
 .discovery-sidebar nav strong { overflow: hidden; font-size: 1.02rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .discovery-posts-glyph { width: 24px; height: 24px; display: block; overflow: visible; }
-.discovery-posts-back { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.discovery-posts-back { fill: none; stroke: currentColor; stroke-width: 1.85; stroke-linecap: round; stroke-linejoin: round; }
 .discovery-posts-front { fill: currentColor; }
-.discovery-posts-dash { fill: none; stroke: var(--discovery-nav-icon-bg); stroke-width: 1.8; stroke-linecap: round; }
+.discovery-posts-panel { fill: var(--discovery-nav-icon-bg); }
+.discovery-posts-thumbnail { fill: currentColor; }
+.discovery-posts-line { fill: none; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; }
 .discovery-groups-glyph { display: block; overflow: visible; }
 .discovery-content { min-width: 0; width: 100%; margin: 0; padding: 16px 32px 70px; }
 .page-content-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
@@ -6025,6 +6028,7 @@ body.modal-interaction-locked {
 .post-media-preferred-frame > .post-media-content,
 .post-media-preferred-frame .post-video-player > video { object-fit: cover; object-position: center; }
 .post-media-gallery.layout-single .post-media-slot { grid-column: 1 / -1; width: 100%; min-height: 250px; max-height: min(720px, 82vh); }
+.post-media-gallery.layout-single .post-media-slot.natural-single-presentation { min-height: 0; }
 .post-media-gallery.layout-single .post-media-content { object-fit: contain; }
 .post-media-gallery.layout-two-portrait-columns { aspect-ratio: 8 / 5; }
 .post-media-gallery.layout-two-landscape-rows { aspect-ratio: 1; }
@@ -7326,6 +7330,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 .friend-card-photo > img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .friend-card-photo > span { width: 100%; height: 100%; display: grid; place-items: center; background: var(--card); }
 .friend-card-photo > .friend-card-default-square .avatar,
+.friend-card-photo > .friend-card-default-square .avatar > img,
 .friend-card-photo > .friend-card-default-square .avatar > span { width: 100% !important; height: 100% !important; border-radius: 0; }
 .friend-card-body { min-width: 0; padding: 8px; }
 .friend-card-name-area { position: relative; z-index: 3; width: fit-content; max-width: 100%; }
@@ -8023,23 +8028,23 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 
 @media (min-width: 861px) {
   .gateway-left-rail {
-    --home-rail-left-extension: 10px;
+    --home-rail-base-extension: 14px;
+    --home-rail-left-extension: calc(var(--home-rail-base-extension) + var(--home-destination-scrollbar-half, 0px));
     width: calc(100% + var(--home-rail-left-extension));
     margin-left: calc(0px - var(--home-rail-left-extension));
-    /* Override default padding-left:8px → 2px so the icon axis aligns with
-       the fk brand icon in the topbar:
-       icon-center = home-PL(17) - extension(10) + rail-PL(2) + btn-PL(10) + 18 = 37px
-       fk-center   = topbar-PL(16) + brand-ML(8) - translateX(5) + 18 = 37px ✓ */
+    /* Extend the hover surface to the left without moving its right edge.
+       Include half of the destination scrollbar because Gateway Home is
+       shifted by that same amount to keep its center aligned with the shell. */
     padding-left: 2px;
   }
   .gateway-left-rail .home-shortcuts button,
   .gateway-left-rail .group-shortcuts button {
     width: 100%;
     margin-left: 0;
-    padding-left: var(--home-rail-left-extension);
+    padding-left: 10px;
     border-radius: 8px;
   }
-  .gateway-left-rail .service-heading { padding-left: calc(2px + var(--home-rail-left-extension)); }
+  .gateway-left-rail .service-heading { padding-left: 12px; }
 }
 .shortcut-icon {
   width: 36px;

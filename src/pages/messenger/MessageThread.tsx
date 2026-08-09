@@ -12,7 +12,7 @@ import { isDirectImageUrl, remoteImageFileFromUrl } from '../../lib/urlMedia'
 import { INPUT_LIMITS } from '../../lib/inputLimits'
 import { EmojiButton } from './EmojiButton'
 import { MESSENGER_ATTACHMENT_ACCEPT } from './attachmentPolicy'
-import { conversationAvatar, conversationName, formatPresence, formatTime, messageGroupPosition, messengerLikeLevel, shouldShowAvatar, shouldShowTimestamp } from './helpers'
+import { conversationAvatar, conversationName, formatPresence, formatTime, messageGroupPosition, messageReadReceiptParticipant, messengerLikeLevel, shouldShowAvatar, shouldShowTimestamp } from './helpers'
 import type { MessageVisualBreaks, MessengerLikeLevel } from './helpers'
 import { HoldLikeButton } from './HoldLikeButton'
 import { MessengerLikeIcon } from './MessengerLikeIcon'
@@ -187,6 +187,9 @@ export function MessageThread({
   const otherParticipant = conversation.participants.find((p) => p.id !== me.id)
   const latestOwnPendingMessage = [...messages].reverse().find((message) => !message.deleted && message.sender.id === me.id && (message.status === 'sent' || message.status === 'delivered'))
   const latestOwnReadMessage = [...messages].reverse().find((message) => !message.deleted && message.sender.id === me.id && message.status === 'read')
+  const latestReadParticipant = latestOwnReadMessage
+    ? messageReadReceiptParticipant(conversation, latestOwnReadMessage, me.id)
+    : undefined
   const messageById = useMemo(
     () => new Map(messages.map((message) => [message.id, message])),
     [messages],
@@ -281,7 +284,7 @@ export function MessageThread({
             if (conversation.type === 'GROUP') onOpenGroup?.()
             else if (otherParticipant) onOpenProfile(otherParticipant.id)
           }}>
-            <Avatar name={name} src={avatar} size={40} online={isOnline} />
+            <Avatar name={name} src={avatar} size={40} online={isOnline} fallback={conversation.type === 'GROUP' ? 'initials' : 'avatar'} />
           </button>
           <span>
             <strong>{name}<VerifiedBadge verified={otherParticipant?.isVerified} size={13} /></strong>
@@ -303,7 +306,7 @@ export function MessageThread({
       {/* Messages */}
       <div className={`messenger-messages${editingMessage ? ' has-edit-focus' : ''}`} ref={messagesContainerRef}>
         <div className="messenger-intro">
-          <Avatar name={name} src={avatar} size={72} online={isOnline} />
+          <Avatar name={name} src={avatar} size={72} online={isOnline} fallback={conversation.type === 'GROUP' ? 'initials' : 'avatar'} />
           <h2>{name}<VerifiedBadge verified={otherParticipant?.isVerified} /></h2>
           <p>{apiState === 'gateway' ? t('messengerReadyMessage') : t('messengerUnavailableDesc')}</p>
         </div>
@@ -367,7 +370,7 @@ export function MessageThread({
                 </div>
               </div>
               {mine && latestOwnPendingMessage?.id === message.id && <div className="message-delivery-state"><span>{message.status === 'delivered' ? 'Đã nhận' : 'Đã gửi'}</span></div>}
-              {mine && latestOwnReadMessage?.id === message.id && otherParticipant && <div className="message-delivery-state read" title={`${otherParticipant.displayName} đã xem`}><Avatar name={otherParticipant.displayName} src={otherParticipant.avatarUrl} size={16} /></div>}
+              {mine && latestOwnReadMessage?.id === message.id && latestReadParticipant && <div className="message-delivery-state read" title={`${latestReadParticipant.displayName} đã xem`}><Avatar name={latestReadParticipant.displayName} src={latestReadParticipant.avatarUrl} size={16} /></div>}
             </div>
           )
         })}

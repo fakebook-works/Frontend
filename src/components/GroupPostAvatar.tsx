@@ -15,7 +15,7 @@ export function GroupPostAvatar({
 }) {
   const userSize = Math.max(24, Math.round(size * .56))
   return <span className="group-post-avatar-stack" style={{ width: size, height: size }} aria-label={`${groupName} · ${userName}`}>
-    <Avatar className="group-post-main-avatar" name={groupName} src={groupAvatar} size={size} />
+    <Avatar className="group-post-main-avatar" name={groupName} src={groupAvatar} size={size} fallback="initials" />
     <Avatar className="group-post-user-avatar" name={userName} src={userAvatar} size={userSize} />
   </span>
 }

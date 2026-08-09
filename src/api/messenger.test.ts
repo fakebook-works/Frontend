@@ -367,8 +367,33 @@ describe('messenger GraphQL adapter', () => {
       { id: 'delivered-message', sequence: '2', status: 'delivered' },
       { id: 'sent-message', sequence: '3', status: 'sent' },
     ])
+    expect(result[0].readBy?.map((reader) => reader.id)).toEqual(['2'])
     expect(gatewayGraphQl.mock.calls[2][0]).toContain('markConversationRead')
     expect(gatewayGraphQl.mock.calls[2][0]).toContain('sequence: 3')
+  })
+
+  it('maps a group read receipt to the participant whose cursor actually reached the message', async () => {
+    const ownMessage = (id: string, sequence: string) => ({
+      id, conversationId: 'group-1', senderUserId: '1', sequence, text: id,
+      replyToMessageId: null, createdAt: '2026-07-18T00:00:00Z', deleted: false, reactions: [], attachments: [],
+    })
+    gatewayGraphQl
+      .mockResolvedValueOnce({ conversationMessages: { items: [ownMessage('first', '1'), ownMessage('latest', '2')] } })
+      .mockResolvedValueOnce({
+        conversation: {
+          id: 'group-1', type: 'GROUP', title: 'Group', avatarUrl: null, updatedAt: '2026-07-18T00:00:00Z', currentSequence: '2', lastMessage: null,
+          participants: [
+            { userId: '1', role: 'ADMIN', leftAt: null, lastDeliveredSequence: '2', lastReadSequence: '2', user: { id: '1', name: 'Me', avatar: '', isVerified: false } },
+            { userId: '2', role: 'MEMBER', leftAt: null, lastDeliveredSequence: '2', lastReadSequence: '1', user: { id: '2', name: 'Earlier reader', avatar: '/earlier.jpg', isVerified: false } },
+            { userId: '3', role: 'MEMBER', leftAt: null, lastDeliveredSequence: '2', lastReadSequence: '2', user: { id: '3', name: 'Latest reader', avatar: '/latest.jpg', isVerified: false } },
+          ],
+        },
+      })
+
+    const result = await messages('group-1', '1')
+
+    expect(result[0].readBy?.map((reader) => reader.id)).toEqual(['3', '2'])
+    expect(result[1]).toMatchObject({ status: 'read', readBy: [{ id: '3', displayName: 'Latest reader' }] })
   })
 
   it('marks an incoming sequence delivered without rounding a Long value', async () => {

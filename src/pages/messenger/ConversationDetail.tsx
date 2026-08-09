@@ -23,7 +23,7 @@ export function ConversationDetail({ me, conversation, presence, onOpenProfile, 
 
   return (
     <aside className="messenger-detail" aria-label={t('conversationDetails')}>
-      <Avatar name={name} src={avatar} size={84} online={conversation.type === 'DIRECT' && Boolean(presence?.isOnline)} onClick={conversation.type === 'GROUP' ? onOpenGroup : otherParticipant ? () => onOpenProfile(otherParticipant.id) : undefined} />
+      <Avatar name={name} src={avatar} size={84} online={conversation.type === 'DIRECT' && Boolean(presence?.isOnline)} fallback={conversation.type === 'GROUP' ? 'initials' : 'avatar'} onClick={conversation.type === 'GROUP' ? onOpenGroup : otherParticipant ? () => onOpenProfile(otherParticipant.id) : undefined} />
       <h2>{name}<VerifiedBadge verified={otherParticipant?.isVerified} /></h2>
       <p className="muted small">{conversation.type === 'GROUP' ? t('groupConversation') : t('fakebookFriend')}</p>
 

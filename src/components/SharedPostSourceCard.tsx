@@ -27,7 +27,7 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource,
       return <section className="shared-post-source unavailable private-group-source">
         <div className="shared-group-cover" style={sharedGroup.background ? { backgroundImage: `url(${sharedGroup.background})` } : undefined} />
         <div className="shared-group-summary">
-          <button type="button" className="shared-group-avatar" onClick={openGroup}><Avatar className="shared-group-card-avatar" name={sharedGroup.name} src={sharedGroup.avatar || null} size={48} /></button>
+          <button type="button" className="shared-group-avatar" onClick={openGroup}><Avatar className="shared-group-card-avatar" name={sharedGroup.name} src={sharedGroup.avatar || null} size={48} fallback="initials" /></button>
           <button type="button" className="shared-group-copy" onClick={openGroup}><strong>{sharedGroup.name}</strong><span>{t('privateGroup')} · {t('membersCount', { count: sharedGroup.memberCount })}</span></button>
         </div>
         <div className="shared-private-group-message"><Icon name="lock" size={22} /><div><strong>{t('privateGroupPostUnavailable')}</strong><p>{t('privateGroupPostUnavailableDesc')}</p></div></div>
@@ -41,7 +41,7 @@ export function SharedPostSourceCard({ source, locale, onNavigate, onOpenSource,
     return <section className="shared-post-source shared-group-source">
       <button type="button" className="shared-group-cover" style={sharedGroup.background ? { backgroundImage: `url(${sharedGroup.background})` } : undefined} onClick={openGroup} aria-label={sharedGroup.name} />
       <div className="shared-group-summary">
-        <button type="button" className="shared-group-avatar" onClick={openGroup}><Avatar className="shared-group-card-avatar" name={sharedGroup.name} src={sharedGroup.avatar || null} size={54} /></button>
+        <button type="button" className="shared-group-avatar" onClick={openGroup}><Avatar className="shared-group-card-avatar" name={sharedGroup.name} src={sharedGroup.avatar || null} size={54} fallback="initials" /></button>
         <button type="button" className="shared-group-copy" onClick={openGroup}><strong>{sharedGroup.name}</strong><span>{sharedGroup.privacy === 0 ? t('publicGroup') : t('privateGroup')} · {t('membersCount', { count: sharedGroup.memberCount })}</span></button>
       </div>
     </section>

@@ -649,7 +649,7 @@
   }
 
   .gateway-home { padding-right: 8px; }
-  .gateway-left-rail { padding-left: 11px; }
+  .gateway-left-rail { --home-rail-base-extension: 10px; padding-left: 11px; }
 }
 
 /* A real two-row top header. Row one owns brand/search/actions and row two

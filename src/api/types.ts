@@ -64,6 +64,8 @@ export interface MessengerMessageDto {
   editHistory?: MessengerMessageEditRevisionDto[]
   createdAt: string
   status: 'sending' | 'sent' | 'delivered' | 'read'
+  /** Active participants whose per-conversation read cursor includes this message. */
+  readBy?: UserSummary[]
   attachments: MediaUpload[]
 }
 

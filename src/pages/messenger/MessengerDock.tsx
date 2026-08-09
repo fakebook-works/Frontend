@@ -19,7 +19,7 @@ import { clipboardImageFiles } from '../../lib/clipboardMedia'
 import { playIncomingMessageSound } from '../../lib/sounds'
 import { isDirectImageUrl, remoteImageFileFromUrl } from '../../lib/urlMedia'
 import { MESSENGER_ATTACHMENT_ACCEPT } from './attachmentPolicy'
-import { conversationAvatar, conversationName, encodeMessengerLike, formatPresence, formatTime, groupPresenceSummary, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, rememberRealtimeEventId, shouldShowAvatar, shouldShowTimestamp } from './helpers'
+import { conversationAvatar, conversationName, encodeMessengerLike, formatPresence, formatTime, groupPresenceSummary, messageGroupPosition, messageReadReceiptParticipant, messengerConversationPreview, messengerLikeLevel, rememberRealtimeEventId, shouldShowAvatar, shouldShowTimestamp } from './helpers'
 import type { MessageVisualBreaks } from './helpers'
 import { EmojiButton } from './EmojiButton'
 import { HoldLikeButton } from './HoldLikeButton'
@@ -110,7 +110,11 @@ function upsertDockMessage(items: MessengerMessageDto[], incoming: MessengerMess
   if (index < 0) return [...items, incoming]
   const rank: Record<MessengerMessageDto['status'], number> = { sending: 0, sent: 1, delivered: 2, read: 3 }
   return items.map((item, itemIndex) => itemIndex === index
-    ? { ...incoming, status: rank[item.status] > rank[incoming.status] ? item.status : incoming.status }
+    ? {
+        ...incoming,
+        status: rank[item.status] > rank[incoming.status] ? item.status : incoming.status,
+        readBy: incoming.readBy ?? item.readBy,
+      }
     : item)
 }
 
@@ -1418,7 +1422,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         const other = conversation.type === 'DIRECT'
           ? conversation.participants.find((person) => person.id !== me.id)
           : undefined
-        return <button type="button" className={conversation.unreadCount > 0 ? 'unread' : ''} key={conversation.id} onClick={() => openConversation(conversation)}><Avatar name={name} src={conversationAvatar(conversation, me)} size={48} online={Boolean(other && presenceByUserId[other.id]?.isOnline)} /><span><strong>{name}</strong><small>{conversation.lastMessage?.kind !== 'SYSTEM' && conversation.lastMessage?.sender.id === me.id ? `${t('you')}: ` : ''}{messengerConversationPreview(conversation.lastMessage, t) || t('startConversation')} · {relativeTime(conversation.updatedAt, locale)}</small></span></button>
+        return <button type="button" className={conversation.unreadCount > 0 ? 'unread' : ''} key={conversation.id} onClick={() => openConversation(conversation)}><Avatar name={name} src={conversationAvatar(conversation, me)} size={48} online={Boolean(other && presenceByUserId[other.id]?.isOnline)} fallback={conversation.type === 'GROUP' ? 'initials' : 'avatar'} /><span><strong>{name}</strong><small>{conversation.lastMessage?.kind !== 'SYSTEM' && conversation.lastMessage?.sender.id === me.id ? `${t('you')}: ` : ''}{messengerConversationPreview(conversation.lastMessage, t) || t('startConversation')} · {relativeTime(conversation.updatedAt, locale)}</small></span></button>
       })}</div>
     </aside>}
 
@@ -1432,6 +1436,9 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
       const messageById = messageByIdByConversation.get(conversation.id)
       const latestOwnPendingMessage = [...conversationMessages].reverse().find((message) => !message.deleted && message.sender.id === me.id && (message.status === 'sent' || message.status === 'delivered'))
       const latestOwnReadMessage = [...conversationMessages].reverse().find((message) => !message.deleted && message.sender.id === me.id && message.status === 'read')
+      const latestReadParticipant = latestOwnReadMessage
+        ? messageReadReceiptParticipant(conversation, latestOwnReadMessage, me.id)
+        : undefined
       const attachments = pendingAttachments[conversation.id] ?? []
       const uploadPreviews = pendingUploadPreviews[conversation.id] ?? []
       const draft = drafts[conversation.id] ?? ''
@@ -1441,6 +1448,8 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         : null
       const composeValue = editingMessage ? editDraft : draft
       const composeHasText = composeValue.length > 0
+      const composeHasMedia = attachments.length > 0 || uploadPreviews.length > 0
+      const composeExpanded = composeHasText || composeHasMedia
       const composeToolsOpen = composeToolsConversationId === conversation.id
       const visualBreaks: MessageVisualBreaks = {
         beforeMessageIds: new Set(conversationMessages
@@ -1480,7 +1489,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
           <button type="button" className="mini-chat-id" onClick={() => {
             if (conversation.type === 'GROUP') setManagedGroupId(conversation.id)
             else if (other) onOpenProfile(other.id)
-          }}><Avatar name={name} src={conversationAvatar(conversation, me)} size={29} online={isOnline} /></button>
+          }}><Avatar name={name} src={conversationAvatar(conversation, me)} size={29} online={isOnline} fallback={conversation.type === 'GROUP' ? 'initials' : 'avatar'} /></button>
           <div className="mini-chat-name"><strong>{name}<VerifiedBadge verified={other?.isVerified} size={12} /></strong><small className={isTyping ? 'typing' : isOnline ? 'online' : 'offline'}>{isTyping ? t('typingNow') : conversation.type === 'GROUP' ? groupPresence?.label ?? t('offline') : formatPresence(presence, t, presenceNow)}</small></div>
           <div className="mini-chat-controls">
             <button type="button" className="mini-ctrl mini-minimize" data-chat-read-ignore="true" aria-label={t('minimize')} onClick={() => minimizeConversation(conversation.id)}>−</button>
@@ -1489,7 +1498,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
         </header>
         <>
           <MiniChatMessages activityKey={`${conversationMessages[conversationMessages.length - 1]?.id ?? 'empty'}:${typingPerson?.id ?? ''}`} conversationId={conversation.id} editFocusId={editingMessage?.id} onContainerChange={registerMiniMessageContainer}>
-            <div className={`mini-chat-intro${conversationMessages.length > 0 ? ' has-history' : ''}`}><Avatar name={name} src={conversationAvatar(conversation, me)} size={60} online={isOnline} /><strong>{name}</strong>{conversation.type === 'DIRECT' ? <small>{isFriend === undefined ? t('relationshipLoading') : isFriend ? t('friendsOnFakebook') : t('notFriendsOnFakebook')}</small> : <small>{t('startConversation')}</small>}</div>
+            <div className={`mini-chat-intro${conversationMessages.length > 0 ? ' has-history' : ''}`}><Avatar name={name} src={conversationAvatar(conversation, me)} size={60} online={isOnline} fallback={conversation.type === 'GROUP' ? 'initials' : 'avatar'} /><strong>{name}</strong>{conversation.type === 'DIRECT' ? <small>{isFriend === undefined ? t('relationshipLoading') : isFriend ? t('friendsOnFakebook') : t('notFriendsOnFakebook')}</small> : <small>{t('startConversation')}</small>}</div>
             {conversationMessages.map((message, index) => {
               if (message.kind === 'SYSTEM') {
                 return <SystemMessageLine key={message.id} message={message} viewerId={me.id} compact />
@@ -1540,7 +1549,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
                   </div>
                 </div>
                 {mine && latestOwnPendingMessage?.id === message.id && <div className="mini-message-delivery-state"><span>{message.status === 'delivered' ? 'Đã nhận' : 'Đã gửi'}</span></div>}
-                {mine && latestOwnReadMessage?.id === message.id && other && <div className="mini-message-delivery-state read" title={`${other.displayName} đã xem`}><Avatar name={other.displayName} src={other.avatarUrl} size={14} /></div>}
+                {mine && latestOwnReadMessage?.id === message.id && latestReadParticipant && <div className="mini-message-delivery-state read" title={`${latestReadParticipant.displayName} đã xem`}><Avatar name={latestReadParticipant.displayName} src={latestReadParticipant.avatarUrl} size={14} /></div>}
               </div>
             })}
             {typingPerson && <div className="mini-typing-line" aria-label={`${typingPerson.displayName} ${t('typingNow')}`}><span className="mini-msg-avatar"><MessageSenderAvatar person={typingPerson} size={26} isAdmin={conversation.type === 'GROUP' && typingPerson.role === 'ADMIN'} /></span><span className="mini-typing-bubble"><i /><i /><i /></span></div>}
@@ -1576,9 +1585,9 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
               <button type="button" className="mini-compose-btn send ready mini-voice-send" aria-label={t('sendMessage')} onClick={() => stopVoiceRecording()}><Icon name="send" size={22} /></button>
             </div>
           ) : (
-            <form className={`mini-chat-compose${composeHasText ? ' is-writing' : ''}${attachments.length > 0 ? ' has-attachments' : ''}`} onSubmit={(event) => void send(event, conversation)}>
-              <div className={`mini-compose-tools${composeHasText ? ' compact' : ''}`} data-mini-compose-tools>
-                {composeHasText
+            <form className={`mini-chat-compose${composeExpanded ? ' is-writing' : ''}${composeHasMedia ? ' has-attachments' : ''}`} onSubmit={(event) => void send(event, conversation)}>
+              <div className={`mini-compose-tools${composeExpanded ? ' compact' : ''}`} data-mini-compose-tools>
+                {composeExpanded
                   ? <div className="mini-compose-more-wrap">
                       <button type="button" className="mini-compose-btn mini-compose-more-btn" aria-label={t('more')} aria-expanded={composeToolsOpen} onClick={() => setComposeToolsConversationId((current) => current === conversation.id ? null : conversation.id)}><Icon name="plus" size={20} /></button>
                       {composeToolsOpen && <div className="mini-compose-tools-menu" role="group" aria-label={t('more')}>
@@ -1653,7 +1662,7 @@ export const MessengerDock = forwardRef<MessengerDockHandle, MessengerDockProps>
               aria-label={`${t('messages')}: ${name}`}
               onClick={() => { setBubblePreviewAnchor(null); openConversation(conversation) }}
             >
-              <Avatar name={name} src={conversationAvatar(conversation, me)} size={40} title={false} online={conversation.type === 'GROUP' ? Boolean(groupPresence?.onlineCount) : Boolean(other && presenceByUserId[other.id]?.isOnline)} />
+              <Avatar name={name} src={conversationAvatar(conversation, me)} size={40} title={false} online={conversation.type === 'GROUP' ? Boolean(groupPresence?.onlineCount) : Boolean(other && presenceByUserId[other.id]?.isOnline)} fallback={conversation.type === 'GROUP' ? 'initials' : 'avatar'} />
             </button>
             <button type="button" className="mini-chat-bubble-dismiss" aria-label={`${t('close')}: ${name}`} onClick={(event) => { event.stopPropagation(); closeChat(conversation.id) }}>
               {unreadCount > 0 && <span className="mini-chat-bubble-unread-count">{unreadCount > 9 ? '9+' : unreadCount}</span>}

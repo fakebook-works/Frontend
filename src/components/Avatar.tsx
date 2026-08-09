@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { initials } from '../lib/format'
+
+export const DEFAULT_AVATAR_URL = '/default-avatar.jpg'
 
 interface AvatarProps {
   name: string
@@ -9,12 +12,22 @@ interface AvatarProps {
   onClick?: () => void
   title?: string | false
   loading?: 'eager' | 'lazy'
+  fallback?: 'avatar' | 'initials'
 }
 
-export function Avatar({ name, src, size = 40, online = false, className, onClick, title = name, loading = 'lazy' }: AvatarProps) {
+export function Avatar({ name, src, size = 40, online = false, className, onClick, title = name, loading = 'lazy', fallback = 'avatar' }: AvatarProps) {
+  const [failedSources, setFailedSources] = useState<ReadonlySet<string>>(() => new Set())
   const style = { width: size, height: size, fontSize: Math.round(size * 0.42) }
   const classes = ['avatar', className, onClick ? 'avatar-clickable' : null].filter(Boolean).join(' ')
-  const inner = src ? <img src={src} alt="" loading={loading} decoding="async" /> : <span>{initials(name)}</span>
+  const requestedSource = src?.trim() || null
+  const imageSource = requestedSource && !failedSources.has(requestedSource)
+    ? requestedSource
+    : fallback === 'avatar' && !failedSources.has(DEFAULT_AVATAR_URL)
+      ? DEFAULT_AVATAR_URL
+      : null
+  const inner = imageSource
+    ? <img src={imageSource} alt="" loading={loading} decoding="async" onError={() => setFailedSources((current) => new Set(current).add(imageSource))} />
+    : <span>{initials(name)}</span>
 
   if (onClick) {
     return (

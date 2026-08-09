@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
+import type { FormEvent, KeyboardEvent, ReactNode, RefObject } from 'react'
 import { api } from '../api/client'
 import type { ContentEngagement, SocialComment, SocialCommentEditRevision } from '../api/social'
 import { socialApi } from '../api/social'
@@ -15,6 +15,7 @@ import { INPUT_LIMITS } from '../lib/inputLimits'
 import { sharedPostSourceToGatewayReel } from '../lib/reelEntry'
 import { clearPrefetchedCommentPage, loadCommentPage, readCachedCommentPage } from '../lib/commentPagePrefetch'
 import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
+import { getRecommendationSurfaceSessionKey, useRecommendationImpression } from '../lib/useRecommendationImpression'
 import { reelOverlayHref } from '../lib/overlayRoutes'
 import { Avatar } from './Avatar'
 import { ContentDetailShellClose } from './ContentDetailShellClose'
@@ -154,6 +155,22 @@ export interface PostDetailCommentsModalProps {
 }
 
 export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, likeBusy, canShare, shareDisabled = false, onToggleLike, onShare, onClose, onNavigate, onOpenImage, onOpenReel, onCommentCreated, onPostChanged, variant = 'modal', renderShellClose = true }: PostDetailCommentsModalProps) {
+  const impressionRef = useRef<HTMLElement>(null)
+  const impressionSessionKey = variant !== 'photo-sidebar' && post
+    ? getRecommendationSurfaceSessionKey('content')
+    : undefined
+  const impressionKind = post?.__typename === 'ReelDetail'
+    ? 'video'
+    : post?.media.some((media) => media.type === 1) || post?.sharedSource?.media.some((media) => media.type === 1)
+      ? 'video-post'
+      : 'post'
+  useRecommendationImpression(
+    impressionRef,
+    impressionSessionKey && post ? post.id : undefined,
+    impressionSessionKey,
+    0.5,
+    { kind: impressionKind, overlay: true },
+  )
   const { t, locale } = useI18n()
   useBodyInteractionLock(variant !== 'photo-sidebar', ['content-detail-open'])
   const initialCommentPageRef = useRef(readCachedCommentPage(viewerId, targetId, COMMENT_PAGE_LIMIT))
@@ -883,7 +900,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   const showEmptyComments = !loading && comments.length === 0
 
   const discussionScroll = <div className="content-thread-scroll">
-    {post && <ThreadPostPreview post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenImage={onOpenImage} onOpenReel={onOpenReel} onHidden={onClose} onPostChanged={onPostChanged} hideMedia={variant === 'photo-sidebar'} />}
+    {post && <ThreadPostPreview impressionRef={variant === 'modal' ? impressionRef : undefined} post={post} locale={locale} viewerId={viewerId} onNavigate={onNavigate} onOpenImage={onOpenImage} onOpenReel={onOpenReel} onHidden={onClose} onPostChanged={onPostChanged} hideMedia={variant === 'photo-sidebar'} />}
     {post && <div className={`content-actions-wrap thread-post-engagement${showEngagementSummary ? '' : ' no-summary'}${post.sharedSource ? ' has-shared-source' : ''}`}>
       {showEngagementSummary && <div className="content-engagement-summary">
         {showLikeCount && <span className="content-like-summary"><Icon name="like" size={15} />{engagement.likeCount}</span>}
@@ -973,7 +990,7 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
   </>
 }
 
-function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, onOpenReel, onHidden, onPostChanged, hideMedia = false }: { post: GatewayPost; locale: string; viewerId: string; onNavigate?: (path: string) => void; onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void; onOpenReel?: (post: GatewayReelPost) => void; onHidden: () => void; onPostChanged?: (post: GatewayPost) => void; hideMedia?: boolean }) {
+function ThreadPostPreview({ impressionRef, post, locale, viewerId, onNavigate, onOpenImage, onOpenReel, onHidden, onPostChanged, hideMedia = false }: { impressionRef?: RefObject<HTMLElement | null>; post: GatewayPost; locale: string; viewerId: string; onNavigate?: (path: string) => void; onOpenImage?: (post: GatewayPost, media: GatewayMedia, index: number, initialPlaybackTime?: number) => void; onOpenReel?: (post: GatewayReelPost) => void; onHidden: () => void; onPostChanged?: (post: GatewayPost) => void; hideMedia?: boolean }) {
   const { t } = useI18n()
   const [privacyBusy, setPrivacyBusy] = useState(false)
   const [privacyError, setPrivacyError] = useState<string | null>(null)
@@ -1011,12 +1028,12 @@ function ThreadPostPreview({ post, locale, viewerId, onNavigate, onOpenImage, on
     }
   }
 
-  return <article className={`gateway-post thread-post-preview${hasSharedSource ? ' has-shared-source' : ''}`}>
+  return <article ref={impressionRef} className={`gateway-post thread-post-preview${hasSharedSource ? ' has-shared-source' : ''}`}>
     <header className={isGroup ? 'group-feed-post-head' : 'feed-post-head'}>
       <button type="button" className="post-author-avatar" onClick={openPrimary}>{isGroup ? <GroupPostAvatar groupName={post.group.name} groupAvatar={post.group.avatar || null} userName={post.author.name} userAvatar={post.author.avatar || null} size={40} /> : <Avatar name={post.author.name} src={post.author.avatar || null} size={40} />}</button>
       <div className="post-head-copy thread-post-head-copy">
         <div className="post-head-primary">
-          {isGroup ? <button type="button" className="post-group-link" onClick={openPrimary}><strong><span className="thread-post-primary-name">{post.group.name}</span></strong></button> : <button type="button" className="post-author-name" onClick={openPrimary}><strong><span className="thread-post-primary-name">{post.author.name}</span><VerifiedBadge verified={post.author.isVerified} /></strong></button>}
+          {isGroup ? <button type="button" className="post-group-link" onClick={openPrimary}><strong><span className="thread-post-primary-name">{post.group.name}</span></strong></button> : <button type="button" className="post-author-name" onClick={openPrimary}><strong><span className="thread-post-primary-name">{post.author.name}</span><VerifiedBadge verified={post.author.isVerified} size={13} /></strong></button>}
           <ThreadTaggedUsers users={taggedUsers} onNavigate={onNavigate} />
         </div>
         <span className="post-head-meta">

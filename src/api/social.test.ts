@@ -34,13 +34,32 @@ describe('SocialGraph Gateway adapter', () => {
       { targetId: '9007199254740993123', idempotencyKey: 'session-a:post-1', dwellMs: 1200, completionPct: 75 },
     ])).resolves.toBe(true)
 
-    const [document, variables] = gatewayGraphQl.mock.calls[0] as [string, Record<string, unknown>]
+    const [document, variables, authMode, allowRetry, requestOptions] = gatewayGraphQl.mock.calls[0] as [string, Record<string, unknown>, string, boolean, Record<string, unknown>]
     expect(document).toContain('recordRecommendationImpressions')
     expect(document).not.toContain('userId')
     expect(variables).toEqual({
       input: {
         items: [{ targetId: '9007199254740993123', idempotencyKey: 'session-a:post-1', dwellMs: 1200, completionPct: 75 }],
       },
+    })
+    expect(authMode).toBe('protected')
+    expect(allowRetry).toBe(false)
+    expect(requestOptions).toMatchObject({ background: true, keepalive: false })
+  })
+
+  it('uses the same authenticated Gateway mutation with keepalive during page lifecycle flush', async () => {
+    gatewayGraphQl.mockResolvedValue({ recordRecommendationImpressions: { success: true } })
+    const controller = new AbortController()
+
+    await socialApi.recordRecommendationImpressions(
+      [{ targetId: '9', idempotencyKey: 'session:9', dwellMs: 900, completionPct: 0 }],
+      { keepalive: true, signal: controller.signal },
+    )
+
+    expect(gatewayGraphQl.mock.calls[0][4]).toEqual({
+      background: true,
+      keepalive: true,
+      signal: controller.signal,
     })
   })
 

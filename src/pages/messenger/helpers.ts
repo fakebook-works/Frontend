@@ -14,6 +14,18 @@ export interface MessageVisualBreaks {
 }
 type Translate = (key: string, values?: Record<string, string | number>) => string
 
+export function messageReadReceiptParticipant(
+  conversation: MessengerConversationDto,
+  message: MessengerMessageDto,
+  viewerId: string,
+): UserSummary | undefined {
+  const exactReader = message.readBy?.[0]
+  if (exactReader) return exactReader
+  return conversation.type === 'DIRECT'
+    ? conversation.participants.find((participant) => participant.id !== viewerId && !participant.leftAt)
+    : undefined
+}
+
 const NO_MESSAGE_VISUAL_BREAKS: MessageVisualBreaks = {
   beforeMessageIds: new Set<string>(),
   afterMessageIds: new Set<string>(),

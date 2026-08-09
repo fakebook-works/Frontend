@@ -13,8 +13,10 @@ import {
   visibleRecommendationPosts,
   persistAuth,
   resolveUploadedMediaUrl,
+  subscribeApiEvents,
 } from './client'
 import type { RecommendationItem } from './gatewayTypes'
+import { subscribeAuthIdentityTransition } from '../lib/authIdentityBoundary'
 
 describe('Gateway contract helpers', () => {
   afterEach(() => {
@@ -139,6 +141,19 @@ describe('Gateway contract helpers', () => {
     ])
   })
 
+  it('does not share a cancellable query across independent callers', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"data":{"me":{"userId":"1"}}}', { status: 200 }))
+    const query = 'query CurrentViewer { me { userId } }'
+
+    await Promise.all([
+      gatewayGraphQl(query, {}, 'protected', true, { signal: new AbortController().signal }),
+      gatewayGraphQl(query, {}, 'protected', true, { signal: new AbortController().signal }),
+    ])
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('never deduplicates Gateway mutations', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response('{"data":{"markAllNotificationsRead":1}}', { status: 200 }))
@@ -153,6 +168,59 @@ describe('Gateway contract helpers', () => {
       { markAllNotificationsRead: 2 },
     ])
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps background telemetry failures silent and never retries a stale 401 under a new account', async () => {
+    persistAuth({
+      accessToken: 'account-a-token',
+      refreshTokenExpiresAt: null,
+      user: { userId: '1', email: 'a@example.com', validDate: null, status: 1 },
+    })
+    const events: unknown[] = []
+    const unsubscribe = subscribeApiEvents((event) => events.push(event))
+    let resolveFirst!: (response: Response) => void
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveFirst = resolve }))
+      .mockResolvedValueOnce(new Response('', { status: 503 }))
+    const mutation = 'mutation BackgroundImpression { recordRecommendationImpressions(input: { items: [] }) { success } }'
+    const request = gatewayGraphQl(mutation, {}, 'protected', false, { background: true })
+
+    persistAuth({
+      accessToken: 'account-b-token',
+      refreshTokenExpiresAt: null,
+      user: { userId: '2', email: 'b@example.com', validDate: null, status: 1 },
+    })
+    resolveFirst(new Response('{"errors":[{"extensions":{"code":"UNAUTHENTICATED"}}]}', { status: 401 }))
+    await expect(request).rejects.toMatchObject({ status: 401 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem('fb.auth')).toContain('account-b-token')
+    expect(events).toEqual([])
+
+    await expect(gatewayGraphQl(mutation, {}, 'protected', false, { background: true }))
+      .rejects.toMatchObject({ status: 503 })
+    expect(events).toEqual([])
+    unsubscribe()
+  })
+
+  it('publishes an account identity transition before exposing the replacement token', () => {
+    persistAuth({
+      accessToken: 'account-a-token',
+      refreshTokenExpiresAt: null,
+      user: { userId: '1', email: 'a@example.com', validDate: null, status: 1 },
+    })
+    const observedTokens: Array<string | undefined> = []
+    const unsubscribe = subscribeAuthIdentityTransition(() => {
+      observedTokens.push(JSON.parse(localStorage.getItem('fb.auth') ?? '{}').accessToken)
+    })
+
+    persistAuth({
+      accessToken: 'account-b-token',
+      refreshTokenExpiresAt: null,
+      user: { userId: '2', email: 'b@example.com', validDate: null, status: 1 },
+    })
+
+    expect(observedTokens).toEqual(['account-a-token'])
+    unsubscribe()
   })
 
   it('routes email replacement through the authenticated Authentication mutation without a user id', async () => {

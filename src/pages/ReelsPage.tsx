@@ -32,7 +32,7 @@ import { prefetchCommentPage } from '../lib/commentPagePrefetch'
 import type { MentionDisplayUser } from '../lib/mentions'
 import { buildMentionTruncationMap } from '../lib/mentionTruncation'
 import { gatewayReelToSocialContent } from '../lib/reelEntry'
-import { createRecommendationSessionKey, useRecommendationImpression } from '../lib/useRecommendationImpression'
+import { createRecommendationSessionKey, getRecommendationSurfaceSessionKey, useRecommendationImpression } from '../lib/useRecommendationImpression'
 
 export type ReelMode = 'for-you' | 'following' | 'mine' | 'saved' | 'liked' | 'shared' | 'watched'
 type ReelSidebarItem = 'for-you' | 'following' | 'profile'
@@ -517,7 +517,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
     setLibraryViewerOpen(true)
   }, [active, entryReelId, entrySource, entryViewer])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active || !entryViewer || !libraryViewerOpen) return
     const activeReel = reels[activeIndex]
     if (activeReel) onActiveReelAddressChange?.(activeReel.id)
@@ -986,6 +986,7 @@ export function ReelsPage({ userId, mode, active = true, entrySource = null, ent
                 viewerId={userId}
                 recommendationSessionKey={activeRecommendationSessionKey}
                 active={active && index === activeIndex}
+                intentionalDeactivation={active && index !== activeIndex}
                 warm={index >= activeIndex - REEL_PRELOAD_BEHIND && index <= activeIndex + REEL_PRELOAD_AHEAD}
                 relationship={relationships[reel.authorId]}
                 detailViewer={libraryViewerOpen}
@@ -1194,6 +1195,7 @@ function ReelCard({
   viewerId,
   recommendationSessionKey,
   active,
+  intentionalDeactivation,
   warm,
   relationship,
   detailViewer,
@@ -1208,6 +1210,7 @@ function ReelCard({
   viewerId: string
   recommendationSessionKey?: string
   active: boolean
+  intentionalDeactivation: boolean
   warm: boolean
   relationship?: ProfileRelationshipState
   detailViewer: boolean
@@ -1221,7 +1224,14 @@ function ReelCard({
   const { t } = useI18n()
   const media = reel.media[0]
   const viewportRef = useRef<HTMLElement>(null)
-  useRecommendationImpression(viewportRef, recommendationSessionKey ? reel.id : undefined, recommendationSessionKey)
+  const impressionSessionKey = recommendationSessionKey ?? getRecommendationSurfaceSessionKey('content')
+  useRecommendationImpression(
+    viewportRef,
+    reel.id,
+    impressionSessionKey,
+    0.5,
+    { kind: 'video', overlay: detailViewer, active, intentionalDeactivation },
+  )
   const videoRef = useRef<HTMLVideoElement>(null)
   const watchRecordedRef = useRef(false)
   const playbackFeedbackSequenceRef = useRef(0)

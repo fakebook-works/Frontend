@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MessengerMessageDto, UserSummary } from '../../api/types'
-import { encodeMessengerLike, formatPresence, formatTime, messageGroupPosition, messengerConversationPreview, messengerLikeLevel, messengerMessagePreview, rememberRealtimeEventId, shouldShowAvatar, shouldShowTimestamp, type MessageVisualBreaks } from './helpers'
+import { encodeMessengerLike, formatPresence, formatTime, messageGroupPosition, messageReadReceiptParticipant, messengerConversationPreview, messengerLikeLevel, messengerMessagePreview, rememberRealtimeEventId, shouldShowAvatar, shouldShowTimestamp, type MessageVisualBreaks } from './helpers'
 
 const alice: UserSummary = { id: '1', username: 'alice', displayName: 'Alice', avatarUrl: null }
 const bob: UserSummary = { id: '2', username: 'bob', displayName: 'Bob', avatarUrl: null }
@@ -82,6 +82,40 @@ describe('message grouping', () => {
     const paused = [message('one', alice, 0), message('two', alice, 16)]
     expect(shouldShowTimestamp(paused, 0)).toBe(true)
     expect(shouldShowTimestamp(paused, 1)).toBe(true)
+  })
+})
+
+describe('message read receipts', () => {
+  it('uses the exact group participant attached to the persisted read cursor', () => {
+    const actualReader: UserSummary = { id: '3', username: 'carol', displayName: 'Carol', avatarUrl: '/carol.jpg' }
+    const group = {
+      id: 'group-1',
+      type: 'GROUP' as const,
+      participants: [alice, bob, actualReader],
+      title: 'Group',
+      avatarUrl: null,
+      updatedAt: '2026-07-18T00:00:00Z',
+      unreadCount: 0,
+      lastMessage: null,
+    }
+    const readMessage = { ...message('read', alice, 0), status: 'read' as const, readBy: [actualReader] }
+
+    expect(messageReadReceiptParticipant(group, readMessage, alice.id)).toBe(actualReader)
+  })
+
+  it('does not guess the first group member when exact reader data is absent', () => {
+    const group = {
+      id: 'group-1',
+      type: 'GROUP' as const,
+      participants: [alice, bob],
+      title: 'Group',
+      avatarUrl: null,
+      updatedAt: '2026-07-18T00:00:00Z',
+      unreadCount: 0,
+      lastMessage: null,
+    }
+
+    expect(messageReadReceiptParticipant(group, { ...message('read', alice, 0), status: 'read' }, alice.id)).toBeUndefined()
   })
 })
 

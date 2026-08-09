@@ -34,7 +34,11 @@ function upsertMessage(items: MessengerMessageDto[], incoming: MessengerMessageD
   if (index < 0) return [...items, incoming]
   const rank: Record<MessengerMessageDto['status'], number> = { sending: 0, sent: 1, delivered: 2, read: 3 }
   return items.map((item, itemIndex) => itemIndex === index
-    ? { ...incoming, status: rank[item.status] > rank[incoming.status] ? item.status : incoming.status }
+    ? {
+        ...incoming,
+        status: rank[item.status] > rank[incoming.status] ? item.status : incoming.status,
+        readBy: incoming.readBy ?? item.readBy,
+      }
     : item)
 }
 

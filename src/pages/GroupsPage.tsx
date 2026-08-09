@@ -558,7 +558,7 @@ function GroupSidebarCollection({ title, groups, locale, onOpen, action, onActio
   if (groups.length === 0) return null
   return <section className="groups-sidebar-collection"><header><h2>{title}</h2>{action && <button type="button" onClick={onAction}>{action}</button>}</header><div>{groups.map((group) => {
     const activity = relativeTime(group.lastVisitedAt || '', locale)
-    return <button type="button" key={group.id} onClick={() => onOpen(group)}><Avatar name={group.name} src={group.avatarUrl} size={40} className="group-square-avatar" /><span><strong>{group.name}</strong><small>{activity ? t('groupLastVisited', { time: activity }) : t('groupActivityUnavailable')}</small></span></button>
+    return <button type="button" key={group.id} onClick={() => onOpen(group)}><Avatar name={group.name} src={group.avatarUrl} size={40} className="group-square-avatar" fallback="initials" /><span><strong>{group.name}</strong><small>{activity ? t('groupLastVisited', { time: activity }) : t('groupActivityUnavailable')}</small></span></button>
   })}</div></section>
 }
 
@@ -567,7 +567,7 @@ function GroupQuickSearchDropdown({ query, items, loading, error, onOpen, onSear
   return <div id="groups-sidebar-search-results" className={query.length === 0 ? 'groups-quick-search-results is-recent-empty' : 'groups-quick-search-results'} aria-live="polite">
     {query.length === 0 ? <p className="groups-quick-search-empty">{t('noRecentSearches')}</p> : loading ? <div className="groups-quick-search-state"><span className="spinner" /></div> : error ? <p className="groups-quick-search-error">{error}</p> : <>
       {items.map((item) => <button type="button" className="groups-quick-search-result" key={item.id} onMouseDown={(event) => event.preventDefault()} onClick={() => onOpen(item)}>
-        <Avatar className="groups-quick-search-avatar" name={item.group.name} src={item.group.avatarUrl} size={36} />
+        <Avatar className="groups-quick-search-avatar" name={item.group.name} src={item.group.avatarUrl} size={36} fallback="initials" />
         <span><strong>{item.group.name}</strong><small>{[item.viewerIsMember ? t('searchYourGroup') : item.group.privacy === 0 ? t('publicGroup') : t('privateGroup'), ...(item.group.memberCount == null ? [] : [t('membersCount', { count: item.group.memberCount })])].join(' · ')}</small></span>
       </button>)}
       {items.length < GROUP_QUICK_SEARCH_LIMIT && <button type="button" className="groups-quick-search-query" onMouseDown={(event) => event.preventDefault()} onClick={onSearchQuery}><GroupQuickSearchMarker /><strong>{query}</strong></button>}
@@ -668,7 +668,7 @@ function GroupMembershipGrid({ groups, locale, onNavigate, directory = false, ev
     if (directory) {
       return <article className="groups-membership-card groups-membership-card-directory" key={group.id}>
         <button type="button" className="groups-membership-summary groups-directory-group-summary" onClick={() => onNavigate(`/groups/${group.id}`)}>
-          <Avatar name={group.name} src={group.avatarUrl} size={72} className="group-square-avatar" />
+          <Avatar name={group.name} src={group.avatarUrl} size={72} className="group-square-avatar" fallback="initials" />
           <span className="groups-directory-group-copy">
             <strong>{group.name}</strong>
             <span className="groups-directory-group-meta groups-directory-muted-copy">
@@ -683,7 +683,7 @@ function GroupMembershipGrid({ groups, locale, onNavigate, directory = false, ev
       </article>
     }
     return <article className="groups-membership-card" key={group.id}>
-      <button type="button" className="groups-membership-summary" onClick={() => onNavigate(`/groups/${group.id}`)}><Avatar name={group.name} src={group.avatarUrl} size={88} className="group-square-avatar" /><span><strong>{group.name}</strong><small>{time ? t('groupLastVisited', { time }) : group.memberCount == null ? t('groupResult') : t('membersCount', { count: group.memberCount })}</small></span></button>
+      <button type="button" className="groups-membership-summary" onClick={() => onNavigate(`/groups/${group.id}`)}><Avatar name={group.name} src={group.avatarUrl} size={88} className="group-square-avatar" fallback="initials" /><span><strong>{group.name}</strong><small>{time ? t('groupLastVisited', { time }) : group.memberCount == null ? t('groupResult') : t('membersCount', { count: group.memberCount })}</small></span></button>
       <div><button type="button" className="groups-view-button" onClick={() => onNavigate(`/groups/${group.id}`)}>{t('viewGroup')}</button>{moreMenu}</div>
     </article>
   })}</div>

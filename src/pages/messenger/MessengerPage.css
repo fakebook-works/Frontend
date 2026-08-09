@@ -1217,16 +1217,23 @@ body.messenger-media-viewer-open .message-hover-timestamp { display: none !impor
   min-width: 0;
   max-width: 100%;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   padding: 0 12px 8px;
   border-top: 1px solid var(--divider);
   background: var(--card);
-  overflow-x: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--secondary) 54%, transparent) transparent;
 }
+.messenger-attachment-tray::-webkit-scrollbar { height: 5px; }
+.messenger-attachment-tray::-webkit-scrollbar-track { background: transparent; }
+.messenger-attachment-tray::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--secondary) 54%, transparent); }
 
 .attachment-chip {
   min-width: 0;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2560,15 +2567,26 @@ body.messenger-media-viewer-open .message-hover-timestamp { display: none !impor
 .mini-compose-previews {
   min-width: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
-  overflow-x: hidden;
-  padding: 11px 11px 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 11px 11px 6px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--secondary) 54%, transparent) transparent;
 }
+.mini-compose-previews::-webkit-scrollbar { height: 5px; }
+.mini-compose-previews::-webkit-scrollbar-track { background: transparent; }
+.mini-compose-previews::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--secondary) 54%, transparent); }
 .mini-compose-preview {
   position: relative;
   width: 52px;
   height: 52px;
+  min-width: 52px;
+  min-height: 52px;
+  max-width: 52px;
+  max-height: 52px;
+  aspect-ratio: 1 / 1;
   flex: 0 0 52px;
   display: grid;
   place-items: center;
@@ -2581,6 +2599,7 @@ body.messenger-media-viewer-open .message-hover-timestamp { display: none !impor
 .mini-compose-preview img {
   width: 100%;
   height: 100%;
+  aspect-ratio: 1 / 1;
   display: block;
   object-fit: cover;
   border-radius: inherit;

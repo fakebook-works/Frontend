@@ -3,6 +3,7 @@
 // access token is available to JavaScript; the Gateway owns the HttpOnly
 // refresh cookie and rotates it during refresh requests.
 import type { MediaUpload } from './types'
+import { initializeAuthIdentity, transitionAuthIdentity } from '../lib/authIdentityBoundary'
 import type {
   CreateGatewayPostInput,
   CreateGatewayStoryInput,
@@ -44,6 +45,16 @@ const GRAPHQL_REQUEST_TIMEOUT_MS = Number.isFinite(configuredGraphQlTimeoutMs)
 const inFlightQueries = new Map<string, Promise<unknown>>()
 
 type ApiAuthMode = 'protected' | 'public'
+
+export interface GatewayGraphQlRequestOptions {
+  // Used only for small authenticated Gateway requests that must survive a
+  // page lifecycle transition. It never changes origin, credentials or auth.
+  keepalive?: boolean
+  /** Caller-owned cancellation, used to stop stale background work on account switch. */
+  signal?: AbortSignal
+  /** Background telemetry must not refresh or expire a newer interactive session. */
+  background?: boolean
+}
 
 type ApiEvent =
   | { type: 'gateway-error'; status: number; message: string }
@@ -164,10 +175,16 @@ function applyAuthInterceptor(headers: Headers, authMode: ApiAuthMode): Headers 
 }
 
 function writeAuth(auth: StoredAuth | null) {
+  // Security-sensitive consumers (for example, account-scoped background
+  // telemetry) must invalidate their old generation before a new access token
+  // can become observable. Keep this synchronous and before localStorage.
+  transitionAuthIdentity(auth?.user.userId ?? null)
   if (auth) localStorage.setItem(AUTH_KEY, JSON.stringify(auth))
   else localStorage.removeItem(AUTH_KEY)
   for (const listener of listeners) listener(auth)
 }
+
+initializeAuthIdentity(getAuth()?.user.userId ?? null)
 
 export function clearAuth() {
   writeAuth(null)
@@ -282,11 +299,15 @@ async function executeGatewayGraphQl<T>(
   variables: Record<string, unknown> = {},
   authMode: ApiAuthMode = 'protected',
   allowRetry = true,
+  requestOptions: GatewayGraphQlRequestOptions = {},
 ): Promise<T> {
   const headers = jsonHeaders(undefined, true, authMode)
   const attemptedAccessToken = authMode === 'protected' ? getAccessToken() : null
   let res: Response
   const controller = new AbortController()
+  const abortFromCaller = () => controller.abort()
+  requestOptions.signal?.addEventListener('abort', abortFromCaller, { once: true })
+  if (requestOptions.signal?.aborted) controller.abort()
   const timeout = window.setTimeout(() => controller.abort(), GRAPHQL_REQUEST_TIMEOUT_MS)
   try {
     res = await fetch(GRAPHQL_GATEWAY_URL, {
@@ -295,16 +316,26 @@ async function executeGatewayGraphQl<T>(
       credentials: 'include',
       body: JSON.stringify({ query: document, variables }),
       signal: controller.signal,
+      keepalive: requestOptions.keepalive === true,
     })
   } catch {
+    if (requestOptions.background) {
+      throw new ApiError(
+        requestOptions.signal?.aborted ? 499 : 503,
+        requestOptions.signal?.aborted
+          ? 'The background request was cancelled.'
+          : 'The background request could not reach the gateway.',
+      )
+    }
     notifyGatewayError(503)
     throw new ApiError(503, GATEWAY_ERROR_MESSAGE)
   } finally {
     window.clearTimeout(timeout)
+    requestOptions.signal?.removeEventListener('abort', abortFromCaller)
   }
 
   if (GATEWAY_ERROR_STATUSES.has(res.status)) {
-    notifyGatewayError(res.status)
+    if (!requestOptions.background) notifyGatewayError(res.status)
     throw new ApiError(res.status, GATEWAY_ERROR_MESSAGE)
   }
 
@@ -320,7 +351,10 @@ async function executeGatewayGraphQl<T>(
   if ((res.status === 401 || code === 'UNAUTHENTICATED') && authMode === 'protected') {
     if (allowRetry) {
       const refreshed = await ensureRefresh(attemptedAccessToken)
-      if (refreshed) return gatewayGraphQl<T>(document, variables, authMode, false)
+      if (refreshed) return gatewayGraphQl<T>(document, variables, authMode, false, requestOptions)
+    }
+    if (requestOptions.background) {
+      throw new ApiError(401, 'The background request is no longer authenticated.', code)
     }
     return expireSession()
   }
@@ -347,16 +381,19 @@ export function gatewayGraphQl<T>(
   variables: Record<string, unknown> = {},
   authMode: ApiAuthMode = 'protected',
   allowRetry = true,
+  requestOptions: GatewayGraphQlRequestOptions = {},
 ): Promise<T> {
-  if (!isReadOnlyGraphQlDocument(document)) {
-    return executeGatewayGraphQl<T>(document, variables, authMode, allowRetry)
+  // Caller-owned cancellation cannot safely share a request: aborting one
+  // component must not cancel another component's otherwise identical query.
+  if (!isReadOnlyGraphQlDocument(document) || requestOptions.signal) {
+    return executeGatewayGraphQl<T>(document, variables, authMode, allowRetry, requestOptions)
   }
 
-  const key = `${authMode}:${allowRetry ? 'retry' : 'no-retry'}:${getAccessToken() ?? ''}:${document}:${JSON.stringify(variables)}`
+  const key = `${authMode}:${allowRetry ? 'retry' : 'no-retry'}:${requestOptions.keepalive ? 'keepalive' : 'normal'}:${requestOptions.background ? 'background' : 'foreground'}:${getAccessToken() ?? ''}:${document}:${JSON.stringify(variables)}`
   const existing = inFlightQueries.get(key)
   if (existing) return existing as Promise<T>
 
-  const request = executeGatewayGraphQl<T>(document, variables, authMode, allowRetry)
+  const request = executeGatewayGraphQl<T>(document, variables, authMode, allowRetry, requestOptions)
   inFlightQueries.set(key, request)
   void request.finally(() => {
     if (inFlightQueries.get(key) === request) inFlightQueries.delete(key)

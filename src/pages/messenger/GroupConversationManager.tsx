@@ -258,7 +258,7 @@ export function GroupConversationManager({
           {renderHeader('Tuỳ chọn nhóm', false)}
           <div className="group-manager-summary">
             <span className="group-manager-main-avatar">
-              <Avatar name={conversation.title ?? 'Nhóm'} src={conversation.avatarUrl} size={76} />
+              <Avatar name={conversation.title ?? 'Nhóm'} src={conversation.avatarUrl} size={76} fallback="initials" />
             </span>
             <strong>{conversation.title}</strong>
             <small>{conversation.participants.length} thành viên</small>
@@ -294,7 +294,7 @@ export function GroupConversationManager({
                 >
                   <img src={crop.target.previewUrl} style={crop.imageStyle} alt="" draggable={false} onLoad={(event) => crop.onImageLoad(event.currentTarget)} />
                 </div>
-              ) : <Avatar name={conversation.title ?? 'Nhóm'} src={conversation.avatarUrl} size={150} />}
+              ) : <Avatar name={conversation.title ?? 'Nhóm'} src={conversation.avatarUrl} size={150} fallback="initials" />}
               <span className="group-manager-camera"><Icon name="camera" size={19} /></span>
             </button>
             {crop.target && <div className="group-manager-zoom" aria-label="Thu phóng ảnh nhóm">

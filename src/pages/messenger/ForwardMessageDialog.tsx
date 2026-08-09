@@ -49,7 +49,7 @@ export function ForwardMessageDialog({ message, conversations, me, onForward, on
         {filtered.length === 0 ? <p>Không tìm thấy đoạn chat.</p> : filtered.map((conversation) => {
           const sent = sentIds.has(conversation.id)
           return <div className="forward-message-row" key={conversation.id}>
-            <Avatar name={conversationName(conversation, me)} src={conversationAvatar(conversation, me)} size={42} />
+            <Avatar name={conversationName(conversation, me)} src={conversationAvatar(conversation, me)} size={42} fallback={conversation.type === 'GROUP' ? 'initials' : 'avatar'} />
             <strong>{conversationName(conversation, me)}</strong>
             <button type="button" className={sent ? 'sent' : ''} disabled={Boolean(sendingId) || sent} onClick={() => void forward(conversation)}>{sent ? 'Đã gửi' : sendingId === conversation.id ? 'Đang gửi...' : 'Gửi'}</button>
           </div>

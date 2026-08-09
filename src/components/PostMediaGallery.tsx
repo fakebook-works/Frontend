@@ -31,12 +31,13 @@ export function PostMediaGallery({ media, compact = false, controls = true, pref
       const preferredFrame = count === 1 && selectedAspectRatio !== null
       const preferredPortrait = preferredFrame && selectedAspectRatio < 0.9
       const letterboxed = count === 1 && !preferredFrame && singlePresentation.needsLetterbox
+      const naturalSingleFrame = count === 1 && !preferredFrame && !letterboxed
       const imageInteractive = item.type === 0 && Boolean(onOpenImage)
       const videoInteractive = item.type === 1 && Boolean(onOpenImage)
       const mediaContent = item.type === 1
         ? <PostVideoPlayer src={item.url} controls={controls} autoPlay={index === autoplayVideoIndex} controlVariant="full" displayAspectRatio={preferredFrame ? selectedAspectRatio : null} objectPosition={preferredFrame ? objectPosition : '50% 50%'} onLoadedMetadata={(width, height) => rememberDimensions(key, width, height)} onOpenDetail={videoInteractive ? (currentTime) => onOpenImage?.(item, index, currentTime) : undefined} />
         : <img className="post-media-content" src={item.url} alt="" loading="lazy" style={preferredFrame ? { objectPosition } : undefined} onLoad={(event) => rememberDimensions(key, event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)} />
-      return <div className={`${letterboxed ? 'post-media-slot letterboxed' : 'post-media-slot'}${preferredFrame ? ' preferred-presentation' : ''}${imageInteractive ? ' image-interactive' : ''}`} style={count === 1 ? { aspectRatio: String(preferredFrame ? (preferredPortrait ? 4 / 3 : selectedAspectRatio) : singlePresentation.frameAspectRatio) } : undefined} key={`${key}-${index}`} role={imageInteractive ? 'button' : undefined} tabIndex={imageInteractive ? 0 : undefined} onClick={imageInteractive ? (event) => { event.stopPropagation(); onOpenImage?.(item, index) } : undefined} onKeyDown={imageInteractive ? (event) => {
+      return <div className={`${letterboxed ? 'post-media-slot letterboxed' : 'post-media-slot'}${preferredFrame ? ' preferred-presentation' : ''}${naturalSingleFrame ? ' natural-single-presentation' : ''}${imageInteractive ? ' image-interactive' : ''}`} style={count === 1 ? { aspectRatio: String(preferredFrame ? (preferredPortrait ? 4 / 3 : selectedAspectRatio) : singlePresentation.frameAspectRatio) } : undefined} key={`${key}-${index}`} role={imageInteractive ? 'button' : undefined} tabIndex={imageInteractive ? 0 : undefined} onClick={imageInteractive ? (event) => { event.stopPropagation(); onOpenImage?.(item, index) } : undefined} onKeyDown={imageInteractive ? (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
           event.stopPropagation()

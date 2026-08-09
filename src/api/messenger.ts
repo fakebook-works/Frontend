@@ -232,7 +232,13 @@ async function participantMap(
   return people
 }
 
-function messageFromGraphQl(message: MessageGraphQl, people: Map<string, UserSummary>, viewerId: string, status: MessengerMessageDto['status'] = 'sent'): MessengerMessageDto {
+function messageFromGraphQl(
+  message: MessageGraphQl,
+  people: Map<string, UserSummary>,
+  viewerId: string,
+  status: MessengerMessageDto['status'] = 'sent',
+  readBy?: UserSummary[],
+): MessengerMessageDto {
   const senderId = String(message.senderUserId)
   const federatedSender = message.sender ? {
     id: String(message.sender.id),
@@ -276,6 +282,7 @@ function messageFromGraphQl(message: MessageGraphQl, people: Map<string, UserSum
     editHistory: message.deleted ? [] : message.editHistory ?? [],
     createdAt: message.createdAt,
     status,
+    ...(readBy ? { readBy } : {}),
     attachments: message.deleted ? [] : message.attachments.map(attachmentFromGraphQl),
   }
 }
@@ -339,28 +346,56 @@ export async function messages(conversationId: string, viewerId: string, last = 
   const people = await participantMap([conversationData.conversation], viewerId, messageData.conversationMessages.items)
   const otherParticipants = conversationData.conversation.participants
     .filter((participant) => String(participant.userId) !== viewerId && !participant.leftAt)
-  const maxLong = (values: string[]) => values.reduce((highest, value) => {
+  const parseLong = (value: string) => {
     try {
-      const current = BigInt(value)
-      return current > highest ? current : highest
+      return BigInt(value)
     } catch {
-      return highest
+      return 0n
     }
-  }, 0n)
-  const otherRead = maxLong(otherParticipants.map((participant) => participant.lastReadSequence))
-  const otherDelivered = maxLong(otherParticipants.map((participant) => participant.lastDeliveredSequence))
-  return messageData.conversationMessages.items.map((message) => messageFromGraphQl(
-    message,
-    people,
-    viewerId,
-    String(message.senderUserId) !== viewerId
-      ? 'sent'
-      : BigInt(message.sequence) <= otherRead
-        ? 'read'
-        : BigInt(message.sequence) <= otherDelivered
-          ? 'delivered'
-          : 'sent',
-  ))
+  }
+  const participantReceipts = otherParticipants.map((participant, index) => ({
+    participant,
+    index,
+    deliveredSequence: parseLong(participant.lastDeliveredSequence),
+    readSequence: parseLong(participant.lastReadSequence),
+  }))
+  const otherRead = participantReceipts.reduce(
+    (highest, receipt) => receipt.readSequence > highest ? receipt.readSequence : highest,
+    0n,
+  )
+  const otherDelivered = participantReceipts.reduce(
+    (highest, receipt) => receipt.deliveredSequence > highest ? receipt.deliveredSequence : highest,
+    0n,
+  )
+  return messageData.conversationMessages.items.map((message) => {
+    const ownMessage = String(message.senderUserId) === viewerId
+    const sequence = parseLong(message.sequence)
+    const readBy = ownMessage
+      ? participantReceipts
+          .filter((receipt) => sequence > 0n && receipt.readSequence >= sequence)
+          .sort((left, right) => left.readSequence === right.readSequence
+            ? left.index - right.index
+            : left.readSequence > right.readSequence ? -1 : 1)
+          .flatMap(({ participant }) => {
+            const person = people.get(String(participant.userId))
+            return person ? [person] : []
+          })
+      : undefined
+
+    return messageFromGraphQl(
+      message,
+      people,
+      viewerId,
+      !ownMessage
+        ? 'sent'
+        : sequence <= otherRead
+          ? 'read'
+          : sequence <= otherDelivered
+            ? 'delivered'
+            : 'sent',
+      readBy,
+    )
+  })
 }
 
 export async function conversationMedia(conversationId: string): Promise<MessengerConversationMedia[]> {

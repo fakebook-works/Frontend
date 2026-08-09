@@ -37,11 +37,16 @@ const apiMocks = vi.hoisted(() => ({
 }))
 const messengerMocks = vi.hoisted(() => ({ conversations: vi.fn(), createDirectConversation: vi.fn(), sendMessage: vi.fn() }))
 const translate = vi.hoisted(() => (key: string) => key)
+const recommendationMocks = vi.hoisted(() => ({
+  getRecommendationSurfaceSessionKey: vi.fn(() => 'detail-session'),
+  useRecommendationImpression: vi.fn(),
+}))
 
 vi.mock('../api/social', () => ({ socialApi: socialMocks }))
 vi.mock('../api/client', () => ({ api: apiMocks }))
 vi.mock('../api/messenger', () => ({ messengerApi: messengerMocks }))
 vi.mock('../i18n', () => ({ useI18n: () => ({ locale: 'en', t: translate }) }))
+vi.mock('../lib/useRecommendationImpression', () => recommendationMocks)
 
 const post: GatewayPost = {
   __typename: 'GroupPostDetail',
@@ -94,6 +99,8 @@ describe('ContentActions refreshed overlays', () => {
     messengerMocks.createDirectConversation.mockReset()
     messengerMocks.conversations.mockReset().mockResolvedValue([])
     messengerMocks.sendMessage.mockReset()
+    recommendationMocks.getRecommendationSurfaceSessionKey.mockClear()
+    recommendationMocks.useRecommendationImpression.mockClear()
   })
 
   afterEach(cleanup)
@@ -121,6 +128,17 @@ describe('ContentActions refreshed overlays', () => {
     expect(container.querySelector('.thread-post-engagement > nav')).toHaveClass('gateway-post-actions')
     expect(container.querySelector('.content-engagement-summary .content-share-summary')).not.toBeInTheDocument()
     expect(container.querySelector('.thread-post-engagement .content-share-summary')).not.toBeInTheDocument()
+  })
+
+  it('measures detail dwell on the post preview instead of the persistent comments shell', async () => {
+    render(<ContentActions viewerId="1" contentId="90" post={post} />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+    await screen.findByRole('dialog', { name: 'comments' })
+
+    const impressionCalls = recommendationMocks.useRecommendationImpression.mock.calls
+    const measuredRef = impressionCalls[impressionCalls.length - 1]?.[0] as { current: HTMLElement | null }
+    expect(measuredRef.current).toHaveClass('thread-post-preview')
+    expect(measuredRef.current).not.toHaveClass('content-thread-modal')
   })
 
   it('closes the preserved post-detail portal before a hashtag navigates to Search', async () => {

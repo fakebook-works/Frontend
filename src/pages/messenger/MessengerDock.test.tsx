@@ -954,7 +954,11 @@ describe('MessengerDock overflow windows', () => {
 
     const preview = await within(chat).findByRole('img', { name: 'preview.png' })
     expect(preview).toHaveAttribute('src', 'blob:preview.png')
+    expect(preview.closest('.mini-compose-preview')).toBeInTheDocument()
     expect(preview.closest('.mini-compose-body')).toBeInTheDocument()
+    expect(chat.querySelector('.mini-chat-compose')).toHaveClass('is-writing', 'has-attachments')
+    expect(chat.querySelector('.mini-compose-tools')).toHaveClass('compact')
+    expect(chat.querySelector('.mini-compose-more-btn')).toBeInTheDocument()
     expect(within(chat).queryByText('preview.png')).not.toBeInTheDocument()
     expect(uploadMocks.uploadMediaFiles).not.toHaveBeenCalled()
     expect(within(chat).getByRole('button', { name: 'removeMedia' })).toBeInTheDocument()

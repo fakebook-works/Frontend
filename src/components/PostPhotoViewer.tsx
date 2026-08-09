@@ -6,6 +6,7 @@ import type { GatewayMedia, GatewayPost, SharedStory } from '../api/gatewayTypes
 import { socialApi, type ContentEngagement } from '../api/social'
 import { useI18n } from '../i18n'
 import { useBodyInteractionLock } from '../lib/bodyInteractionLock'
+import { getRecommendationSurfaceSessionKey, useRecommendationImpression } from '../lib/useRecommendationImpression'
 import { Avatar } from './Avatar'
 import { ContentDetailShellClose } from './ContentDetailShellClose'
 import { HoverTooltip } from './HoverTooltip'
@@ -92,7 +93,7 @@ function UnavailablePhotoDiscussion({ viewerId, author, onNavigate }: { viewerId
           <button type="button" className="post-author-avatar" disabled={!author?.id || !onNavigate} onClick={openAuthor}><Avatar name={authorName} src={author?.avatar || null} size={40} /></button>
           <div className="post-head-copy thread-post-head-copy">
             <div className="post-head-primary">
-              <button type="button" className="post-author-name" disabled={!author?.id || !onNavigate} onClick={openAuthor}><strong><span className="thread-post-primary-name">{authorName}</span><VerifiedBadge verified={Boolean(author?.isVerified)} /></strong></button>
+              <button type="button" className="post-author-name" disabled={!author?.id || !onNavigate} onClick={openAuthor}><strong><span className="thread-post-primary-name">{authorName}</span><VerifiedBadge verified={Boolean(author?.isVerified)} size={13} /></strong></button>
             </div>
             <span className="post-head-meta unavailable-post-meta">
               <span>{t('unknown')}</span>
@@ -177,6 +178,21 @@ export function PostPhotoViewer({ viewerId, contentId, initialMediaId, initialMe
   const activePostBase = activeEntry ? activeEntry.post : post
   const activePost = activePostBase ? postOverrides[activePostBase.id] ?? activePostBase : null
   const activePhoto = activeMedia?.type === 0 ? activeMedia : null
+  const impressionSessionKey = activePost
+    ? getRecommendationSurfaceSessionKey('content')
+    : undefined
+  useRecommendationImpression(
+    stageRef,
+    impressionSessionKey && activePost ? activePost.id : undefined,
+    impressionSessionKey,
+    0.5,
+    {
+      kind: activePost?.media.some((media) => media.type === 1) || activePost?.sharedSource?.media.some((media) => media.type === 1)
+        ? 'video-post'
+        : 'post',
+      overlay: true,
+    },
+  )
   // A media URL may remain valid after its source post is deleted, hidden by
   // privacy, or absent for legacy avatars. Derive the protected sidebar from
   // the resolved entry itself so a missing flag from a parent cannot hide it.

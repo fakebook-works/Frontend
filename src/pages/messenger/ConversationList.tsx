@@ -115,7 +115,7 @@ export function ConversationList({
                 className={`messenger-row${isActive ? ' active' : ''}${hasUnread ? ' unread' : ''}`}
                 onClick={() => onSelect(conversation.id)}
               >
-                <Avatar name={name} src={conversationAvatar(conversation, me)} size={56} online={Boolean(other && presenceByUserId[other.id]?.isOnline)} />
+                <Avatar name={name} src={conversationAvatar(conversation, me)} size={56} online={Boolean(other && presenceByUserId[other.id]?.isOnline)} fallback={conversation.type === 'GROUP' ? 'initials' : 'avatar'} />
                 <span className="messenger-row-copy">
                   <strong>{name}</strong>
                   <span>

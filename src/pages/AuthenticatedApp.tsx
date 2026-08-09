@@ -35,7 +35,6 @@ import { takeOverlayContent } from '../lib/overlayContentCache'
 import { gatewayReelToSocialContent, type GatewayReelPost } from '../lib/reelEntry'
 import { unlockSoundEffects } from '../lib/sounds'
 import { ActivityVisibilityProvider } from '../lib/activityVisibility'
-import { setRecommendationImpressionViewer } from '../lib/useRecommendationImpression'
 import { FriendsPage } from './FriendsPage'
 import { GatewayHomePage, HOME_REFRESH_EVENT } from './GatewayHomePage'
 import { GroupProfilePage, GroupsPage } from './GroupsPage'
@@ -72,10 +71,6 @@ const PostPhotoViewer = lazy(() => import('../components/PostPhotoViewer').then(
 
 export function AuthenticatedApp() {
   const { user, logout } = useAuth()
-  useEffect(() => {
-    setRecommendationImpressionViewer(user?.userId ?? null)
-    return () => setRecommendationImpressionViewer(null)
-  }, [user?.userId])
   const authenticatedUserId = user?.userId
   const { t, locale } = useI18n()
   const [browserLocation, navigate] = useAppLocation()
@@ -921,9 +916,9 @@ function QuickSearchDropdown({ query, items, loading, onOpen, onSearchQuery }: {
       ? [item.viewerIsSelf ? t('searchSelf') : item.viewerIsFriend ? t('friends') : item.viewerIsFollowing ? t('following') : t('searchPeople'), ...(!related && item.profile.followerCount > 0 ? [t('followersCount', { count: item.profile.followerCount })] : [])]
       : [item.viewerIsMember ? t('searchYourGroup') : item.group.privacy === 0 ? t('publicGroup') : t('privateGroup'), ...(item.group.memberCount == null ? [] : [t('membersCount', { count: item.group.memberCount })])]
     return <button type="button" className={related ? 'quick-search-result is-related' : 'quick-search-result is-discovery'} key={`${item.kind}-${item.id}`} onMouseDown={(event) => event.preventDefault()} onClick={() => onOpen(item)}>
-      {related ? <Avatar className={isUser ? undefined : 'quick-search-group-avatar'} name={name} src={avatar} size={36} /> : <QuickSearchMarker />}
+      {related ? <Avatar className={isUser ? undefined : 'quick-search-group-avatar'} name={name} src={avatar} size={36} fallback={isUser ? 'avatar' : 'initials'} /> : <QuickSearchMarker />}
       <span className="quick-search-result-copy"><strong>{name}{isUser && <VerifiedBadge verified={item.profile.isVerified} />}</strong><small>{detailParts.join(' · ')}</small></span>
-      {!related && <Avatar className={isUser ? undefined : 'quick-search-group-avatar'} name={name} src={avatar} size={36} />}
+      {!related && <Avatar className={isUser ? undefined : 'quick-search-group-avatar'} name={name} src={avatar} size={36} fallback={isUser ? 'avatar' : 'initials'} />}
     </button>
   })}{items.length < 8 && <button type="button" className="quick-search-query-result" onMouseDown={(event) => event.preventDefault()} onClick={onSearchQuery}><QuickSearchMarker /><strong>{query}</strong></button>}</>}</div>
 }

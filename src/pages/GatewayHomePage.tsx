@@ -46,7 +46,7 @@ import { applyMentionSelection, extractMentionUserIds, reconcileMentionEntities,
 import { formatPresence, groupPresenceSummary } from './messenger/helpers'
 import { contentOverlayHref, locationFromHref, mediaOverlayHref, parseOverlayRoute, reelOverlayHref } from '../lib/overlayRoutes'
 import { stageOverlayContent } from '../lib/overlayContentCache'
-import { createRecommendationSessionKey, useRecommendationImpression } from '../lib/useRecommendationImpression'
+import { createRecommendationSessionKey, getRecommendationSurfaceSessionKey, useRecommendationImpression } from '../lib/useRecommendationImpression'
 
 const FEED_PAGE_SIZE = 12
 const MAX_FEED_HYDRATION_PAGES_PER_REQUEST = 4
@@ -137,6 +137,7 @@ export const GatewayHomePage = memo(function GatewayHomePage({ profile = null, f
   const activeFeedResetRequestRef = useRef<number | null>(null)
   const feedMoreRequestRef = useRef<number | null>(null)
   const feedSentinelRef = useRef<HTMLDivElement>(null)
+  const homeRootRef = useRef<HTMLElement>(null)
   const leftRailRef = useRef<HTMLElement>(null)
   const rightRailRef = useRef<HTMLElement>(null)
   const initialUserIdRef = useRef<string | null>(null)
@@ -521,6 +522,25 @@ export const GatewayHomePage = memo(function GatewayHomePage({ profile = null, f
     }
   }, [])
 
+  useLayoutEffect(() => {
+    const home = homeRootRef.current
+    const destination = home?.closest<HTMLElement>('.authenticated-destination-scroll')
+    if (!home || !destination) return
+
+    const alignRailWithShellBrand = () => {
+      const scrollbarHalf = Math.max(0, (destination.offsetWidth - destination.clientWidth) / 2)
+      home.style.setProperty('--home-destination-scrollbar-half', `${scrollbarHalf}px`)
+    }
+    alignRailWithShellBrand()
+    window.addEventListener('resize', alignRailWithShellBrand)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(alignRailWithShellBrand)
+    observer?.observe(destination)
+    return () => {
+      window.removeEventListener('resize', alignRailWithShellBrand)
+      observer?.disconnect()
+    }
+  }, [])
+
   // Rail scroll containment is handled by CSS overscroll-behavior-y: contain.
   // The old non-passive wheel listener caused scroll jank because
   // event.preventDefault() inside a { passive: false } listener blocks the
@@ -540,7 +560,7 @@ export const GatewayHomePage = memo(function GatewayHomePage({ profile = null, f
   }
 
   return <>
-    <main className="gateway-home">
+    <main ref={homeRootRef} className="gateway-home">
       <aside ref={leftRailRef} className="gateway-left-rail" aria-label={t('visitedGroups')}>
         <nav className="home-shortcuts" aria-label={t('primaryNavLabel')}>
           <button type="button" onClick={() => onNavigate?.(`/profile/${user.userId}`)}><Avatar name={profile?.displayName || user.email} src={profile?.avatarUrl} size={36} /><strong>{profile?.displayName || user.email.split('@')[0]}<VerifiedBadge verified={profile?.isVerified} size={13} /></strong></button>
@@ -559,7 +579,7 @@ export const GatewayHomePage = memo(function GatewayHomePage({ profile = null, f
             <div className="group-shortcuts">
               {groups.map((group) => (
                 <button type="button" key={group.id} onClick={() => void openGroup(group)}>
-                  <Avatar name={group.name} src={group.avatar || null} size={36} />
+                  <Avatar name={group.name} src={group.avatar || null} size={36} fallback="initials" />
                   <span className="home-visited-group-copy"><strong>{group.name}</strong>{group.visitedAt && <small>{t('visitedTime', { time: groupVisitRelativeTime(group.visitedAt, locale) })}</small>}</span>
                 </button>
               ))}
@@ -664,7 +684,7 @@ export const GatewayHomePage = memo(function GatewayHomePage({ profile = null, f
             const name = conversation.title?.trim() || t('groupConversation')
             const avatar = conversation.avatarUrl || conversation.participants.find((participant) => participant.id !== user.userId)?.avatarUrl || null
             const groupPresence = groupPresenceSummary(conversation, user.userId, presenceByUserId, t, presenceNow)
-            return <button type="button" key={conversation.id} onClick={() => onConversation ? onConversation(conversation) : onNavigate?.(`/messenger?conversation=${encodeURIComponent(conversation.id)}`)}><span className="contact-avatar"><Avatar name={name} src={avatar} size={36} online={groupPresence.onlineCount > 0} /></span><span className="contact-copy"><strong>{name}</strong><small>{groupPresence.label}</small></span></button>
+            return <button type="button" key={conversation.id} onClick={() => onConversation ? onConversation(conversation) : onNavigate?.(`/messenger?conversation=${encodeURIComponent(conversation.id)}`)}><span className="contact-avatar"><Avatar name={name} src={avatar} size={36} online={groupPresence.onlineCount > 0} fallback="initials" /></span><span className="contact-copy"><strong>{name}</strong><small>{groupPresence.label}</small></span></button>
           })}</div>}
         </section>
       </aside>
@@ -1338,7 +1358,21 @@ function TaggedUsersInline({ users, onNavigate }: { users: GatewayTaggedUser[]; 
 
 export const GatewayPostCard = memo(function GatewayPostCard({ post, locale, viewerId, recommendationSessionKey, onNavigate, onOpenReel, onMessage, onStoryCreated, authorPath, groupContextId, viewerCanModerateGroupPosts = false }: { post: GatewayPost; locale: string; viewerId?: string; recommendationSessionKey?: string; onNavigate?: (path: string) => void; onOpenReel?: (reel: Extract<GatewayPost, { __typename: 'ReelDetail' }>) => void; onMessage?: (profileId: string) => Promise<void>; onStoryCreated?: (story: SharedStory) => void; authorPath?: (authorId: string) => string; groupContextId?: string; viewerCanModerateGroupPosts?: boolean }) {
   const impressionRef = useRef<HTMLElement>(null)
-  useRecommendationImpression(impressionRef, recommendationSessionKey ? post.id : undefined, recommendationSessionKey)
+  const impressionSessionKey = viewerId
+    ? recommendationSessionKey ?? getRecommendationSurfaceSessionKey('content')
+    : undefined
+  const impressionKind = post.__typename === 'ReelDetail'
+    ? 'video'
+    : post.media.some((media) => media.type === 1) || post.sharedSource?.media.some((media) => media.type === 1)
+      ? 'video-post'
+      : 'post'
+  useRecommendationImpression(
+    impressionRef,
+    impressionSessionKey ? post.id : undefined,
+    impressionSessionKey,
+    0.5,
+    { kind: impressionKind },
+  )
   const { t } = useI18n()
   const [current, setCurrent] = useState(post)
   const [deleting, setDeleting] = useState(false)
@@ -1460,7 +1494,7 @@ export const GatewayPostCard = memo(function GatewayPostCard({ post, locale, vie
         {current.__typename === 'GroupPostDetail' && !inOwningGroupContext ? <button type="button" className="post-author-avatar" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><GroupPostAvatar groupName={current.group.name} groupAvatar={current.group.avatar || null} userName={current.author.name} userAvatar={current.author.avatar || null} size={40} /></button> : <button type="button" className="post-author-avatar" onClick={openAuthor}><Avatar name={current.author.name} src={current.author.avatar || null} size={40} /></button>}
         <div className="post-head-copy">
           <div className="post-head-primary">
-            {current.__typename === 'GroupPostDetail' && !inOwningGroupContext ? <button type="button" className="post-group-link" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><strong>{current.group.name}</strong></button> : <button type="button" className="post-author-name" onClick={openAuthor}><strong>{current.author.name}<VerifiedBadge verified={current.author.isVerified} /></strong></button>}
+            {current.__typename === 'GroupPostDetail' && !inOwningGroupContext ? <button type="button" className="post-group-link" onClick={() => onNavigate?.(`/groups/${current.group.id}`)}><strong>{current.group.name}</strong></button> : <button type="button" className="post-author-name" onClick={openAuthor}><strong>{current.author.name}<VerifiedBadge verified={current.author.isVerified} size={13} /></strong></button>}
             <TaggedUsersInline users={taggedUsers} onNavigate={onNavigate} />
             {canFollow && <button type="button" className={followingFromCard ? 'post-inline-action is-settled' : 'post-inline-action'} disabled={relationshipBusy} onClick={() => void followAuthor()}><span>{t(followingFromCard ? 'following' : 'follow')}</span></button>}
             {canJoin && <button type="button" className={joinRequestedFromCard ? 'post-inline-action is-settled' : 'post-inline-action'} disabled={relationshipBusy} onClick={() => void joinGroup()}><span>{t(joinRequestedFromCard ? 'joinRequested' : 'joinGroup')}</span></button>}

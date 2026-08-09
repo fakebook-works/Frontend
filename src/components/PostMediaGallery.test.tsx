@@ -61,6 +61,7 @@ describe('PostMediaGallery', () => {
     loadImage(container.querySelector<HTMLImageElement>('.post-media-content')!, 2400, 900)
 
     await waitFor(() => expect(container.querySelector<HTMLElement>('.post-media-slot')?.style.aspectRatio).toBe(`${2400 / 900} / 1`))
+    expect(container.querySelector('.post-media-slot')).toHaveClass('natural-single-presentation')
     expect(container.querySelector('.post-media-slot')).not.toHaveClass('letterboxed')
     expect(container.querySelector('.post-media-backdrop')).not.toBeInTheDocument()
   })

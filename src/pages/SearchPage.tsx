@@ -284,17 +284,18 @@ async function hydrateSearchPage(result: SearchPageResult, userId: string): Prom
 
 function SearchFilterIcon({ tab, active }: { tab: SearchTab; active: boolean }) {
   if (tab === 'posts') return <SearchPostsIcon />
-  if (tab === 'people') return <FriendPeopleGlyph className="friend-nav-glyph" size={22} filled={active} />
+  if (tab === 'people') return <FriendPeopleGlyph className="friend-nav-glyph" size={22} filled />
   if (tab === 'reels') return <ReelIcon size={22} filled={active} dividerColor="var(--discovery-nav-icon-bg)" />
   return <GroupMembersIcon size={23} className="discovery-groups-glyph" />
 }
 
 function SearchPostsIcon() {
   return <svg className="discovery-posts-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-    <path className="discovery-posts-back" d="M2 14V6.6a2.1 2.1 0 0 1 2.1-2.1h12.6" />
-    <path className="discovery-posts-back" d="M4.8 16.8V9.4a2.1 2.1 0 0 1 2.1-2.1h12.6" />
-    <rect className="discovery-posts-front" x="7.55" y="9.65" width="14.45" height="10.45" rx="2" />
-    <path className="discovery-posts-dash" d="M10.75 13.85h8" />
+    <path className="discovery-posts-back" d="M1.75 15.7V4.22c0-.64.52-1.16 1.16-1.16h14.9" />
+    <rect className="discovery-posts-front" x="3.75" y="5.2" width="18.4" height="15.2" rx="1.85" />
+    <path className="discovery-posts-panel" d="M5.55 7.05c0-.34.27-.61.61-.61h13.58c.34 0 .61.27.61.61v4.82H5.55V7.05Z" />
+    <rect className="discovery-posts-thumbnail" x="6.85" y="8.05" width="2.55" height="2.35" rx=".4" />
+    <path className="discovery-posts-line" d="M10.8 9.22h7.45" />
   </svg>
 }
 
@@ -394,7 +395,7 @@ function GroupResult({
     : friends.length > 1 ? t('groupFriendMembers', { name: friends[0].displayName, count: friends.length - 1 }) : ''
   const actionLabel = membership.isMember ? t('searchVisitGroup') : membership.joinRequestPending ? t('joinRequested') : t('joinGroup')
   return <article className="card search-entity-result search-group-result">
-    <button type="button" className="search-entity-avatar search-group-avatar" onClick={onOpen}><Avatar name={group.name} src={group.avatarUrl} size={54} className="group-square-avatar" /></button>
+    <button type="button" className="search-entity-avatar search-group-avatar" onClick={onOpen}><Avatar name={group.name} src={group.avatarUrl} size={54} className="group-square-avatar" fallback="initials" /></button>
     <button type="button" className="search-entity-copy" onClick={onOpen}>
       <strong><span>{group.name}</span></strong>
       <small><span>{group.privacy === 0 ? t('groupPublicVisibility') : t('groupPrivateVisibility')}</span><span><b aria-hidden="true">·</b>{t('membersCount', { count: group.memberCount ?? 0 })}</span></small>

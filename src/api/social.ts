@@ -1067,7 +1067,10 @@ export async function getRecommendedReels(userId: string, mode: 'FOR_YOU' | 'FOL
   return hydrateContentAuthors(items)
 }
 
-export async function recordRecommendationImpressions(items: RecommendationImpression[]): Promise<boolean> {
+export async function recordRecommendationImpressions(
+  items: RecommendationImpression[],
+  options: { keepalive?: boolean; signal?: AbortSignal } = {},
+): Promise<boolean> {
   if (items.length > 50) throw new Error('A recommendation impression batch cannot exceed 50 items.')
   const bounded = items.map((item) => {
     const targetId = graphQlLongLiteral(String(item.targetId))
@@ -1092,11 +1095,20 @@ export async function recordRecommendationImpressions(items: RecommendationImpre
   })
   if (bounded.length === 0) return true
 
-  const data = await gatewayGraphQl<{ recordRecommendationImpressions: { success: boolean } }>(
-    `mutation RecordRecommendationImpressions($input: RecommendationImpressionInput!) {
+  const document = `mutation RecordRecommendationImpressions($input: RecommendationImpressionInput!) {
       recordRecommendationImpressions(input: $input) { success }
-    }`,
-    { input: { items: bounded } },
+    }`
+  const variables = { input: { items: bounded } }
+  const data = await gatewayGraphQl<{ recordRecommendationImpressions: { success: boolean } }>(
+    document,
+    variables,
+    'protected',
+    false,
+    {
+      background: true,
+      keepalive: options.keepalive === true,
+      signal: options.signal,
+    },
   )
   return Boolean(data.recordRecommendationImpressions?.success)
 }
