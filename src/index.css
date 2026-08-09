@@ -17,7 +17,8 @@
 }
 
 html,
-body {
+body,
+#root {
   min-width: 320px;
   min-height: 100%;
   margin: 0;
@@ -26,6 +27,38 @@ body {
 
 body {
   overflow-x: hidden;
+}
+
+/* Safari's floating toolbar can change the visual viewport after the
+   authenticated shell has mounted. Keep WebKit's page canvas flexible instead
+   of clipping it at the layout viewport, so no black backing surface appears
+   below the toolbar on iOS 15 through current releases. */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 900px) {
+    html {
+      min-height: -webkit-fill-available;
+      background: var(--card);
+    }
+
+    body,
+    #root {
+      min-height: -webkit-fill-available;
+      background: var(--bg);
+    }
+
+    html.authenticated-shell-scroll,
+    body.authenticated-shell-scroll {
+      height: auto;
+      min-height: -webkit-fill-available;
+      overflow: visible;
+    }
+
+    .authenticated-app {
+      height: auto;
+      min-height: -webkit-fill-available;
+      overflow: visible;
+    }
+  }
 }
 
 img {
