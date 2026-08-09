@@ -35,6 +35,7 @@
   --shell-popover-width: 330px;
   --shell-popover-right: 12px;
   --shell-popover-top-gap: 6px;
+  --shell-topbar-surface: var(--card);
 }
 
 :root[data-theme='dark'] {
@@ -58,6 +59,7 @@
   --chip-active: rgba(24, 119, 242, 0.2);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-pop: 0 12px 28px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shell-topbar-surface: #1d1f20;
 }
 
 * {
@@ -3151,7 +3153,7 @@ select {
 .app-shell-topbar {
   position: fixed; inset: 0 0 auto; z-index: 1000; height: var(--topbar-h);
   display: grid; grid-template-columns: minmax(220px, 1fr) minmax(360px, 680px) minmax(220px, 1fr);
-  align-items: center; gap: 18px; padding: 0 16px; background: var(--card);
+  align-items: center; gap: 18px; padding: 0 16px; background: var(--shell-topbar-surface);
   border-bottom: var(--navigation-divider-width) solid var(--navigation-divider); box-shadow: var(--shadow-card);
 }
 .shell-brand-search, .app-shell-actions { display: flex; align-items: center; gap: 8px; }
