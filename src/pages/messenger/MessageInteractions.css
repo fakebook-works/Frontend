@@ -97,8 +97,9 @@
 }
 
 .message-reaction-row { height: 40px; display: flex; align-items: center; justify-content: center; gap: 1px; }
-.message-reaction-more-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; max-width: 250px; padding-top: 4px; border-top: 1px solid rgb(255 255 255 / 10%); }
-.message-reaction-row button {
+.message-reaction-more-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; max-width: 244px; padding-top: 4px; border-top: 1px solid rgb(255 255 255 / 10%); }
+.message-reaction-row button,
+.message-reaction-more-row button {
   width: 39px;
   height: 39px;
   display: flex;
@@ -116,7 +117,10 @@
 }
 .message-reaction-row button:hover,
 .message-reaction-row button:focus-visible,
-.message-reaction-row button.selected { background: transparent; transform: scale(1.14); outline: 0; }
+.message-reaction-row button.selected,
+.message-reaction-more-row button:hover,
+.message-reaction-more-row button:focus-visible,
+.message-reaction-more-row button.selected { background: transparent; transform: scale(1.14); outline: 0; }
 .message-reaction-row button.reaction-more {
   margin-left: 2px;
   color: #e4e6eb;
