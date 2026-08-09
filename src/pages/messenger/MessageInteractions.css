@@ -88,16 +88,16 @@
   gap: 5px;
   box-sizing: border-box;
   padding: 6px 7px;
-  border: 1px solid #4c4d4f;
+  border: 1px solid var(--divider);
   border-radius: 25px;
-  color: #e4e6eb;
-  background: #242526;
-  box-shadow: 0 6px 22px rgb(0 0 0 / 42%);
+  color: var(--text);
+  background: var(--card);
+  box-shadow: var(--shadow-pop);
   animation: message-pop-in .12s ease-out;
 }
 
 .message-reaction-row { height: 40px; display: flex; align-items: center; justify-content: center; gap: 1px; }
-.message-reaction-more-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; max-width: 244px; padding-top: 4px; border-top: 1px solid rgb(255 255 255 / 10%); }
+.message-reaction-more-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; max-width: 244px; padding-top: 4px; border-top: 1px solid var(--divider); }
 .message-reaction-row button,
 .message-reaction-more-row button {
   width: 39px;
@@ -123,12 +123,12 @@
 .message-reaction-more-row button.selected { background: transparent; transform: scale(1.14); outline: 0; }
 .message-reaction-row button.reaction-more {
   margin-left: 2px;
-  color: #e4e6eb;
-  background: #3a3b3c;
+  color: var(--text);
+  background: var(--circle);
   line-height: 1;
 }
 .message-reaction-row button.reaction-more:hover,
-.message-reaction-row button.reaction-more:focus-visible { background: #4e4f50; transform: none; }
+.message-reaction-row button.reaction-more:focus-visible { background: var(--hover); transform: none; }
 .message-reaction-row button.reaction-more:active { transform: scale(.94); }
 .reaction-plus-glyph { position: relative; width: 16px; height: 16px; display: block; }
 .reaction-plus-glyph::before,
