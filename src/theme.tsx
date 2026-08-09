@@ -36,7 +36,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     document.documentElement.style.colorScheme = theme
-    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute(
+    document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]')?.setAttribute('content', theme)
+    document.querySelector<HTMLMetaElement>('#theme-color, meta[name="theme-color"]')?.setAttribute(
       'content',
       THEME_COLORS[theme],
     )

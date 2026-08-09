@@ -12,6 +12,8 @@
       name="description"
       content="Fakebook social network frontend for profiles, posts, friend requests, reactions, comments, and sharing."
     />
+    <meta name="color-scheme" content="light" />
+    <meta id="theme-color" name="theme-color" content="#ffffff" />
     <script>
       (() => {
         const storageKey = 'fb.theme'
@@ -26,10 +28,8 @@
         }
         document.documentElement.setAttribute('data-theme', theme)
         document.documentElement.style.colorScheme = theme
-        const themeColor = document.createElement('meta')
-        themeColor.name = 'theme-color'
-        themeColor.content = theme === 'dark' ? '#242526' : '#ffffff'
-        document.head.append(themeColor)
+        document.querySelector('meta[name="color-scheme"]').content = theme
+        document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#242526' : '#ffffff'
       })()
     </script>
     <title>Fakebook</title>
