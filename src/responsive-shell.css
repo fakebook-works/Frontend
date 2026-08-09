@@ -891,3 +891,144 @@
   .app-shell-actions { gap: 1px; }
   .app-shell-actions .shell-menu-button { display: grid !important; }
 }
+
+/* Destination controls live below the two-row phone shell, but they are not a
+   second copy of that shell. Keep every destination's local controls to one
+   compact 52px row; using --topbar-h here made them inherit both shell rows
+   and produced the oversized, clipped menus seen in portrait. */
+@media (max-width: 900px) {
+  :root { --fb-destination-nav-row: 52px; }
+
+  .friends-page-layout { display: block; }
+  .friends-page-sidebar {
+    position: relative;
+    top: auto;
+    height: auto;
+    overflow: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--divider);
+    box-shadow: none;
+  }
+  .friends-page-sidebar > header { display: none; }
+  .friends-page-sidebar nav {
+    height: var(--fb-destination-nav-row);
+    display: grid;
+    grid-auto-flow: initial;
+    grid-auto-columns: auto;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0;
+    overflow: visible;
+    padding: 0 6px;
+  }
+  .friends-page-sidebar nav > button {
+    width: 100%;
+    height: var(--fb-destination-nav-row);
+    min-height: var(--fb-destination-nav-row);
+    display: grid;
+    grid-template-columns: 1fr;
+    place-items: center;
+    gap: 0;
+    padding: 0;
+  }
+  .friends-page-sidebar nav > button > span { width: 36px; height: 36px; }
+  .friends-page-sidebar nav strong { display: none; }
+  .friends-page-content { padding-top: 18px; }
+
+  .groups-sidebar {
+    position: relative;
+    top: auto;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    padding: 0 8px;
+    border-right: 0;
+    box-shadow: none;
+  }
+  .groups-sidebar > header {
+    position: absolute;
+    z-index: 3;
+    top: 8px;
+    right: 8px;
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+  }
+  .groups-sidebar > header h1 { display: none; }
+  .groups-search-row {
+    height: var(--fb-destination-nav-row);
+    align-items: center;
+    padding: 0 44px 0 0;
+  }
+  .groups-search-shell,
+  .groups-search { height: 36px; }
+  .groups-primary-nav {
+    height: var(--fb-destination-nav-row);
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0;
+  }
+  .groups-primary-nav > button {
+    width: 100%;
+    height: var(--fb-destination-nav-row);
+    min-height: var(--fb-destination-nav-row);
+    display: grid;
+    grid-template-columns: 1fr;
+    place-items: center;
+    gap: 0;
+    padding: 0;
+  }
+  .groups-primary-nav strong { display: none; }
+  .groups-create-row { height: var(--fb-destination-nav-row); padding-inline: 0; }
+
+  .reels-page {
+    height: calc(100vh - var(--topbar-h));
+    height: calc(100dvh - var(--topbar-h));
+    margin-top: var(--topbar-h);
+    grid-template-rows: var(--fb-destination-nav-row) minmax(0, 1fr);
+  }
+  .reels-sidebar {
+    height: var(--fb-destination-nav-row);
+    display: block;
+    overflow: hidden;
+    padding: 0 8px;
+    border-bottom: 1px solid rgb(255 255 255 / 10%);
+  }
+  .reels-sidebar > header { display: none; }
+  .reels-sidebar nav {
+    height: var(--fb-destination-nav-row);
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(52px, 1fr);
+    grid-template-rows: 1fr;
+    gap: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .reels-sidebar nav::-webkit-scrollbar { display: none; }
+  .reels-sidebar nav > button {
+    width: 52px;
+    min-width: 52px;
+    height: var(--fb-destination-nav-row);
+    min-height: var(--fb-destination-nav-row);
+    display: grid;
+    grid-template-columns: 1fr;
+    place-items: center;
+    gap: 0;
+    padding: 0;
+    border-radius: 8px;
+  }
+  .reels-sidebar nav > button strong { display: none; }
+  .reels-stage { height: calc(100vh - var(--topbar-h) - var(--fb-destination-nav-row)); height: calc(100dvh - var(--topbar-h) - var(--fb-destination-nav-row)); }
+  .reel-canvas { height: calc(100vh - var(--topbar-h) - var(--fb-destination-nav-row) - var(--reel-frame-gap)); height: calc(100dvh - var(--topbar-h) - var(--fb-destination-nav-row) - var(--reel-frame-gap)); }
+}
+
+/* iPhone landscape falls just above the two-row phone breakpoint. Equal side
+   tracks keep the four primary destinations centered in the visible viewport,
+   independently of the search and action clusters' intrinsic widths. */
+@media (min-width: 901px) and (max-width: 959px) and (orientation: landscape) {
+  .app-shell-topbar {
+    grid-template-columns: minmax(180px, 1fr) minmax(300px, 560px) minmax(180px, 1fr);
+    gap: 8px;
+  }
+  .app-shell-nav { width: 100%; justify-self: center; }
+}
