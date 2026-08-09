@@ -35,7 +35,8 @@
   --shell-popover-width: 330px;
   --shell-popover-right: 12px;
   --shell-popover-top-gap: 6px;
-  --shell-topbar-surface: var(--card);
+  --browser-chrome-surface: #ffffff;
+  --shell-topbar-surface: var(--browser-chrome-surface);
 }
 
 :root[data-theme='dark'] {
@@ -59,7 +60,7 @@
   --chip-active: rgba(24, 119, 242, 0.2);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-pop: 0 12px 28px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.3);
-  --shell-topbar-surface: #1d1f20;
+  --browser-chrome-surface: #242526;
 }
 
 * {

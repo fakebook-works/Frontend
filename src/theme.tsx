@@ -4,6 +4,10 @@ import type { ReactNode } from 'react'
 export type Theme = 'light' | 'dark'
 
 const THEME_STORAGE_KEY = 'fb.theme'
+const THEME_COLORS: Record<Theme, string> = {
+  light: '#ffffff',
+  dark: '#242526',
+}
 
 function getInitialTheme(): Theme {
   if (typeof window === 'undefined') return 'light'
@@ -31,9 +35,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
+    document.documentElement.style.colorScheme = theme
     document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute(
       'content',
-      theme === 'dark' ? '#1d1f20' : '#ffffff',
+      THEME_COLORS[theme],
     )
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme)

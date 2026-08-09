@@ -22,6 +22,14 @@ body,
   min-width: 320px;
   min-height: 100%;
   margin: 0;
+}
+
+html,
+body {
+  background: var(--browser-chrome-surface);
+}
+
+#root {
   background: var(--bg);
 }
 
