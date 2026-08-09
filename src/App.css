@@ -2238,10 +2238,18 @@ select {
 }
 .password-reset-modal .modal-head {
   min-height: 62px;
+  justify-content: flex-start;
   padding-inline: 18px;
   border-color: #e5e7eb;
 }
-.password-reset-modal .modal-head h2 { color: #1c1e21; font-size: 1.18rem; }
+.password-reset-modal .modal-head h2 {
+  flex: 0 1 auto;
+  padding-right: 16px;
+  color: #1c1e21;
+  font-size: 1.18rem;
+  text-align: left;
+}
+.password-reset-modal .modal-head .icon-circle { margin-left: auto; }
 .password-reset-modal .modal-head .icon-circle { color: #606770; background: #f0f2f5; }
 .password-reset-modal .modal-head .icon-circle:hover,
 .password-reset-modal .modal-head .icon-circle:focus-visible { color: #1c1e21; background: #e4e6eb; }
@@ -2249,6 +2257,8 @@ select {
 .password-reset-modal .modal-body > p,
 .password-reset-modal .security-form > p,
 .password-reset-modal .security-form label { color: #606770; }
+.password-reset-modal .security-form { gap: 10px; }
+.password-reset-modal .security-form > p { margin: 0 0 6px; }
 .password-reset-modal .security-form label { gap: 7px; font-weight: 700; }
 .password-reset-modal .security-form input {
   height: 46px;
@@ -2256,9 +2266,10 @@ select {
   border-radius: 10px;
   color: #1c1e21;
   background: #fff;
+  font-weight: 400;
 }
 .password-reset-modal .security-form input:focus { border-color: #0866ff; box-shadow: 0 0 0 3px rgb(8 102 255 / 16%); }
-.password-reset-modal .security-form .btn-primary { min-height: 44px; border-radius: 10px; color: #fff; background: #0866ff; }
+.password-reset-modal .security-form .btn-primary { min-height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 10px; color: #fff; text-align: center; background: #0866ff; }
 .password-reset-modal .form-success { color: #18713c !important; font-weight: 600; }
 
 /* Full-page OTP and two-factor challenge, based on the desktop confirmation flow. */
