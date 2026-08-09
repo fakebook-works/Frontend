@@ -3091,9 +3091,33 @@ body.post-photo-viewer-open .mini-chat-region.has-bubble-rail .mini-chat-new-but
   .mini-chat-region { right: 0; width: 100%; }
   .mini-chat-dock-layout { width: 100%; }
   .mini-chat-windows { width: 100%; }
-  .mini-chat-window { width: 100%; }
+  .mini-chat-window { width: 100%; max-width: 100vw; }
   .mini-chat-window:not(:last-child) { display: none; }
   .mini-chat-bubble-rail { display: none; }
+
+  /* A message action rail, reply preview, or long link must never widen the
+     floating conversation viewport. Safari otherwise treats the messages
+     panel as horizontally pannable even though the chat has no X-axis UI. */
+  .mini-chat-messages {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-x: clip;
+    overscroll-behavior-x: none;
+    touch-action: pan-y pinch-zoom;
+  }
+  .mini-chat-messages > *,
+  .mini-msg-entry,
+  .mini-msg-line,
+  .mini-msg-stack,
+  .mini-msg-stack .message-primary-shell,
+  .mini-msg-stack .message-content-hover-target {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .mini-msg-bubble,
+  .mini-msg-stack .message-reply-preview { overflow-wrap: anywhere; }
+
   .media-lightbox { gap: 8px; padding: 52px 14px 12px; }
   .media-lightbox figure img { max-height: calc(100vh - 156px); }
   .media-lightbox-thumbnails { width: calc(100vw - 20px); min-height: 52px; gap: 6px; padding-block: 4px 6px; }
