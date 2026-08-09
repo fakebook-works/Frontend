@@ -10641,9 +10641,11 @@ body.reels-library-viewer-open.mini-chat-bubble-rail-open .reels-page.is-library
 
 @media (min-width: 861px) {
   body.home-page-scroll .authenticated-destination-scroll .gateway-left-rail {
-    /* Lift the rail slightly toward the shell brand while keeping its
-       horizontal axis and separator inset unchanged. */
-    top: 2px;
+    /* 10px + the rail's 8px internal padding matches the right rail's
+       6px + 4px module padding. The negative margin removes the duplicate
+       internal offset; keep both separator edges equally inset from the
+       viewport. */
+    top: 10px;
     margin-top: -8px;
     transform: translateX(0);
   }
