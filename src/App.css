@@ -912,6 +912,7 @@ select {
   border: 0;
   padding: 0;
 }
+.avatar-initials-fallback { aspect-ratio: 1 / 1; overflow: hidden; }
 .avatar img,
 .avatar span {
   display: flex;
@@ -6626,6 +6627,20 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
   object-fit: cover;
   object-position: center center;
 }
+.home-story-section .create-story-preview.create-story-preview-pending {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--circle) 86%, var(--card)), var(--card));
+}
+.home-story-section .create-story-preview > .avatar.create-story-avatar-fallback {
+  position: relative !important;
+  inset: auto;
+  width: 58px !important;
+  height: 58px !important;
+  margin: auto !important;
+  border-radius: 50%;
+  font-size: 1.5rem !important;
+}
+.home-story-section .create-story-preview > .avatar.create-story-avatar-fallback > img,
+.home-story-section .create-story-preview > .avatar.create-story-avatar-fallback > span { border-radius: 50%; }
 
 /* Use one exact gap for composer -> stories -> feed and between feed cards. */
 .gateway-feed-column {
@@ -9653,7 +9668,14 @@ body.reels-page-scroll {
   text-align: left;
   background: transparent;
 }
-.groups-membership-summary > span { min-width: 0; display: grid; gap: 5px; }
+.groups-membership-summary > span:not(.avatar) { min-width: 0; display: grid; gap: 5px; }
+.groups-membership-summary > .group-square-avatar {
+  width: 88px !important;
+  height: 88px !important;
+  align-self: center;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+}
 .groups-membership-summary strong { overflow: hidden; font-size: .97rem; font-weight: 650; line-height: 1.25; text-overflow: ellipsis; }
 .groups-membership-summary small { color: var(--secondary); font-size: .82rem; line-height: 1.3; }
 .groups-directory-group-summary {
@@ -9661,6 +9683,7 @@ body.reels-page-scroll {
   align-items: start;
   gap: 14px;
 }
+.groups-directory-group-summary > .group-square-avatar { width: 72px !important; height: 72px !important; align-self: start; }
 .groups-directory-group-copy { align-content: start; gap: 1px !important; }
 .groups-directory-group-copy > strong {
   font-size: 1rem;

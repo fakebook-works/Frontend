@@ -3,6 +3,16 @@ import { initials } from '../lib/format'
 
 export const DEFAULT_AVATAR_URL = '/default-avatar.jpg'
 
+export function isDefaultAvatarUrl(source?: string | null) {
+  const value = source?.trim()
+  if (!value) return false
+  try {
+    return new URL(value, window.location.origin).pathname.endsWith(DEFAULT_AVATAR_URL)
+  } catch {
+    return value.endsWith(DEFAULT_AVATAR_URL)
+  }
+}
+
 interface AvatarProps {
   name: string
   src?: string | null
@@ -18,10 +28,11 @@ interface AvatarProps {
 export function Avatar({ name, src, size = 40, online = false, className, onClick, title = name, loading = 'lazy', fallback = 'avatar' }: AvatarProps) {
   const [failedSources, setFailedSources] = useState<ReadonlySet<string>>(() => new Set())
   const style = { width: size, height: size, fontSize: Math.round(size * 0.42) }
-  const classes = ['avatar', className, onClick ? 'avatar-clickable' : null].filter(Boolean).join(' ')
+  const classes = ['avatar', fallback === 'initials' ? 'avatar-initials-fallback' : null, className, onClick ? 'avatar-clickable' : null].filter(Boolean).join(' ')
   const requestedSource = src?.trim() || null
-  const imageSource = requestedSource && !failedSources.has(requestedSource)
-    ? requestedSource
+  const entitySource = fallback === 'initials' && isDefaultAvatarUrl(requestedSource) ? null : requestedSource
+  const imageSource = entitySource && !failedSources.has(entitySource)
+    ? entitySource
     : fallback === 'avatar' && !failedSources.has(DEFAULT_AVATAR_URL)
       ? DEFAULT_AVATAR_URL
       : null

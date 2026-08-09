@@ -6,7 +6,7 @@ import { messengerApi, type MessengerPresenceDto } from '../api/messenger'
 import { searchApi } from '../api/search'
 import { socialApi, type ContentEngagement } from '../api/social'
 import type { MediaUpload, MessengerConversationDto, UserProfile, UserSummary } from '../api/types'
-import { Avatar } from '../components/Avatar'
+import { Avatar, isDefaultAvatarUrl } from '../components/Avatar'
 import { BodyPortal } from '../components/BodyPortal'
 import { CreatorModalLoadingFallback } from '../components/CreatorModalLoadingFallback'
 import { GroupPostAvatar } from '../components/GroupPostAvatar'
@@ -1205,6 +1205,8 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
   const locallyWatchedStoryIdsRef = useRef<Set<string>>(new Set())
   const friendBuckets = buckets.filter((bucket) => bucket.author.id !== userId)
   const orderedBuckets = myStories ? [myStories, ...friendBuckets] : friendBuckets
+  const profileAvatarUrl = profile?.avatarUrl?.trim() || null
+  const hasUploadedProfileAvatar = Boolean(profileAvatarUrl && !isDefaultAvatarUrl(profileAvatarUrl))
   useEffect(() => {
     if (!loading && orderedBuckets.length > 0) void loadStoryViewerPage()
   }, [loading, orderedBuckets.length])
@@ -1233,7 +1235,9 @@ function StorySection({ buckets, myStories, loading, error, userId, profile, onR
     <div className="story-strip">
       <article className="story-tile create-story-tile">
         <button type="button" className="story-open create-story-button" onClick={() => setCreatorOpen(true)}>
-          <span className="create-story-preview" style={profile?.avatarUrl ? { backgroundImage: `url(${JSON.stringify(profile.avatarUrl)})` } : undefined}>{!profile?.avatarUrl && <Avatar name={profile?.displayName || t('fakebookUser')} size={58} />}</span>
+          <span className={`create-story-preview${profile ? '' : ' create-story-preview-pending'}`} style={hasUploadedProfileAvatar ? { backgroundImage: `url(${JSON.stringify(profileAvatarUrl)})` } : undefined}>
+            {profile && !hasUploadedProfileAvatar && <Avatar name={profile.displayName} src={profileAvatarUrl} size={58} className="create-story-avatar-fallback" />}
+          </span>
           <span className="create-story-plus"><Icon name="plus" size={22} /></span>
           <strong>{t('storyCreate')}</strong>
         </button>

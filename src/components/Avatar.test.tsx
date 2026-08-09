@@ -26,4 +26,11 @@ describe('Avatar', () => {
     expect(document.querySelector('img')).not.toBeInTheDocument()
     expect(screen.getByText('FG')).toBeInTheDocument()
   })
+
+  it('does not reuse the user default avatar for non-user entities', () => {
+    render(<Avatar name="Fakebook Group" src={DEFAULT_AVATAR_URL} fallback="initials" />)
+
+    expect(document.querySelector('img')).not.toBeInTheDocument()
+    expect(screen.getByText('FG')).toBeInTheDocument()
+  })
 })

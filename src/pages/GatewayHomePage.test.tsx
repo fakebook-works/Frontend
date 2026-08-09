@@ -949,6 +949,15 @@ describe('GatewayHomePage', () => {
     await waitFor(() => expect(friendTile.querySelector('.story-avatar-ring')).not.toHaveClass('unseen'))
   })
 
+  it('waits for the resolved profile before drawing the create-story avatar', async () => {
+    const { container } = render(<GatewayHomePage onNavigate={vi.fn()} />)
+
+    await waitFor(() => expect(socialMocks.getRelationProfiles).toHaveBeenCalled())
+    const preview = container.querySelector('.create-story-preview')!
+    expect(preview).toHaveClass('create-story-preview-pending')
+    expect(preview.querySelector('.avatar')).not.toBeInTheDocument()
+  })
+
   it('restores a newly shared story preview and its unseen ring after Home loads again', async () => {
     window.sessionStorage.setItem('fakebook.own-unseen-stories.9007199254740993123', JSON.stringify(['shared-story-1']))
     apiMocks.myStories.mockResolvedValue({
