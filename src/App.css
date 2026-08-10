@@ -9571,7 +9571,15 @@ body.reels-page-scroll {
 .groups-sidebar-collection > div > button > * { position: relative; z-index: 1; }
 .groups-sidebar-collection > div > button:hover { background: transparent; }
 .groups-sidebar-collection > div > button:hover::before { background: var(--circle); }
-.groups-sidebar-collection > div > button > span { min-width: 0; display: grid; gap: 3px; }
+.groups-sidebar-collection > div > button > span:not(.avatar) { min-width: 0; display: grid; gap: 3px; }
+.groups-sidebar-collection > div > button > .group-square-avatar {
+  width: 40px !important;
+  height: 40px !important;
+  align-self: center;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+}
+.groups-sidebar-collection > div > button:first-child > .group-square-avatar { align-self: start; }
 .groups-sidebar-collection strong { overflow: hidden; font-size: .9rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .groups-sidebar-collection small { overflow: hidden; color: var(--secondary); font-size: .74rem; text-overflow: ellipsis; white-space: nowrap; }
 .group-square-avatar,
