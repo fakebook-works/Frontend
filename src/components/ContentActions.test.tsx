@@ -248,6 +248,20 @@ describe('ContentActions refreshed overlays', () => {
     expect(socialMocks.mentionUser).not.toHaveBeenCalled()
   })
 
+  it('opens a comment author profile from the author name', async () => {
+    const onNavigate = vi.fn()
+    socialMocks.getComments.mockResolvedValue({ items: [{
+      id: 'comment-author-link', content: 'A linked comment', createdAt: '2026-08-10T12:00:00Z',
+      author: { id: '42', username: 'commenter', displayName: 'Comment Author', avatarUrl: null, isVerified: true },
+      likeCount: 0, replyCount: 0, viewerHasLiked: false, canFollowAuthor: false, isFollowingAuthor: false, mentions: [], media: null,
+    }], endCursor: null, hasNextPage: false })
+    render(<ContentActions viewerId="1" contentId="90" post={post} onNavigate={onNavigate} />)
+    fireEvent.click(screen.getByRole('button', { name: 'commentAction' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Comment Author' }))
+    expect(onNavigate).toHaveBeenCalledWith('/profile/42')
+  })
+
   it('loads direct replies lazily and starts a reply with the parent author mention', async () => {
     const rootComment = {
       id: '401', content: 'Root comment', createdAt: '2026-07-20T01:00:00Z',

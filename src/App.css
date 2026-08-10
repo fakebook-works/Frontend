@@ -8284,6 +8284,25 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
   font-size: .84rem;
   font-weight: 600;
 }
+.comment-author-name {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  font-size: .84rem;
+  font-weight: 600;
+  line-height: inherit;
+  cursor: pointer;
+}
+.comment-author-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comment-author-name:hover > span { text-decoration: underline; }
+.comment-author-name:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 3px; }
 .comment-heading time { color: var(--secondary); font-size: .77rem; font-weight: 450; }
 .comment-time-hover {
   display: inline-flex;
@@ -9146,7 +9165,8 @@ body.post-photo-viewer-fullscreen .mini-chat-region { display: none !important; 
 .photo-detail-discussion .thread-comment-node.is-reply > .thread-comment > .comment-author .avatar { width: 28px !important; height: 28px !important; }
 .photo-detail-discussion .thread-comment-node.has-children > .thread-comment::after { top: 37px; left: 15px; }
 .photo-detail-discussion .thread-comment-node.has-children.is-reply > .thread-comment::after { top: 33px; left: 13px; }
-.photo-detail-discussion .comment-heading strong { font-size: .82rem; }
+.photo-detail-discussion .comment-heading strong,
+.photo-detail-discussion .comment-author-name { font-size: .82rem; }
 .photo-detail-discussion .comment-bubble p { font-size: .88rem; }
 .photo-detail-discussion .comment-meta { --comment-action-size: .76rem; }
 .photo-detail-discussion .comment-compose { padding: 8px 12px 10px; border-top-color: var(--photo-detail-divider); box-shadow: none; }

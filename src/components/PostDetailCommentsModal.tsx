@@ -791,14 +791,17 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
     const isDeleted = Boolean(comment.isDeleted)
     const historyExpanded = expandedCommentHistoryId === comment.id
     const historyState = commentHistory[comment.id]
+    const authorName = <button type="button" className="comment-author-name" onClick={() => onNavigate?.(`/profile/${comment.author.id}`)}>
+      <span>{comment.author.displayName}</span><VerifiedBadge verified={comment.author.isVerified} size={12} />
+    </button>
     return <div className={`thread-comment-node${depth > 0 ? ' is-reply' : ''}${hasThreadChildren ? ' has-children has-thread-children' : ''}`} key={comment.id} data-depth={depth}>
       <article className={`thread-comment${isDeleted ? ' is-deleted' : ''}`}>
         <button type="button" className="comment-author" onClick={() => onNavigate?.(`/profile/${comment.author.id}`)}><Avatar name={comment.author.displayName} src={comment.author.avatarUrl} size={depth === 0 ? 34 : 30} /></button>
         <div className="thread-comment-copy">
-          {isDeleted ? <><div className="comment-heading comment-state-heading"><strong>{comment.author.displayName}<VerifiedBadge verified={comment.author.isVerified} size={12} /></strong></div><div className="comment-state-bubble comment-deleted-bubble"><p className="comment-state-text">{t('commentDeleted')}</p></div></> : <>
+          {isDeleted ? <><div className="comment-heading comment-state-heading">{authorName}</div><div className="comment-state-bubble comment-deleted-bubble"><p className="comment-state-text">{t('commentDeleted')}</p></div></> : <>
             <div className="comment-bubble">
               <div className="comment-heading">
-                <strong>{comment.author.displayName}<VerifiedBadge verified={comment.author.isVerified} size={12} /></strong>
+                {authorName}
                 {comment.canFollowAuthor && comment.author.id !== viewerId && <button type="button" className="comment-follow-action" disabled={busyFollowAuthorId === comment.author.id} onClick={() => void followCommentAuthor(comment)}>{t('follow')}</button>}
                 <HoverTooltip label={commentTimestamp.detail} className="comment-time-hover"><time dateTime={comment.createdAt}>{relativeTime(comment.createdAt, locale)}</time></HoverTooltip>
                 {comment.author.id === viewerId && <div className="comment-options" data-comment-options-root>
