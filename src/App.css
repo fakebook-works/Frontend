@@ -9557,7 +9557,7 @@ body.reels-page-scroll {
   text-align: left;
   background: transparent;
 }
-.groups-sidebar-collection > div > button:first-child { height: 46px; min-height: 46px; align-items: start; }
+.groups-sidebar-collection > div > button:first-child { height: 46px; min-height: 46px; }
 .groups-sidebar-collection > div > button::before {
   content: '';
   position: absolute;
@@ -9579,7 +9579,6 @@ body.reels-page-scroll {
   aspect-ratio: 1 / 1;
   overflow: hidden;
 }
-.groups-sidebar-collection > div > button:first-child > .group-square-avatar { align-self: start; }
 .groups-sidebar-collection strong { overflow: hidden; font-size: .9rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .groups-sidebar-collection small { overflow: hidden; color: var(--secondary); font-size: .74rem; text-overflow: ellipsis; white-space: nowrap; }
 .group-square-avatar,
