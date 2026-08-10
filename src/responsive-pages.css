@@ -657,6 +657,7 @@
   .self-profile-avatar-wrap.editing-avatar { transform: scale(.94); }
   .self-profile-header-actions > button,
   .self-profile-header-actions > .visitor-profile-action-menu-host { flex: 1 1 auto; }
+  .visitor-profile-header-actions > .visitor-profile-action-menu-host > button { width: 100%; }
   .self-profile-header-actions > .self-profile-header-chevron,
   .self-profile-header-actions > details { flex: 0 0 auto; }
 

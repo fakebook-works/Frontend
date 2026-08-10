@@ -9,6 +9,7 @@
 
 :root {
   --fb-mobile-nav-height: 0px;
+  --fb-ios-visual-viewport-gap: 0px;
   --fb-safe-top: env(safe-area-inset-top, 0px);
   --fb-safe-right: env(safe-area-inset-right, 0px);
   --fb-safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -475,12 +476,12 @@
 
     #root,
     .authenticated-app {
-      height: 100vh;
-      min-height: 100vh;
+      height: calc(100dvh + var(--fb-ios-visual-viewport-gap));
+      min-height: calc(100dvh + var(--fb-ios-visual-viewport-gap));
     }
 
     .authenticated-destination-scroll {
-      height: calc(100vh - var(--topbar-h));
+      height: calc(100dvh + var(--fb-ios-visual-viewport-gap) - var(--topbar-h));
       bottom: auto;
     }
   }
@@ -777,13 +778,17 @@
     backdrop-filter: none;
     overflow: hidden;
     overscroll-behavior: none;
-    touch-action: manipulation;
+    /* The destination bar is a tap-only control. Allowing pan gestures here
+       made Safari hand a swipe to the fixed feed viewport and reveal a second,
+       stuck scrollbar. */
+    touch-action: none;
   }
 
   .app-shell-nav button {
     height: var(--fb-shell-secondary-row);
     min-height: 0;
     padding: 0 2px;
+    touch-action: none;
   }
 
   .app-shell-nav button::before { inset: 4px 3px; }

@@ -209,6 +209,49 @@ export function AuthenticatedApp() {
   }, [])
 
   useLayoutEffect(() => {
+    // Safari's floating controls shrink `dvh` to the visible viewport even
+    // though the document can continue underneath them. Keep the shell sized
+    // to the layout viewport so WebKit never exposes its black backing canvas
+    // below the feed. The custom property stays at 0 everywhere else.
+    if (typeof CSS.supports !== 'function' || !CSS.supports('-webkit-touch-callout: none') || !window.matchMedia('(max-width: 900px)').matches) return
+
+    const root = document.documentElement
+    const viewport = window.visualViewport
+    let frame: number | null = null
+
+    const update = () => {
+      frame = null
+      const visibleHeight = viewport?.height ?? window.innerHeight
+      const visibleBottom = visibleHeight + (viewport?.offsetTop ?? 0)
+      const layoutHeight = Math.max(
+        window.innerHeight,
+        document.documentElement.clientHeight,
+        window.screen.height,
+      )
+      root.style.setProperty('--fb-ios-visual-viewport-gap', `${Math.max(0, Math.round(layoutHeight - visibleBottom))}px`)
+    }
+
+    const schedule = () => {
+      if (frame == null) frame = window.requestAnimationFrame(update)
+    }
+
+    schedule()
+    viewport?.addEventListener('resize', schedule)
+    viewport?.addEventListener('scroll', schedule)
+    window.addEventListener('resize', schedule)
+    window.addEventListener('orientationchange', schedule)
+
+    return () => {
+      if (frame != null) window.cancelAnimationFrame(frame)
+      viewport?.removeEventListener('resize', schedule)
+      viewport?.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
+      window.removeEventListener('orientationchange', schedule)
+      root.style.removeProperty('--fb-ios-visual-viewport-gap')
+    }
+  }, [])
+
+  useLayoutEffect(() => {
     if (!activePrimaryDestination) return
     setDestinationScrollTop(destinationViewportRef.current, destinationScrollPositionsRef.current[activePrimaryDestination] ?? 0)
   }, [activePrimaryDestination])
