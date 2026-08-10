@@ -69,4 +69,28 @@ describe('MentionSuggestions UI', () => {
     expect(Number.parseFloat(list.style.top)).toBeLessThan(31)
     expect(list).toHaveStyle({ width: '150px' })
   })
+
+  it('selects mentions with Arrow keys and Tab while retaining textarea focus', () => {
+    const textareaRef = createRef<HTMLTextAreaElement>()
+    const onSelected = vi.fn()
+    const onDismiss = vi.fn()
+    const people = [
+      { id: '1', username: 'first', displayName: 'First Friend', avatarUrl: null },
+      { id: '2', username: 'second', displayName: 'Second Friend', avatarUrl: null },
+    ]
+
+    render(<div className="mention-compose-field">
+      <textarea ref={textareaRef} defaultValue="@" />
+      <MentionSuggestions text="@" people={people} textareaRef={textareaRef} caretIndex={1} onSelected={onSelected} onDismiss={onDismiss} />
+    </div>)
+
+    const textarea = textareaRef.current
+    expect(textarea).not.toBeNull()
+    fireEvent.keyDown(textarea!, { key: 'ArrowDown' })
+    expect(screen.getByRole('option', { name: /Second Friend/ })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(textarea!, { key: 'Tab' })
+    expect(onSelected).toHaveBeenCalledWith(people[1], { start: 0, end: 1, query: '' })
+    fireEvent.keyDown(textarea!, { key: 'Escape' })
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
 })

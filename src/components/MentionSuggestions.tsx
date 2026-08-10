@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type { UserSummary } from '../api/types'
 import { Avatar } from './Avatar'
@@ -14,6 +14,7 @@ export function MentionSuggestions({
   textareaRef,
   caretIndex,
   onSelected,
+  onDismiss,
   placement = 'below',
   limit = 6,
   className,
@@ -24,6 +25,7 @@ export function MentionSuggestions({
   textareaRef: RefObject<HTMLTextAreaElement | null>
   caretIndex: number
   onSelected: (person: UserSummary, mention: ActiveMention) => void
+  onDismiss?: () => void
   placement?: 'above' | 'below'
   limit?: number
   className?: string
@@ -34,6 +36,7 @@ export function MentionSuggestions({
   const mentionStart = mention?.start ?? -1
   const [position, setPosition] = useState({ left: 4, top: 38, width: 240, maxHeight: 218 })
   const [measuredWidth, setMeasuredWidth] = useState<number | null>(null)
+  const [activeIndex, setActiveIndex] = useState(0)
   const popupRef = useRef<HTMLDivElement>(null)
   const { people: friendMatches, loading } = useFriendSearch(people, mention?.query ?? '', Boolean(mention))
   const matches = useMemo(
@@ -41,6 +44,41 @@ export function MentionSuggestions({
     [friendMatches, limit],
   )
   const visibleRows = Math.max(1, matches.length)
+
+  useEffect(() => {
+    setActiveIndex(0)
+  }, [mention?.query, mentionStart, matches.length])
+
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea || !mention || matches.length === 0) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing) return
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        setActiveIndex((current) => (event.key === 'ArrowDown'
+          ? (current + 1) % matches.length
+          : (current - 1 + matches.length) % matches.length))
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        onSelected(matches[activeIndex] ?? matches[0], mention)
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onDismiss?.()
+      }
+    }
+    textarea.addEventListener('keydown', handleKeyDown)
+    return () => textarea.removeEventListener('keydown', handleKeyDown)
+  }, [activeIndex, matches, mention, onDismiss, onSelected, textareaRef])
+
+  useLayoutEffect(() => {
+    const activeOption = popupRef.current?.querySelector<HTMLElement>(`[data-mention-index="${activeIndex}"]`)
+    activeOption?.scrollIntoView?.({ block: 'nearest' })
+  }, [activeIndex])
 
   useLayoutEffect(() => {
     if (!fitToNames || !mention) {
@@ -98,6 +136,6 @@ export function MentionSuggestions({
     ? <div ref={popupRef} className={`${popupClassName} empty`} style={position}><span className="spinner" /></div>
     : matches.length === 0
       ? <div ref={popupRef} className={`${popupClassName} empty`} style={position}>{t('noFriendsFound')}</div>
-      : <div ref={popupRef} className={popupClassName} style={position} role="listbox" aria-label={t('mentionPeople')}>{matches.map((person) => <button type="button" role="option" aria-selected="false" key={person.id} onMouseDown={(event) => event.preventDefault()} onClick={() => onSelected(person, mention)}><Avatar name={person.displayName} src={person.avatarUrl} size={30} /><span><strong>{person.displayName}<VerifiedBadge verified={person.isVerified} /></strong><small>{t('fakebookFriend')}</small></span></button>)}</div>
+      : <div ref={popupRef} className={popupClassName} style={position} role="listbox" aria-label={t('mentionPeople')}>{matches.map((person, index) => <button type="button" role="option" aria-selected={index === activeIndex} data-mention-index={index} key={person.id} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => onSelected(person, mention)}><Avatar name={person.displayName} src={person.avatarUrl} size={30} /><span><strong>{person.displayName}<VerifiedBadge verified={person.isVerified} /></strong><small>{t('fakebookFriend')}</small></span></button>)}</div>
   return createPortal(popup, document.body)
 }

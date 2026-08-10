@@ -952,7 +952,10 @@ export function PostDetailCommentsModal({ viewerId, targetId, post, engagement, 
           const caret = event.currentTarget.selectionStart ?? composerContent.length
           if (editingComment) setEditingComment((current) => current ? { ...current, caret } : current)
           else setMentionCaret(caret)
-        }} placeholder={editingComment ? t('editComment') : replyTarget ? t('writeReply') : t('commentAs', { name: viewerDisplayName })} /><MentionSuggestions text={composerContent} people={friends} textareaRef={textareaRef} caretIndex={composerCaret} onSelected={selectMention} placement="above" limit={5} className="comment-mention-suggestions" fitToNames /></div>
+        }} placeholder={editingComment ? t('editComment') : replyTarget ? t('writeReply') : t('commentAs', { name: viewerDisplayName })} /><MentionSuggestions text={composerContent} people={friends} textareaRef={textareaRef} caretIndex={composerCaret} onSelected={selectMention} onDismiss={() => {
+          if (editingComment) setEditingComment((current) => current ? { ...current, caret: -1 } : current)
+          else setMentionCaret(-1)
+        }} placement="above" limit={5} className="comment-mention-suggestions" fitToNames /></div>
         {!editingComment && commentImage && <div className="comment-image-preview"><img src={commentImage.previewUrl} alt="" /><button type="button" aria-label={t('removeMedia')} onClick={() => setCommentImage(null)}><Icon name="close" size={14} /></button></div>}
         <div className="comment-compose-tools">
           <div className="comment-compose-tool-list">
