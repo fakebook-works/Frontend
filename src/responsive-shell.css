@@ -679,6 +679,16 @@
     --fb-mobile-nav-height: 0px;
   }
 
+  /* `471a337` locked both roots to an internal fixed scroller. Mobile Safari
+     needs the document scrolling element instead: release that lock here so
+     content contributes its real height and can pass beneath browser chrome. */
+  html.authenticated-shell-scroll,
+  body.authenticated-shell-scroll {
+    height: auto;
+    min-height: 100%;
+    overflow-y: visible;
+  }
+
   .authenticated-app {
     height: auto;
     min-height: 100dvh;
