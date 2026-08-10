@@ -520,9 +520,22 @@
   .story-text-only { padding: 28px 18px; font-size: 1.25rem; }
   .story-shared-post-card { width: calc(100% - 16px); max-height: calc(100% - 146px); }
 
-  .reels-sidebar h1 { display: none; }
+  /* With one grid column the empty header otherwise occupies row one and
+     pushes the mode picker into a clipped implicit row. */
+  .reels-sidebar > header { display: none; }
   .reels-sidebar { grid-template-columns: minmax(0, 1fr); }
-  .reels-sidebar nav > button { padding-inline: 8px; }
+  .reels-sidebar nav {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: hidden;
+  }
+  .reels-sidebar nav > button {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 8px;
+  }
   .reel-author-name strong { font-size: .92rem; }
   .reel-caption { font-size: .84rem; }
   .reel-actions { gap: 7px; }

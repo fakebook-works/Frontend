@@ -14,6 +14,9 @@ import type { ProfileMediaViewerOpenOptions, ProfileMediaViewerState } from './P
 
 export type FriendSection = 'home' | 'outgoing' | 'incoming' | 'suggestions' | 'friends' | 'blocked'
 
+type FriendNavIconName = 'home' | 'request-sent' | 'request-received' | 'suggestions' | 'friends' | 'blocked'
+type FriendSectionNavItem = { id: FriendSection; path: string; label: string; icon: FriendNavIconName }
+
 const ASSOCIATION: Record<Exclude<FriendSection, 'home' | 'suggestions'>, number> = {
   friends: 0,
   incoming: 2,
@@ -207,7 +210,7 @@ export function FriendsPage({
     }
   }
 
-  const sections: Array<{ id: FriendSection; path: string; label: string; icon: FriendNavIconName }> = [
+  const sections: FriendSectionNavItem[] = [
     { id: 'home', path: '/friends', label: t('friendsHome'), icon: 'home' },
     { id: 'outgoing', path: '/friends/outgoing', label: t('sentRequests'), icon: 'request-sent' },
     { id: 'incoming', path: '/friends/incoming', label: t('incomingRequests'), icon: 'request-received' },
@@ -241,7 +244,16 @@ export function FriendsPage({
       query={directoryQuery}
       onBack={() => onNavigate('/friends')}
       onQueryChange={setDirectoryQuery}
-      onSelect={setSelectedProfileId}
+      navigationItems={sections}
+      onNavigate={onNavigate}
+      onSelect={(profileId) => {
+        const mobileDirectory = window.matchMedia?.('(max-width: 900px)').matches ?? window.innerWidth <= 900
+        if (mobileDirectory) {
+          onNavigate(`/profile/${profileId}`)
+          return
+        }
+        setSelectedProfileId(profileId)
+      }}
       onAdd={addFriend}
       onDismiss={removeCard}
       onUnfriend={(personId) => remove(personId, 'unfriend')}
@@ -249,11 +261,7 @@ export function FriendsPage({
       onMessage={onMessage}
     /> : <aside className="friends-page-sidebar">
       <header><h1>{t('friends')}</h1><button type="button" className="friends-settings-button" aria-label={t('settingsPrivacy')}><SidebarSettingsIcon /></button></header>
-      <nav aria-label={t('friends')}>
-        {sections.map((item) => <button type="button" key={item.id} className={section === item.id ? 'active' : ''} onClick={() => onNavigate(item.path)}>
-          <span><FriendNavIcon name={item.icon} /></span><strong>{item.label}</strong>
-        </button>)}
-      </nav>
+      <FriendSectionNav items={sections} activeSection={section} onNavigate={onNavigate} />
     </aside>}
 
     {directoryMode ? <section className="friends-profile-pane">
@@ -305,6 +313,8 @@ function FriendDirectorySidebar({
   query,
   onBack,
   onQueryChange,
+  navigationItems,
+  onNavigate,
   onSelect,
   onAdd,
   onDismiss,
@@ -322,6 +332,8 @@ function FriendDirectorySidebar({
   query: string
   onBack: () => void
   onQueryChange: (query: string) => void
+  navigationItems: FriendSectionNavItem[]
+  onNavigate: (path: string) => void
   onSelect: (profileId: string) => void
   onAdd: (profileId: string) => Promise<void>
   onDismiss: (profileId: string) => void
@@ -349,6 +361,7 @@ function FriendDirectorySidebar({
       <button type="button" className="friend-directory-back" aria-label={t('back')} onClick={onBack}><svg className="shell-search-back-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 12H7M11.5 7.5 7 12l4.5 4.5" /></svg></button>
       <h1>{title}</h1>
     </header>
+    <FriendSectionNav className="friend-directory-mobile-nav" items={navigationItems} activeSection={section} onNavigate={onNavigate} />
     {section === 'friends' && <div className="groups-search-row friend-directory-search-row">
       <form className={searchFocused ? 'groups-search-shell friend-directory-search-shell is-open' : 'groups-search-shell friend-directory-search-shell'} onSubmit={(event) => event.preventDefault()} onFocus={() => setSearchFocused(true)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(false) }}>
         <label className="groups-search friend-directory-search"><svg className="groups-search-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><circle cx="10.25" cy="10.25" r="6.15" /><path d="m14.85 14.85 4.85 4.85" /></svg><input value={query} maxLength={INPUT_LIMITS.search} onChange={(event) => onQueryChange(event.target.value)} placeholder={t('searchWithinFriends', { count: totalFriends })} aria-label={t('searchWithinFriends', { count: totalFriends })} autoComplete="off" /></label>
@@ -386,7 +399,19 @@ function FriendDirectorySidebar({
   </aside>
 }
 
-type FriendNavIconName = 'home' | 'request-sent' | 'request-received' | 'suggestions' | 'friends' | 'blocked'
+function FriendSectionNav({ items, activeSection, onNavigate, className }: {
+  items: FriendSectionNavItem[]
+  activeSection: FriendSection
+  onNavigate: (path: string) => void
+  className?: string
+}) {
+  const { t } = useI18n()
+  return <nav className={className} aria-label={t('friends')}>
+    {items.map((item) => <button type="button" key={item.id} className={activeSection === item.id ? 'active' : ''} onClick={() => onNavigate(item.path)}>
+      <span><FriendNavIcon name={item.icon} /></span><strong>{item.label}</strong>
+    </button>)}
+  </nav>
+}
 
 function FriendNavIcon({ name }: { name: FriendNavIconName }) {
   if (name === 'home') return <FriendPeopleGlyph className="friend-nav-glyph" filled />

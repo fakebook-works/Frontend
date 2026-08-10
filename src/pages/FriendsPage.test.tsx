@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { Activity } from 'react'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SocialProfile } from '../api/social'
 import { FriendsPage } from './FriendsPage'
@@ -188,5 +188,29 @@ describe('FriendsPage redesign', () => {
     expect(await screen.findByRole('menuitem', { name: 'messageUser' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'removeFriend' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'block' })).toBeInTheDocument()
+  })
+
+  it('keeps the Friends section rail and opens a selected friend profile on mobile', async () => {
+    const originalMatchMedia = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn().mockReturnValue({ matches: true }),
+    })
+    const onNavigate = vi.fn()
+
+    try {
+      const { container } = render(<FriendsPage userId="1" section="friends" onNavigate={onNavigate} />)
+      await waitFor(() => expect(socialMocks.getFriendProfilesWithMutualCounts).toHaveBeenCalledWith('1', 100))
+
+      const mobileNav = container.querySelector<HTMLElement>('.friend-directory-mobile-nav')!
+      expect(mobileNav).toBeInTheDocument()
+      expect(within(mobileNav).getAllByRole('button')).toHaveLength(6)
+      expect(within(mobileNav).getByRole('button', { name: 'allFriends' })).toHaveClass('active')
+
+      fireEvent.click(container.querySelector<HTMLButtonElement>('.friend-directory-copy')!)
+      expect(onNavigate).toHaveBeenCalledWith('/profile/3')
+    } finally {
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: originalMatchMedia })
+    }
   })
 })
