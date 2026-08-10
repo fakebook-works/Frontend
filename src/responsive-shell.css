@@ -475,7 +475,13 @@
 
     #root,
     .authenticated-app {
+      height: 100vh;
       min-height: 100vh;
+    }
+
+    .authenticated-destination-scroll {
+      height: calc(100vh - var(--topbar-h));
+      bottom: auto;
     }
   }
 }
@@ -715,6 +721,7 @@
     backdrop-filter: none;
     transform: none;
     will-change: auto;
+    overscroll-behavior: none;
   }
 
   .shell-brand-search-anchor {
@@ -768,6 +775,9 @@
     box-shadow: none;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: manipulation;
   }
 
   .app-shell-nav button {
