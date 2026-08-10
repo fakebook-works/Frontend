@@ -2275,6 +2275,18 @@ select {
 .password-reset-modal .security-form input:focus { border-color: #0866ff; box-shadow: 0 0 0 3px rgb(8 102 255 / 16%); }
 .password-reset-modal .security-form .btn-primary { min-height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 10px; color: #fff; text-align: center; background: #0866ff; }
 .password-reset-modal .form-success { color: #18713c !important; font-weight: 600; }
+.password-reset-modal .password-reset-complete {
+  align-content: start;
+  gap: 12px;
+}
+.password-reset-modal .password-reset-complete > .form-success {
+  margin: 0;
+  line-height: 1.45;
+}
+.password-reset-modal .password-reset-complete > .btn-primary {
+  width: 100%;
+  margin: 0;
+}
 
 /* Full-page OTP and two-factor challenge, based on the desktop confirmation flow. */
 .challenge-page {

@@ -13,6 +13,25 @@ function formatDate(value: string | null, fallback: string) {
   return Number.isNaN(date.getTime()) ? fallback : date.toLocaleString()
 }
 
+function sessionHistoryReason(reason: string | null, t: (key: string) => string) {
+  switch (reason?.trim().toUpperCase()) {
+    case 'PASSWORD_RESET':
+      return t('sessionEndedPasswordReset')
+    case 'PASSWORD_CHANGED':
+      return t('sessionEndedPasswordChanged')
+    case 'EMAIL_CHANGED':
+      return t('sessionEndedEmailChanged')
+    case 'LOGOUT':
+      return t('sessionEndedLogout')
+    case 'SESSION_REVOKED_BY_USER':
+      return t('sessionEndedRevokedByUser')
+    case 'EXPIRED':
+      return t('expired')
+    default:
+      return t('sessionEnded')
+  }
+}
+
 export function AccountSecurityPage({ embedded = false, section = 'all' }: { embedded?: boolean; section?: 'all' | 'security' | 'sessions' }) {
   const { user, logout, logoutAll } = useAuth()
   const { t, locale, setLocale } = useI18n()
@@ -173,7 +192,7 @@ export function AccountSecurityPage({ embedded = false, section = 'all' }: { emb
               {history.slice(0, 12).map((session) => (
                 <article key={session.sessionId}>
                   <strong>{session.deviceName || session.browser || t('unknownDevice')}</strong>
-                  <span>{session.revocationReason || t('expired')}</span>
+                  <span>{sessionHistoryReason(session.revocationReason, t)}</span>
                   <small>{formatDate(session.revokedAt ?? session.expiresAt, t('unknown'))}</small>
                 </article>
               ))}
