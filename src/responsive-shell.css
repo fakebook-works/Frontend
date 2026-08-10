@@ -837,6 +837,29 @@
     max-height: calc(100dvh - var(--fb-shell-primary-row) - var(--fb-safe-top) - 8px);
   }
 
+  /* The search panel is deliberately narrow on mobile. Its dropdown used to
+     retain the phone-wide width and negative offset from an earlier layout,
+     which pushed the empty-state copy outside the panel. Pin both surfaces to
+     the same left edge and let longer localized copy wrap around its center. */
+  .shell-brand-search.is-searching .shell-search-wrap.is-active .quick-search-results {
+    position: fixed;
+    top: calc(var(--fb-safe-top) + var(--fb-shell-primary-row));
+    right: auto;
+    left: 0;
+    width: min(var(--destination-sidebar-width, 320px), 100vw);
+    max-width: 100vw;
+    margin: 0;
+  }
+
+  .shell-brand-search.is-searching .shell-search-wrap.is-active .quick-search-recent-empty {
+    padding-inline: 16px;
+    overflow: visible;
+    text-align: center;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   body:is(.post-photo-viewer-open, .reels-library-viewer-open, .content-detail-open),
   body.modal-interaction-locked {
     --fb-shell-secondary-row: 0px;
