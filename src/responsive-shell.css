@@ -9,7 +9,6 @@
 
 :root {
   --fb-mobile-nav-height: 0px;
-  --fb-ios-visual-viewport-gap: 0px;
   --fb-safe-top: env(safe-area-inset-top, 0px);
   --fb-safe-right: env(safe-area-inset-right, 0px);
   --fb-safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -463,28 +462,6 @@
     padding: calc(var(--topbar-h) + var(--fb-safe-top) + 10px) 8px 14px;
   }
 
-  /* On iOS, dynamic viewport units stop before Safari's floating toolbar.
-     Keep the document on the layout viewport so feed content can continue
-     underneath that translucent control instead of exposing WebKit's canvas. */
-  @supports (-webkit-touch-callout: none) {
-    html.authenticated-shell-scroll,
-    body.authenticated-shell-scroll {
-      height: auto;
-      min-height: 100vh;
-      overflow: visible;
-    }
-
-    #root,
-    .authenticated-app {
-      height: calc(100dvh + var(--fb-ios-visual-viewport-gap));
-      min-height: calc(100dvh + var(--fb-ios-visual-viewport-gap));
-    }
-
-    .authenticated-destination-scroll {
-      height: calc(100dvh + var(--fb-ios-visual-viewport-gap) - var(--topbar-h));
-      bottom: auto;
-    }
-  }
 }
 
 @media (max-width: 480px) {
@@ -703,8 +680,33 @@
   }
 
   .authenticated-app {
+    height: auto;
     min-height: 100dvh;
+    overflow: visible;
     padding-bottom: 0;
+  }
+
+  /* Mobile uses the document as its only vertical scroller. A fixed overflow
+     viewport ends at Safari's visual viewport and creates a second scrollbar;
+     normal document flow is what allows content to continue behind floating
+     browser chrome. Reels and full Messenger retain their dedicated viewport. */
+  .authenticated-destination-scroll:not(.is-reels):not(.is-messenger) {
+    position: relative;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: 100%;
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
+
+  .authenticated-destination-scroll:not(.is-reels):not(.is-messenger)
+    > .authenticated-destination-content {
+    min-height: 100dvh;
+    margin-top: 0;
   }
 
   .app-shell-topbar {
@@ -836,25 +838,25 @@
 
   /* Only post detail retains the destination chrome. Photo/Reel viewers own
      the full viewport and therefore keep this row removed. */
-  body.content-detail-open {
+  body.content-detail-open:not(.story-viewer-open) {
     --fb-shell-secondary-row: 52px;
     --topbar-h: calc(var(--fb-shell-primary-row) + var(--fb-shell-secondary-row));
   }
 
-  body.content-detail-open .app-shell-nav,
+  body.content-detail-open:not(.story-viewer-open) .app-shell-nav,
   .app-shell-topbar.is-content-detail .app-shell-nav {
     position: relative;
     display: grid;
     grid-column: 1 / -1;
     grid-row: 2;
   }
-  body.content-detail-open .shell-brand-search-anchor,
+  body.content-detail-open:not(.story-viewer-open) .shell-brand-search-anchor,
   .app-shell-topbar.is-content-detail .shell-brand-search-anchor {
     top: var(--fb-safe-top);
     left: max(7px, var(--fb-safe-left));
     height: var(--fb-shell-primary-row);
   }
-  body.content-detail-open .app-shell-actions,
+  body.content-detail-open:not(.story-viewer-open) .app-shell-actions,
   .app-shell-topbar.is-content-detail .app-shell-actions {
     top: var(--fb-safe-top);
     right: max(7px, var(--fb-safe-right));

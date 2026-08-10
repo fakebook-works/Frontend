@@ -299,7 +299,7 @@
 
   /* The Story viewer is an overlay, so it owns the full safe viewport and does
      not inherit the application's bottom navigation spacing. */
-  body.story-viewer-open .app-shell-topbar { display: none; }
+  body.story-viewer-open .app-shell-topbar { display: none !important; }
   .story-viewer-backdrop { width: 100vw; height: 100dvh; z-index: 2000; }
   .story-viewer-canvas {
     width: 100%;
@@ -489,6 +489,13 @@
   .media-lightbox-nav.previous { left: max(7px, var(--fb-safe-left)); }
   .media-lightbox-nav.next { right: max(7px, var(--fb-safe-right)); }
   .media-lightbox-thumbnails { bottom: max(8px, var(--fb-safe-bottom)); width: calc(100vw - 16px); max-width: calc(100dvw - 16px); }
+}
+
+/* The shell switches to its two-row mobile navigation through 900px. Story
+   owns that entire surface, including the range above the phone-only media
+   breakpoint, so no application chrome may be restored over its author row. */
+@media (max-width: 900px) {
+  body.story-viewer-open .app-shell-topbar { display: none !important; }
 }
 
 @media (max-width: 480px) {
