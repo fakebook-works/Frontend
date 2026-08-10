@@ -634,7 +634,7 @@ describe('ContentActions refreshed overlays', () => {
     expect(metrics[metrics.length - 1]).toHaveClass('content-view-summary')
   })
 
-  it('keeps zero-valued Reel action slots stable while hiding their numbers', async () => {
+  it('shows zero-valued Reel action counts', async () => {
     const reel: GatewayPost = {
       __typename: 'ReelDetail', id: '92', type: 3, content: 'Empty Reel metrics', privacy: 0,
       create: '2026-07-20T01:00:00Z', author: { id: '2', name: 'Reel Author', avatar: '', isVerified: false, canFollow: false },
@@ -645,7 +645,7 @@ describe('ContentActions refreshed overlays', () => {
 
     await waitFor(() => expect(container.querySelectorAll('.reel-actions > button span')).toHaveLength(3))
     expect([...container.querySelectorAll('.reel-actions > button span')].map((node) => node.textContent)).toEqual(['0', '0', '0'])
-    expect(container.querySelectorAll('.reel-action-count.is-empty')).toHaveLength(3)
+    expect(container.querySelectorAll('.reel-action-count.is-empty')).toHaveLength(0)
     expect(container.querySelector('.reel-save-action')).not.toHaveTextContent('save')
   })
 

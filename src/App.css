@@ -3243,7 +3243,9 @@ select {
 .gateway-post-content { padding: 4px 16px 12px; font-size: 1rem; line-height: 1.45; }
 .gateway-media { border-radius: 0; background: #111; }
 .gateway-post-actions { display: grid; grid-template-columns: repeat(3, 1fr); padding: 4px 12px; border-top: 1px solid var(--divider); }
-.gateway-post-actions button { height: 40px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 6px; color: var(--secondary); font-weight: 700; background: transparent; }
+.gateway-post-actions button { height: 40px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 6px; color: var(--secondary); font-weight: 700; background: transparent; transition: background-color .16s ease, color .16s ease, transform .16s ease; }
+.gateway-post-actions button:hover:not(:disabled), .gateway-post-actions button:focus-visible { color: var(--text); background: var(--hover); transform: translateY(-1px); }
+.gateway-post-actions button:active:not(:disabled) { transform: translateY(0); }
 .gateway-post-actions button:disabled { opacity: 1; cursor: default; }
 .verified-badge { display: inline-grid; flex: 0 0 auto; vertical-align: -2px; }
 .verified-badge svg { width: 100%; height: 100%; fill: var(--blue); overflow: visible; }
@@ -4043,7 +4045,7 @@ select {
 .auth-card-wrap { width: 100%; max-width: 520px; margin: 0 auto; padding: 60px 24px; display: flex; flex-direction: column; justify-content: center; }
 .auth-card-heading { margin: 0 0 24px; }.auth-card-heading h2 { margin: 0; font-size: 1.85rem; font-weight: 700; color: #1c1e21; }
 .auth-card { display: grid; gap: 16px; padding: 0; border: 0; background: transparent; box-shadow: none; }
-.auth-card input { width: 100%; min-width: 0; height: 60px; border-radius: 14px; border: 1px solid #dddfe2; padding: 14px 18px; font-size: 1.12rem; }
+.auth-card input { width: 100%; min-width: 0; height: 60px; border-radius: 14px; border: 1px solid #dddfe2; padding: 14px 18px; color: #1c1e21; background: #fff; font-size: 1.12rem; }
 .password-field { position: relative; width: 100%; }
 .password-field > input { width: 100%; padding-right: 48px; }
 .password-toggle { position: absolute; top: 50%; right: 9px; width: 34px; height: 34px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; color: #606770; background: transparent; transform: translateY(-50%); }
@@ -10553,7 +10555,6 @@ body.reels-library-viewer-open.mini-chat-bubble-rail-open .reels-page.is-library
 .reel-actions button { width: 48px; min-width: 48px; min-height: 52px; display: grid; grid-template-rows: 25px 13px; place-items: center; gap: 3px; padding: 5px 3px 4px; border: 0; border-radius: 10px; color: inherit; background: transparent; cursor: pointer; transition: background-color .14s ease, color .14s ease; }
 .reel-actions button svg { width: 24px; height: 24px; padding: 0; border-radius: 0; background: transparent; stroke-width: 1.8; }
 .reel-actions button span { min-height: 13px; color: #fff; font-size: .74rem; line-height: 1; font-weight: 600; }
-.reel-actions button span.is-empty { visibility: hidden; }
 .reel-actions .reel-save-action::after,
 .reel-actions .reel-more-action::after { content: ''; display: block; min-height: 13px; }
 .reel-actions button:hover:not(:disabled) { color: #fff; background: rgb(255 255 255 / 13%); }
