@@ -6943,6 +6943,7 @@ button.post-video-settings-row:hover { background: rgb(255 255 255 / 10%); }
 .story-owner small { flex: 0 0 auto; color: #e4e6eb; font-size: .82rem; line-height: 1.15; white-space: nowrap; }
 .story-owner .avatar { border: 0; box-shadow: none; }
 .story-viewer-controls { display: flex; align-items: center; gap: 3px; }
+.story-viewer-mobile-close { display: none; }
 .story-viewer-controls > button,
 .story-viewer-menu-wrap > button {
   width: 36px;

@@ -281,6 +281,21 @@
     padding: 2px 0 6px;
   }
 
+  .shell-search-wrap.is-active .quick-search-results.is-recent-empty {
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+
+  .shell-search-wrap.is-active .quick-search-recent-empty {
+    min-width: 0;
+    max-width: 100%;
+    padding-inline: 16px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .shell-search-wrap.is-active .quick-search-results > button {
     min-height: 52px;
     height: auto;
@@ -445,6 +460,23 @@
     width: 100%;
     min-height: calc(100dvh - var(--fb-mobile-nav-height));
     padding: calc(var(--topbar-h) + var(--fb-safe-top) + 10px) 8px 14px;
+  }
+
+  /* On iOS, dynamic viewport units stop before Safari's floating toolbar.
+     Keep the document on the layout viewport so feed content can continue
+     underneath that translucent control instead of exposing WebKit's canvas. */
+  @supports (-webkit-touch-callout: none) {
+    html.authenticated-shell-scroll,
+    body.authenticated-shell-scroll {
+      height: auto;
+      min-height: 100vh;
+      overflow: visible;
+    }
+
+    #root,
+    .authenticated-app {
+      min-height: 100vh;
+    }
   }
 }
 

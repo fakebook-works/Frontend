@@ -299,6 +299,7 @@
 
   /* The Story viewer is an overlay, so it owns the full safe viewport and does
      not inherit the application's bottom navigation spacing. */
+  body.story-viewer-open .app-shell-topbar { visibility: hidden; }
   .story-viewer-backdrop { width: 100vw; height: 100dvh; }
   .story-viewer-canvas {
     width: 100%;
@@ -309,7 +310,9 @@
   .story-viewer-owner { width: min(100vw, calc(56.25dvh - 12px)); height: auto; }
   .story-frame { border-radius: 0; }
   .story-progress { top: max(8px, var(--fb-safe-top)); right: 9px; left: 9px; }
-  .story-viewer-header { top: calc(max(8px, var(--fb-safe-top)) + 18px); right: 8px; left: 8px; }
+  .story-progress { z-index: 12; }
+  .story-viewer-header { z-index: 11; top: calc(max(8px, var(--fb-safe-top)) + 18px); right: 8px; left: 8px; }
+  .story-viewer-mobile-close { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; border: 0; border-radius: 50%; color: #fff; background: rgb(0 0 0 / 28%); }
   .story-owner { gap: 7px; }
   .story-owner strong { font-size: .88rem; }
   .story-owner small { font-size: .76rem; }

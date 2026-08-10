@@ -653,6 +653,7 @@ export function StoryViewerPage({
               <button type="button" className="story-audio-control" aria-label={audioControlLabel} title={audioControlLabel} aria-disabled={!audioControlEnabled} onClick={() => { if (audioControlEnabled) setMuted((value) => !value) }}><StoryControlIcon name={audioControlEnabled && !muted ? 'volume' : 'volumeOff'} size={24} /></button>
               <button type="button" aria-label={paused ? t('storyPlay') : t('storyPause')} title={paused ? t('storyPlay') : t('storyPause')} onClick={() => setPaused((value) => !value)}><StoryControlIcon name={paused ? 'play' : 'pause'} size={24} /></button>
               {relationshipAction && <div className="story-viewer-menu-wrap"><button type="button" aria-label={t('storyOptions')} title={t('storyOptions')} onClick={() => setMenuOpen((value) => !value)}><StoryControlIcon name="more" size={24} /></button>{menuOpen && <div className="story-viewer-menu" role="menu"><button type="button" role="menuitem" disabled={actionBusy} onClick={() => void runRelationshipAction()}><Icon name={relationshipAction.icon} size={20} /><span>{relationshipAction.label}</span></button></div>}</div>}
+              <button type="button" className="story-viewer-mobile-close" aria-label={t('close')} onClick={onClose}><Icon name="close" size={21} /></button>
             </div>
           </header>
 
