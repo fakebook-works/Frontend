@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ApiError } from '../api/client'
 import { api } from '../api/client'
@@ -10,6 +10,7 @@ import { PasswordField } from '../components/PasswordField'
 import { INPUT_LIMITS } from '../lib/inputLimits'
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter'
 import { birthDateBounds, isAllowedBirthDate } from './birthDate'
+import { useSiteReadOnly } from '../lib/siteMode'
 
 import { HelpPage } from './HelpPage'
 import { PrivacyPage } from './PrivacyPage'
@@ -20,6 +21,7 @@ export function LoginPage() {
   const emailChangeVerification = new URLSearchParams(window.location.search).get('verifyEmail')?.trim().toLowerCase() ?? ''
   const { login, register } = useAuth()
   const { t } = useI18n()
+  const readOnly = useSiteReadOnly()
   const [email, setEmail] = useState(emailChangeVerification)
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -29,6 +31,10 @@ export function LoginPage() {
     emailChangeVerification ? { mode: 'email', email: emailChangeVerification } : null,
   )
   const [resetOpen, setResetOpen] = useState(false)
+
+  useEffect(() => {
+    if (readOnly && screen === 'signup') setScreen('login')
+  }, [readOnly, screen])
 
   async function onLogin(e: FormEvent) {
     e.preventDefault()
@@ -97,7 +103,7 @@ export function LoginPage() {
     )
   }
 
-  if (screen === 'signup') {
+  if (screen === 'signup' && !readOnly) {
     return (
       <RegisterPage
         onBack={() => setScreen('login')}
@@ -151,7 +157,7 @@ export function LoginPage() {
             </button>
             <button type="button" className="auth-forgot" onClick={() => setResetOpen(true)}>{t('forgottenPassword')}</button>
             <div className="auth-divider" />
-            <button type="button" className="btn-create" onClick={() => setScreen('signup')}>{t('createAccount')}</button>
+            <button type="button" className="btn-create" onClick={() => setScreen('signup')} disabled={readOnly}>{t('createAccount')}</button>
             <div className="auth-card-meta" aria-label="Group 36">
               <svg width="22" height="14" viewBox="0 0 24 14" fill="currentColor">
                 <path d="M16.91 0C14.73 0 13.06 1.09 12 2.37C10.94 1.09 9.27 0 7.09 0C3.17 0 0 3.14 0 7C0 10.86 3.17 14 7.09 14C9.27 14 10.94 12.91 12 11.63C13.06 12.91 14.73 14 16.91 14C20.83 14 24 10.86 24 7C24 3.14 20.83 0 16.91 0ZM7.09 11.55C4.54 11.55 2.45 9.5 2.45 7C2.45 4.5 4.54 2.45 7.09 2.45C9.07 2.45 10.74 3.66 11.64 5.37C11.39 5.86 11.25 6.41 11.25 7C11.25 7.59 11.39 8.14 11.64 8.63C10.74 10.34 9.07 11.55 7.09 11.55ZM16.91 11.55C14.93 11.55 13.26 10.34 12.36 8.63C12.61 8.14 12.75 7.59 12.75 7C12.75 6.41 12.61 5.86 12.36 5.37C13.26 3.66 14.93 2.45 16.91 2.45C19.46 2.45 21.55 4.5 19.46 11.55 16.91 11.55Z" />
@@ -162,7 +168,7 @@ export function LoginPage() {
         </div>
       </div>
       <AuthFooter
-        onNavigateSignup={() => setScreen('signup')}
+        onNavigateSignup={readOnly ? undefined : () => setScreen('signup')}
         onNavigateHelp={() => {
           setScreen('help')
         }}
@@ -217,7 +223,7 @@ export function AuthFooter({
         </ul>
         <ul className="auth-footer-links-list" aria-label="Facebook Links">
           <li>
-            <button type="button" onClick={onNavigateSignup}>
+            <button type="button" onClick={onNavigateSignup} disabled={!onNavigateSignup}>
               Sign up
             </button>
           </li>

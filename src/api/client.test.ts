@@ -5,6 +5,7 @@ import {
   api,
   clearAuth,
   gatewayGraphQl,
+  isSiteReadOnly,
   graphQlLongLiteral,
   isTerminalPaymentStatus,
   nextPageCursor,
@@ -23,6 +24,31 @@ describe('Gateway contract helpers', () => {
     clearAuth()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it('detects read-only mode and prevents media upload before a post', async () => {
+    const events: string[] = []
+    const unsubscribe = subscribeApiEvents((event) => events.push(event.type))
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(
+      '{"data":{"__typename":"Query"}}',
+      { headers: { 'X-Fakebook-Read-Only': 'true' } },
+    ))
+    try {
+      await gatewayGraphQl('query SiteMode { __typename }', {}, 'public')
+      expect(isSiteReadOnly()).toBe(true)
+      await expect(api.uploadMedia(new File(['x'], 'photo.png', { type: 'image/png' }))).rejects.toMatchObject({ code: 'READ_ONLY' })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(events).toContain('read-only')
+
+      fetchMock.mockResolvedValueOnce(new Response(
+        '{"data":{"__typename":"Query"}}',
+        { headers: { 'X-Fakebook-Read-Only': 'false' } },
+      ))
+      await gatewayGraphQl('query SiteModeAgain { __typename }', {}, 'public')
+      expect(isSiteReadOnly()).toBe(false)
+    } finally {
+      unsubscribe()
+    }
   })
 
   it('preserves Snowflake identifiers before JSON parsing can round them', () => {

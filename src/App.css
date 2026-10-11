@@ -39,6 +39,20 @@
   --shell-topbar-surface: var(--browser-chrome-surface);
 }
 
+.site-read-only-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10000;
+  padding: 10px 18px;
+  background: #fff3cd;
+  color: #6b4d00;
+  border-top: 1px solid #e5c975;
+  text-align: center;
+  font-weight: 600;
+}
+
 :root[data-theme='dark'] {
   --bg: #18191a;
   --card: #242526;

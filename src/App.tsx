@@ -8,8 +8,10 @@ import { AboutPage } from './pages/AboutPage'
 import { HelpPage } from './pages/HelpPage'
 import { PoliciesPage } from './pages/PoliciesPage'
 import { PrivacyPage } from './pages/PrivacyPage'
+import { SiteModeProvider, useSiteReadOnly } from './lib/siteMode'
+import { useI18n } from './i18n'
 
-function App() {
+function AppContent() {
   const { user, ready } = useAuth()
   const [location, navigate] = useAppLocation()
 
@@ -28,6 +30,16 @@ function App() {
   if (location.pathname === '/privacy') return <PrivacyPage onBack={() => navigate('/')} />
 
   return <><ModalInteractionGuard />{user ? <AuthenticatedApp /> : <LoginPage />}</>
+}
+
+function SiteModeBanner() {
+  const readOnly = useSiteReadOnly()
+  const { t } = useI18n()
+  return readOnly ? <div className="site-read-only-banner" role="status">{t('readOnlyBanner')}</div> : null
+}
+
+function App() {
+  return <SiteModeProvider><SiteModeBanner /><AppContent /></SiteModeProvider>
 }
 
 export default App

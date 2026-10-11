@@ -18,10 +18,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   useEffect(
     () =>
       subscribeApiEvents((event) => {
-        if (event.type !== 'gateway-error') return
+        if (event.type !== 'gateway-error' && event.type !== 'read-only') return
 
         const id = nextId.current++
-        setToasts((current) => [...current, { id, message: t('gatewayError') }])
+        setToasts((current) => [...current, { id, message: t(event.type === 'read-only' ? 'readOnlyAction' : 'gatewayError') }])
         window.setTimeout(() => {
           setToasts((current) => current.filter((toast) => toast.id !== id))
         }, TOAST_TIMEOUT_MS)

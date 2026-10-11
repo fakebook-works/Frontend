@@ -31,7 +31,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/i18n.tsx', 'src/theme.tsx', 'src/lib/auth.tsx'],
+    files: ['src/i18n.tsx', 'src/theme.tsx', 'src/lib/auth.tsx', 'src/lib/siteMode.tsx'],
     rules: {
       // These provider modules intentionally export their hook alongside the
       // provider so every consumer shares one context instance.
