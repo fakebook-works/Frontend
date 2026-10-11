@@ -59,6 +59,8 @@ export interface GatewayGraphQlRequestOptions {
 type ApiEvent =
   | { type: 'gateway-error'; status: number; message: string }
   | { type: 'auth-expired'; status: 401; message: string }
+  | { type: 'site-mode'; readOnly: boolean }
+  | { type: 'read-only' }
 
 type ApiEventListener = (event: ApiEvent) => void
 
@@ -95,6 +97,15 @@ function jsonHeaders(overrides?: HeadersInit, hasBody = false, authMode: ApiAuth
 
 const AUTH_KEY = 'fb.auth'
 let apiEventListeners: ApiEventListener[] = []
+let knownReadOnlyMode = false
+
+export function isSiteReadOnly(): boolean { return knownReadOnlyMode }
+
+function updateSiteMode(readOnly: boolean) {
+  if (knownReadOnlyMode === readOnly) return
+  knownReadOnlyMode = readOnly
+  emitApiEvent({ type: 'site-mode', readOnly })
+}
 
 export interface StoredAuth {
   accessToken: string
@@ -334,6 +345,11 @@ async function executeGatewayGraphQl<T>(
     requestOptions.signal?.removeEventListener('abort', abortFromCaller)
   }
 
+  const siteModeHeader = res.headers.get('X-Fakebook-Read-Only')
+  if (siteModeHeader === 'true' || siteModeHeader === 'false') {
+    updateSiteMode(siteModeHeader === 'true')
+  }
+
   if (GATEWAY_ERROR_STATUSES.has(res.status)) {
     if (!requestOptions.background) notifyGatewayError(res.status)
     throw new ApiError(res.status, GATEWAY_ERROR_MESSAGE)
@@ -348,6 +364,12 @@ async function executeGatewayGraphQl<T>(
 
   const firstError = envelope.errors?.[0]
   const code = firstError?.extensions?.code ?? null
+
+  if (code === 'READ_ONLY') {
+    updateSiteMode(true)
+    if (!requestOptions.background) emitApiEvent({ type: 'read-only' })
+    throw new ApiError(403, 'Fakebook is in read-only mode. This action is unavailable.', code)
+  }
   if ((res.status === 401 || code === 'UNAUTHENTICATED') && authMode === 'protected') {
     if (allowRetry) {
       const refreshed = await ensureRefresh(attemptedAccessToken)
@@ -546,6 +568,10 @@ export function resolveUploadedMediaUrl(value: string, baseUrl = UPLOAD_SERVER_U
 }
 
 async function uploadMedia(file: File, allowRetry = true): Promise<MediaUpload> {
+  if (knownReadOnlyMode) {
+    emitApiEvent({ type: 'read-only' })
+    throw new ApiError(403, 'Fakebook is in read-only mode. Uploads are unavailable.', 'READ_ONLY')
+  }
   const send = (token: string | undefined) => {
     const headers = jsonHeaders(undefined, false, 'protected')
     if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -595,6 +621,10 @@ async function finalizePendingMedia(uploads: MediaUpload[]): Promise<void> {
 }
 
 async function uploadMediaFiles(files: File[]): Promise<MediaUpload[]> {
+  if (knownReadOnlyMode) {
+    emitApiEvent({ type: 'read-only' })
+    throw new ApiError(403, 'Fakebook is in read-only mode. Uploads are unavailable.', 'READ_ONLY')
+  }
   const settled = await Promise.allSettled(files.map((file) => uploadMedia(file)))
   const uploaded = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
   const failed = settled.find((result) => result.status === 'rejected')
